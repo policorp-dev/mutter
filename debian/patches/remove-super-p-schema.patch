@@ -1,0 +1,13 @@
+Index: mutter-debian-43.8-0+deb12u1/data/org.gnome.mutter.gschema.xml.in
+===================================================================
+--- mutter-debian-43.8-0+deb12u1.orig/data/org.gnome.mutter.gschema.xml.in
++++ mutter-debian-43.8-0+deb12u1/data/org.gnome.mutter.gschema.xml.in
+@@ -189,7 +189,7 @@
+     </key>
+ 
+     <key name="switch-monitor" type="as">
+-      <default><![CDATA[['<Super>p','XF86Display']]]></default>
++      <default><![CDATA[['XF86Display']]]></default>
+       <summary>Switch monitor configurations</summary>
+     </key>
+ 
