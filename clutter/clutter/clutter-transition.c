@@ -30,25 +30,25 @@
  * computes the interpolation between two values, stored by a [class@Interval].
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-transition.h"
+#include "clutter/clutter-transition.h"
 
-#include "clutter-animatable.h"
-#include "clutter-debug.h"
-#include "clutter-interval.h"
-#include "clutter-private.h"
-#include "clutter-timeline.h"
+#include "clutter/clutter-animatable.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-interval.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-timeline.h"
 
 #include <gobject/gvaluecollector.h>
 
-struct _ClutterTransitionPrivate
+typedef struct _ClutterTransitionPrivate
 {
   ClutterInterval *interval;
   ClutterAnimatable *animatable;
 
   guint remove_on_complete : 1;
-};
+} ClutterTransitionPrivate;
 
 enum
 {
@@ -106,7 +106,8 @@ clutter_transition_new_frame (ClutterTimeline *timeline,
                               gint             elapsed G_GNUC_UNUSED)
 {
   ClutterTransition *transition = CLUTTER_TRANSITION (timeline);
-  ClutterTransitionPrivate *priv = transition->priv;
+  ClutterTransitionPrivate *priv =
+    clutter_transition_get_instance_private (transition);
   gdouble progress;
 
   if (priv->interval == NULL ||
@@ -125,7 +126,9 @@ static void
 clutter_transition_stopped (ClutterTimeline *timeline,
                             gboolean         is_finished)
 {
-  ClutterTransitionPrivate *priv = CLUTTER_TRANSITION (timeline)->priv;
+  ClutterTransition *transition = CLUTTER_TRANSITION (timeline);
+  ClutterTransitionPrivate *priv =
+    clutter_transition_get_instance_private (transition);
 
   if (is_finished &&
       priv->animatable != NULL &&
@@ -171,7 +174,9 @@ clutter_transition_get_property (GObject    *gobject,
                                  GValue     *value,
                                  GParamSpec *pspec)
 {
-  ClutterTransitionPrivate *priv = CLUTTER_TRANSITION (gobject)->priv;
+  ClutterTransition *transition = CLUTTER_TRANSITION (gobject);
+  ClutterTransitionPrivate *priv =
+    clutter_transition_get_instance_private (transition);
 
   switch (prop_id)
     {
@@ -196,8 +201,9 @@ clutter_transition_get_property (GObject    *gobject,
 static void
 clutter_transition_dispose (GObject *gobject)
 {
-  ClutterTransitionPrivate *priv = CLUTTER_TRANSITION (gobject)->priv;
-
+  ClutterTransition *transition = CLUTTER_TRANSITION (gobject);
+  ClutterTransitionPrivate *priv =
+    clutter_transition_get_instance_private (transition);
   if (priv->animatable != NULL)
     clutter_transition_detach (CLUTTER_TRANSITION (gobject),
                                priv->animatable);
@@ -235,9 +241,7 @@ clutter_transition_class_init (ClutterTransitionClass *klass)
    * of the transition.
    */
   obj_props[PROP_INTERVAL] =
-    g_param_spec_object ("interval",
-                         P_("Interval"),
-                         P_("The interval of values to transition"),
+    g_param_spec_object ("interval", NULL, NULL,
                          CLUTTER_TYPE_INTERVAL,
                          G_PARAM_READWRITE |
                          G_PARAM_STATIC_STRINGS);
@@ -248,9 +252,7 @@ clutter_transition_class_init (ClutterTransitionClass *klass)
    * The [iface@Animatable] instance currently being animated.
    */
   obj_props[PROP_ANIMATABLE] =
-    g_param_spec_object ("animatable",
-                         P_("Animatable"),
-                         P_("The animatable object"),
+    g_param_spec_object ("animatable", NULL, NULL,
                          CLUTTER_TYPE_ANIMATABLE,
                          G_PARAM_READWRITE |
                          G_PARAM_STATIC_STRINGS);
@@ -268,9 +270,7 @@ clutter_transition_class_init (ClutterTransitionClass *klass)
    * repeating.
    */
   obj_props[PROP_REMOVE_ON_COMPLETE] =
-    g_param_spec_boolean ("remove-on-complete",
-                          P_("Remove on Complete"),
-                          P_("Detach the transition when completed"),
+    g_param_spec_boolean ("remove-on-complete", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -280,7 +280,6 @@ clutter_transition_class_init (ClutterTransitionClass *klass)
 static void
 clutter_transition_init (ClutterTransition *self)
 {
-  self->priv = clutter_transition_get_instance_private (self);
 }
 
 /**
@@ -302,7 +301,7 @@ clutter_transition_set_interval (ClutterTransition *transition,
   g_return_if_fail (CLUTTER_IS_TRANSITION (transition));
   g_return_if_fail (interval == NULL || CLUTTER_IS_INTERVAL (interval));
 
-  priv = transition->priv;
+  priv = clutter_transition_get_instance_private (transition);
 
   if (priv->interval == interval)
     return;
@@ -328,9 +327,13 @@ clutter_transition_set_interval (ClutterTransition *transition,
 ClutterInterval *
 clutter_transition_get_interval (ClutterTransition *transition)
 {
+  ClutterTransitionPrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TRANSITION (transition), NULL);
 
-  return transition->priv->interval;
+  priv = clutter_transition_get_instance_private (transition);
+
+  return priv->interval;
 }
 
 /**
@@ -352,12 +355,12 @@ clutter_transition_set_animatable (ClutterTransition *transition,
                                    ClutterAnimatable *animatable)
 {
   ClutterTransitionPrivate *priv;
-  ClutterActor *actor;
+  ClutterActor *actor = NULL;
 
   g_return_if_fail (CLUTTER_IS_TRANSITION (transition));
   g_return_if_fail (animatable == NULL || CLUTTER_IS_ANIMATABLE (animatable));
 
-  priv = transition->priv;
+  priv = clutter_transition_get_instance_private (transition);
 
   if (priv->animatable == animatable)
     return;
@@ -371,9 +374,9 @@ clutter_transition_set_animatable (ClutterTransition *transition,
     {
       priv->animatable = g_object_ref (animatable);
       clutter_transition_attach (transition, priv->animatable);
+      actor = clutter_animatable_get_actor (animatable);
     }
 
-  actor = clutter_animatable_get_actor (animatable);
   clutter_timeline_set_actor (CLUTTER_TIMELINE (transition), actor);
 }
 
@@ -390,9 +393,13 @@ clutter_transition_set_animatable (ClutterTransition *transition,
 ClutterAnimatable *
 clutter_transition_get_animatable (ClutterTransition *transition)
 {
+  ClutterTransitionPrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TRANSITION (transition), NULL);
 
-  return transition->priv->animatable;
+  priv = clutter_transition_get_instance_private (transition);
+
+  return priv->animatable;
 }
 
 /**
@@ -408,14 +415,17 @@ void
 clutter_transition_set_remove_on_complete (ClutterTransition *transition,
                                            gboolean           remove_complete)
 {
+  ClutterTransitionPrivate *priv;
+
   g_return_if_fail (CLUTTER_IS_TRANSITION (transition));
 
+  priv = clutter_transition_get_instance_private (transition);
   remove_complete = !!remove_complete;
 
-  if (transition->priv->remove_on_complete == remove_complete)
+  if (priv->remove_on_complete == remove_complete)
     return;
 
-  transition->priv->remove_on_complete = remove_complete;
+  priv->remove_on_complete = remove_complete;
 
   g_object_notify_by_pspec (G_OBJECT (transition),
                             obj_props[PROP_REMOVE_ON_COMPLETE]);
@@ -433,9 +443,13 @@ clutter_transition_set_remove_on_complete (ClutterTransition *transition,
 gboolean
 clutter_transition_get_remove_on_complete (ClutterTransition *transition)
 {
+  ClutterTransitionPrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TRANSITION (transition), FALSE);
 
-  return transition->priv->remove_on_complete;
+  priv = clutter_transition_get_instance_private (transition);
+
+  return priv->remove_on_complete;
 }
 
 typedef void (* IntervalSetFunc) (ClutterInterval *interval,
@@ -446,7 +460,8 @@ clutter_transition_set_value (ClutterTransition *transition,
                               IntervalSetFunc    interval_set_func,
                               const GValue      *value)
 {
-  ClutterTransitionPrivate *priv = transition->priv;
+  ClutterTransitionPrivate *priv =
+    clutter_transition_get_instance_private (transition);
   GType interval_type;
 
   if (priv->interval == NULL)

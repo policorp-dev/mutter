@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_CONNECTOR_H
-#define META_KMS_CONNECTOR_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
@@ -52,15 +49,42 @@ typedef struct _MetaKmsConnectorState
   gboolean non_desktop;
   MetaPrivacyScreenState privacy_screen_state;
 
-  CoglSubpixelOrder subpixel_order;
+  MetaSubpixelOrder subpixel_order;
 
   int suggested_x;
   int suggested_y;
   gboolean hotplug_mode_update;
 
-  MetaMonitorTransform panel_orientation_transform;
+  MtkMonitorTransform panel_orientation_transform;
 
-  MetaKmsRange max_bpc;
+  struct {
+    uint64_t value;
+    uint64_t min_value;
+    uint64_t max_value;
+    gboolean supported;
+  } max_bpc;
+
+  struct {
+    MetaOutputColorspace value;
+    uint64_t supported;
+  } colorspace;
+
+  struct {
+    MetaOutputHdrMetadata value;
+    gboolean supported;
+    gboolean unknown;
+  } hdr;
+
+  struct {
+    MetaOutputRGBRange value;
+    uint64_t supported;
+  } broadcast_rgb;
+
+  struct {
+    gboolean supported;
+  } underscan;
+
+  gboolean vrr_capable;
 } MetaKmsConnectorState;
 
 META_EXPORT_TEST
@@ -72,19 +96,14 @@ uint32_t meta_kms_connector_get_id (MetaKmsConnector *connector);
 
 const char * meta_kms_connector_get_name (MetaKmsConnector *connector);
 
-gboolean meta_kms_connector_can_clone (MetaKmsConnector *connector,
-                                       MetaKmsConnector *other_connector);
-
 META_EXPORT_TEST
 MetaKmsMode * meta_kms_connector_get_preferred_mode (MetaKmsConnector *connector);
 
 META_EXPORT_TEST
 const MetaKmsConnectorState * meta_kms_connector_get_current_state (MetaKmsConnector *connector);
 
-gboolean meta_kms_connector_is_underscanning_supported (MetaKmsConnector *connector);
+gboolean meta_kms_connector_is_non_desktop (MetaKmsConnector *connector);
 
-gboolean meta_kms_connector_is_privacy_screen_supported (MetaKmsConnector *connector);
+gboolean meta_kms_connector_supports_colorspace (MetaKmsConnector *connector);
 
-const MetaKmsRange * meta_kms_connector_get_max_bpc (MetaKmsConnector *connector);
-
-#endif /* META_KMS_CONNECTOR_H */
+gboolean meta_kms_connector_supports_hdr_metadata (MetaKmsConnector *connector);

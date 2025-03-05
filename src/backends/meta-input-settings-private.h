@@ -19,8 +19,7 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_INPUT_SETTINGS_PRIVATE_H
-#define META_INPUT_SETTINGS_PRIVATE_H
+#pragma once
 
 #include <gdesktop-enums.h>
 
@@ -31,7 +30,6 @@
 #include "backends/meta-backend-types.h"
 #include "clutter/clutter.h"
 #include "meta/display.h"
-#include "meta/meta-enums.h"
 
 #define META_TYPE_INPUT_SETTINGS (meta_input_settings_get_type ())
 G_DECLARE_DERIVABLE_TYPE (MetaInputSettings, meta_input_settings,
@@ -125,14 +123,24 @@ struct _MetaInputSettingsClass
   void (* set_mouse_accel_profile) (MetaInputSettings          *settings,
                                     ClutterInputDevice         *device,
                                     GDesktopPointerAccelProfile profile);
+  void (* set_touchpad_accel_profile) (MetaInputSettings           *settings,
+                                       ClutterInputDevice          *device,
+                                       GDesktopPointerAccelProfile  profile);
   void (* set_trackball_accel_profile) (MetaInputSettings          *settings,
                                         ClutterInputDevice         *device,
                                         GDesktopPointerAccelProfile profile);
+  void (* set_pointing_stick_accel_profile) (MetaInputSettings           *settings,
+                                             ClutterInputDevice          *device,
+                                             GDesktopPointerAccelProfile  profile);
+  void (* set_pointing_stick_scroll_method) (MetaInputSettings                 *settings,
+                                             ClutterInputDevice                *device,
+                                             GDesktopPointingStickScrollMethod  profile);
 
   void (* set_stylus_pressure) (MetaInputSettings            *settings,
                                 ClutterInputDevice           *device,
                                 ClutterInputDeviceTool       *tool,
-                                const gint32                  curve[4]);
+                                const gint32                  curve[4],
+                                const gdouble                 range[2]);
   void (* set_stylus_button_map) (MetaInputSettings          *settings,
                                   ClutterInputDevice         *device,
                                   ClutterInputDeviceTool     *tool,
@@ -152,8 +160,8 @@ struct _MetaInputSettingsClass
 
   gboolean (* has_two_finger_scroll) (MetaInputSettings  *settings,
                                       ClutterInputDevice *device);
-  gboolean (* is_trackball_device) (MetaInputSettings  *settings,
-                                    ClutterInputDevice *device);
+  gboolean (* is_pointing_stick_device) (MetaInputSettings  *settings,
+                                         ClutterInputDevice *device);
 };
 
 void meta_input_settings_maybe_save_numlock_state (MetaInputSettings *input_settings,
@@ -184,4 +192,10 @@ void meta_input_settings_notify_kbd_a11y_change (MetaInputSettings     *input_se
                                                  MetaKeyboardA11yFlags  new_flags,
                                                  MetaKeyboardA11yFlags  what_changed);
 
-#endif /* META_INPUT_SETTINGS_PRIVATE_H */
+MetaBackend * meta_input_settings_get_backend (MetaInputSettings *input_settings);
+
+GDesktopStylusButtonAction meta_input_settings_get_tool_button_action (MetaInputSettings       *input_settings,
+                                                                       ClutterInputDevice      *device,
+                                                                       ClutterInputDeviceTool  *tool,
+                                                                       uint32_t                 clutter_button,
+                                                                       char                   **keybinding);

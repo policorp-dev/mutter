@@ -1,7 +1,8 @@
-#define CLUTTER_DISABLE_DEPRECATION_WARNINGS
 #include <clutter/clutter.h>
 
 #include "tests/clutter-test-utils.h"
+#include "clutter/clutter-event-private.h"
+#include "clutter/clutter-stage-private.h"
 
 typedef struct
 {
@@ -49,17 +50,36 @@ event_cb (ClutterActor *actor,
           gpointer      user_data)
 {
   GArray *events = user_data;
+  EventLog entry;
 
-  if ((event->type == CLUTTER_ENTER ||
-       event->type == CLUTTER_LEAVE) &&
-      (event->any.flags & CLUTTER_EVENT_FLAG_GRAB_NOTIFY) != 0)
+  switch (clutter_event_type (event))
     {
-      EventLog entry = { clutter_actor_get_name (actor), event->type };
+    case CLUTTER_ENTER:
+    case CLUTTER_LEAVE:
+      if ((clutter_event_get_flags (event) & CLUTTER_EVENT_FLAG_GRAB_NOTIFY) != 0)
+        {
+          entry = (EventLog) {
+            clutter_actor_get_name (actor),
+            clutter_event_type (event)
+          };
 
+          g_debug ("Event '%s' on actor '%s'",
+                   clutter_event_get_name (event),
+                   entry.name);
+          g_array_append_val (events, entry);
+        }
+      break;
+
+    default:
+      entry = (EventLog) {
+        clutter_actor_get_name (actor),
+        clutter_event_type (event)
+      };
       g_debug ("Event '%s' on actor '%s'",
-               entry.type == CLUTTER_ENTER ? "ENTER" : "LEAVE",
+               clutter_event_get_name (event),
                entry.name);
       g_array_append_val (events, entry);
+      break;
     }
 
   return CLUTTER_EVENT_PROPAGATE;
@@ -117,7 +137,7 @@ create_pointer (ClutterActor *actor)
   ClutterSeat *seat;
   guint notify_id;
 
-  seat = clutter_backend_get_default_seat (clutter_get_default_backend ());
+  seat = clutter_test_get_default_seat ();
   pointer = clutter_seat_create_virtual_device (seat, CLUTTER_POINTER_DEVICE);
 
   clutter_virtual_input_device_notify_absolute_motion (pointer,
@@ -217,7 +237,7 @@ grab_under_pointer (void)
   event_log_compare ((EventLog *) &grab_log, data.events);
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   event_log_compare ((EventLog *) &ungrab_log, data.events);
 
   test_data_shutdown (&data);
@@ -244,7 +264,7 @@ grab_under_pointers_parent (void)
   event_log_compare ((EventLog *) &grab_log, data.events);
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   event_log_compare ((EventLog *) &ungrab_log, data.events);
 
   test_data_shutdown (&data);
@@ -275,7 +295,7 @@ grab_outside_pointer (void)
   event_log_compare ((EventLog *) &grab_log, data.events);
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   event_log_compare ((EventLog *) &ungrab_log, data.events);
 
   test_data_shutdown (&data);
@@ -300,7 +320,7 @@ grab_stage (void)
   event_log_compare ((EventLog *) &grab_log, data.events);
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   event_log_compare ((EventLog *) &ungrab_log, data.events);
 
   test_data_shutdown (&data);
@@ -344,11 +364,11 @@ grab_stack_1 (void)
 
   /* Dismiss orderly */
   clutter_grab_dismiss (grab2);
-  clutter_grab_unref (grab2);
+  g_clear_object (&grab2);
   event_log_compare ((EventLog *) &ungrab2_log, data.events);
 
   clutter_grab_dismiss (grab1);
-  clutter_grab_unref (grab1);
+  g_clear_object (&grab1);
   event_log_compare ((EventLog *) &ungrab1_log, data.events);
 
   test_data_shutdown (&data);
@@ -394,11 +414,11 @@ grab_stack_2 (void)
 
   /* Dismiss orderly */
   clutter_grab_dismiss (grab2);
-  clutter_grab_unref (grab2);
+  g_clear_object (&grab2);
   event_log_compare ((EventLog *) &ungrab2_log, data.events);
 
   clutter_grab_dismiss (grab1);
-  clutter_grab_unref (grab1);
+  g_clear_object (&grab1);
   event_log_compare ((EventLog *) &ungrab1_log, data.events);
 
   test_data_shutdown (&data);
@@ -442,11 +462,11 @@ grab_unordered_ungrab_1 (void)
 
   /* Dismiss disorderly */
   clutter_grab_dismiss (grab1);
-  clutter_grab_unref (grab1);
+  g_clear_object (&grab1);
   event_log_compare ((EventLog *) &ungrab1_log, data.events);
 
   clutter_grab_dismiss (grab2);
-  clutter_grab_unref (grab2);
+  g_clear_object (&grab2);
   event_log_compare ((EventLog *) &ungrab2_log, data.events);
 
   test_data_shutdown (&data);
@@ -488,11 +508,11 @@ grab_unordered_ungrab_2 (void)
 
   /* Dismiss disorderly */
   clutter_grab_dismiss (grab1);
-  clutter_grab_unref (grab1);
+  g_clear_object (&grab1);
   event_log_compare ((EventLog *) &ungrab1_log, data.events);
 
   clutter_grab_dismiss (grab2);
-  clutter_grab_unref (grab2);
+  g_clear_object (&grab2);
   event_log_compare ((EventLog *) &ungrab2_log, data.events);
 
   test_data_shutdown (&data);
@@ -513,7 +533,7 @@ grab_key_focus_in_grab (void)
   g_assert_true (clutter_actor_has_key_focus (data.b));
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   g_assert_true (clutter_actor_has_key_focus (data.b));
 
   test_data_shutdown (&data);
@@ -534,13 +554,116 @@ grab_key_focus_outside_grab (void)
   g_assert_false (clutter_actor_has_key_focus (data.b));
 
   clutter_grab_dismiss (grab);
-  clutter_grab_unref (grab);
+  g_clear_object (&grab);
   g_assert_true (clutter_actor_has_key_focus (data.b));
 
   test_data_shutdown (&data);
 }
 
+static gboolean
+handle_input_only_event (const ClutterEvent *event,
+                         gpointer            user_data)
+{
+  GArray *events = user_data;
+  EventLog entry = { "input-only grab", clutter_event_type (event) };
+
+  g_debug ("Input only grab event '%s'", clutter_event_get_name (event));
+  g_array_append_val (events, entry);
+
+  return CLUTTER_EVENT_PROPAGATE;
+}
+
+static gboolean
+last_event_is (GArray           *events,
+               ClutterEventType  event_type)
+{
+  EventLog *entry;
+
+  if (events->len == 0)
+    return FALSE;
+
+  entry = &g_array_index (events, EventLog, events->len - 1);
+  return entry->type == event_type;
+}
+
+static void
+grab_input_only (void)
+{
+  TestData data;
+  ClutterGrab *grab;
+  EventLog grab1_log[] = {
+    { "b", CLUTTER_LEAVE },
+    { "a", CLUTTER_LEAVE },
+    { "stage", CLUTTER_LEAVE },
+    { NULL, 0 },
+  };
+  EventLog grab2_log[] = {
+    { "input-only grab", CLUTTER_BUTTON_PRESS },
+    { "input-only grab", CLUTTER_BUTTON_RELEASE },
+    { NULL, 0 },
+  };
+  EventLog grab3_log[] = {
+    { "b", CLUTTER_ENTER },
+    { "a", CLUTTER_ENTER },
+    { "stage", CLUTTER_ENTER },
+    { NULL, 0 },
+  };
+  EventLog grab4_log[] = {
+    { "b", CLUTTER_BUTTON_PRESS },
+    { "a", CLUTTER_BUTTON_PRESS },
+    { "stage", CLUTTER_BUTTON_PRESS },
+    { "b", CLUTTER_BUTTON_RELEASE },
+    { "a", CLUTTER_BUTTON_RELEASE },
+    { "stage", CLUTTER_BUTTON_RELEASE },
+    { NULL, 0 },
+  };
+  ClutterSeat *seat;
+  g_autoptr (ClutterVirtualInputDevice) pointer = NULL;
+
+  seat = clutter_test_get_default_seat ();
+  pointer = clutter_seat_create_virtual_device (seat, CLUTTER_POINTER_DEVICE);
+
+  test_data_init (&data);
+
+  grab = clutter_stage_grab_input_only_inactive (CLUTTER_STAGE (data.stage),
+                                                 handle_input_only_event,
+                                                 data.events, NULL);
+  clutter_grab_activate (grab);
+  event_log_compare ((EventLog *) &grab1_log, data.events);
+
+  clutter_virtual_input_device_notify_button (pointer,
+                                              0,
+                                              CLUTTER_BUTTON_PRIMARY,
+                                              CLUTTER_BUTTON_STATE_PRESSED);
+  clutter_virtual_input_device_notify_button (pointer,
+                                              0,
+                                              CLUTTER_BUTTON_PRIMARY,
+                                              CLUTTER_BUTTON_STATE_RELEASED);
+
+  while (!last_event_is (data.events, CLUTTER_BUTTON_RELEASE))
+    g_main_context_iteration (NULL, TRUE);
+  event_log_compare ((EventLog *) &grab2_log, data.events);
+
+  g_clear_object (&grab);
+  event_log_compare ((EventLog *) &grab3_log, data.events);
+
+  clutter_virtual_input_device_notify_button (pointer,
+                                              0,
+                                              CLUTTER_BUTTON_SECONDARY,
+                                              CLUTTER_BUTTON_STATE_PRESSED);
+  clutter_virtual_input_device_notify_button (pointer,
+                                              0,
+                                              CLUTTER_BUTTON_SECONDARY,
+                                              CLUTTER_BUTTON_STATE_RELEASED);
+  while (!last_event_is (data.events, CLUTTER_BUTTON_RELEASE))
+    g_main_context_iteration (NULL, TRUE);
+  event_log_compare ((EventLog *) &grab4_log, data.events);
+
+  test_data_shutdown (&data);
+}
+
 CLUTTER_TEST_SUITE (
+  CLUTTER_TEST_UNIT ("/grab/input-only", grab_input_only);
   CLUTTER_TEST_UNIT ("/grab/grab-under-pointer", grab_under_pointer)
   CLUTTER_TEST_UNIT ("/grab/grab-under-pointers-parent", grab_under_pointers_parent)
   CLUTTER_TEST_UNIT ("/grab/grab-outside-pointer", grab_outside_pointer)

@@ -14,16 +14,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_XWAYLAND_H
-#define META_XWAYLAND_H
+#pragma once
 
 #include <glib.h>
 
@@ -39,9 +36,6 @@ void
 meta_xwayland_handle_wl_surface_id (MetaWindow *window,
                                     guint32     surface_id);
 
-gboolean
-meta_xwayland_is_xwayland_surface (MetaWaylandSurface *surface);
-
 void
 meta_xwayland_handle_xwayland_grab (MetaWindow *window,
                                     gboolean    allow);
@@ -55,4 +49,23 @@ gboolean meta_xwayland_signal (MetaXWaylandManager  *manager,
                                int                   signum,
                                GError              **error);
 
-#endif /* META_XWAYLAND_H */
+int meta_xwayland_get_effective_scale (MetaXWaylandManager *manager);
+
+void meta_xwayland_stage_to_protocol_point (MetaXWaylandManager *manager,
+                                            int                  stage_x,
+                                            int                  stage_y,
+                                            int                 *protocol_x,
+                                            int                 *protocol_y);
+
+void meta_xwayland_stage_to_protocol_rect (MetaXWaylandManager *manager,
+                                           const MtkRectangle  *stage_rect,
+                                           MtkRectangle        *protocol_rect);
+
+void meta_xwayland_protocol_to_stage (MetaXWaylandManager *manager,
+                                      int                  protocol_x,
+                                      int                  protocol_y,
+                                      int                 *stage_x,
+                                      int                 *stage_y,
+                                      MtkRoundingStrategy  rounding_strategy);
+
+int meta_xwayland_get_x11_ui_scaling_factor (MetaXWaylandManager *manager);

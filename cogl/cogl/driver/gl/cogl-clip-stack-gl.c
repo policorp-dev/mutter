@@ -32,15 +32,16 @@
  *  Robert Bragg   <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
 
-#include "cogl-context-private.h"
-#include "cogl-graphene.h"
-#include "cogl-primitives-private.h"
-#include "cogl-primitive-private.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "driver/gl/cogl-pipeline-opengl-private.h"
-#include "driver/gl/cogl-clip-stack-gl-private.h"
+#include "config.h"
+
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-graphene.h"
+#include "cogl/cogl-primitives-private.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-gl-private.h"
+#include "cogl/driver/gl/cogl-clip-stack-gl-private.h"
+#include "mtk/mtk.h"
 
 static void
 add_stencil_clip_rectangle (CoglFramebuffer *framebuffer,
@@ -120,13 +121,13 @@ add_stencil_clip_rectangle (CoglFramebuffer *framebuffer,
 
 static void
 add_stencil_clip_region (CoglFramebuffer *framebuffer,
-                         cairo_region_t  *region,
+                         MtkRegion       *region,
                          gboolean         merge)
 {
   CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
   CoglMatrixEntry *old_projection_entry, *old_modelview_entry;
   graphene_matrix_t matrix;
-  int num_rectangles = cairo_region_num_rectangles (region);
+  int num_rectangles = mtk_region_num_rectangles (region);
   int i;
   CoglVertexP2 *vertices;
   graphene_point3d_t p;
@@ -151,9 +152,9 @@ add_stencil_clip_region (CoglFramebuffer *framebuffer,
 
   graphene_matrix_init_translate (&matrix, &p);
   graphene_matrix_scale (&matrix,
-                         2.0 / cogl_framebuffer_get_viewport_width (framebuffer),
-                         - 2.0 / cogl_framebuffer_get_viewport_height (framebuffer),
-                         1);
+                         2.0f / cogl_framebuffer_get_viewport_width (framebuffer),
+                         - 2.0f / cogl_framebuffer_get_viewport_height (framebuffer),
+                         1.0);
   graphene_matrix_translate (&matrix, &GRAPHENE_POINT3D_INIT (-1.f, 1.f, 0.f));
 
   GE( ctx, glColorMask (FALSE, FALSE, FALSE, FALSE) );
@@ -182,12 +183,12 @@ add_stencil_clip_region (CoglFramebuffer *framebuffer,
 
   for (i = 0; i < num_rectangles; i++)
     {
-      cairo_rectangle_int_t rect;
+      MtkRectangle rect;
       float x1, y1, z1, w1;
       float x2, y2, z2, w2;
       CoglVertexP2 *v = vertices + i * 6;
 
-      cairo_region_get_rectangle (region, i, &rect);
+      rect = mtk_region_get_rectangle (region, i);
 
       x1 = rect.x;
       y1 = rect.y;
@@ -245,150 +246,9 @@ add_stencil_clip_region (CoglFramebuffer *framebuffer,
   GE( ctx, glStencilOp (GL_KEEP, GL_KEEP, GL_KEEP) );
 }
 
-typedef void (*SilhouettePaintCallback) (CoglFramebuffer *framebuffer,
-                                         CoglPipeline *pipeline,
-                                         void *user_data);
-
-static void
-add_stencil_clip_silhouette (CoglFramebuffer *framebuffer,
-                             SilhouettePaintCallback silhouette_callback,
-                             CoglMatrixEntry *modelview_entry,
-                             float bounds_x1,
-                             float bounds_y1,
-                             float bounds_x2,
-                             float bounds_y2,
-                             gboolean merge,
-                             gboolean need_clear,
-                             void *user_data)
-{
-  CoglMatrixStack *projection_stack =
-    _cogl_framebuffer_get_projection_stack (framebuffer);
-  CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
-  CoglMatrixEntry *old_projection_entry, *old_modelview_entry;
-
-  /* NB: This can be called while flushing the journal so we need
-   * to be very conservative with what state we change.
-   */
-  old_projection_entry = g_steal_pointer (&ctx->current_projection_entry);
-  old_modelview_entry = g_steal_pointer (&ctx->current_modelview_entry);
-
-  ctx->current_projection_entry = projection_stack->last_entry;
-  ctx->current_modelview_entry = modelview_entry;
-
-  _cogl_pipeline_flush_gl_state (ctx, ctx->stencil_pipeline,
-                                 framebuffer, FALSE, FALSE);
-
-  GE( ctx, glEnable (GL_STENCIL_TEST) );
-
-  GE( ctx, glColorMask (FALSE, FALSE, FALSE, FALSE) );
-  GE( ctx, glDepthMask (FALSE) );
-
-  if (merge)
-    {
-      GE (ctx, glStencilMask (2));
-      GE (ctx, glStencilFunc (GL_LEQUAL, 0x2, 0x6));
-    }
-  else
-    {
-      /* If we're not using the stencil buffer for clipping then we
-         don't need to clear the whole stencil buffer, just the area
-         that will be drawn */
-      if (need_clear)
-        /* If this is being called from the clip stack code then it
-           will have set up a scissor for the minimum bounding box of
-           all of the clips. That box will likely mean that this
-           _cogl_clear won't need to clear the entire
-           buffer. _cogl_framebuffer_clear_without_flush4f is used instead
-           of cogl_clear because it won't try to flush the journal */
-        _cogl_framebuffer_clear_without_flush4f (framebuffer,
-                                                 COGL_BUFFER_BIT_STENCIL,
-                                                 0, 0, 0, 0);
-      else
-        {
-          /* Just clear the bounding box */
-          GE( ctx, glStencilMask (~(GLuint) 0) );
-          GE( ctx, glStencilOp (GL_ZERO, GL_ZERO, GL_ZERO) );
-          _cogl_rectangle_immediate (framebuffer,
-                                     ctx->stencil_pipeline,
-                                     bounds_x1, bounds_y1,
-                                     bounds_x2, bounds_y2);
-        }
-      GE (ctx, glStencilMask (1));
-      GE (ctx, glStencilFunc (GL_LEQUAL, 0x1, 0x3));
-    }
-
-  GE (ctx, glStencilOp (GL_INVERT, GL_INVERT, GL_INVERT));
-
-  silhouette_callback (framebuffer, ctx->stencil_pipeline, user_data);
-
-  if (merge)
-    {
-      /* Now we have the new stencil buffer in bit 1 and the old
-         stencil buffer in bit 0 so we need to intersect them */
-      GE (ctx, glStencilMask (3));
-      GE (ctx, glStencilFunc (GL_NEVER, 0x2, 0x3));
-      GE (ctx, glStencilOp (GL_DECR, GL_DECR, GL_DECR));
-      /* Decrement all of the bits twice so that only pixels where the
-         value is 3 will remain */
-
-      ctx->current_projection_entry = &ctx->identity_entry;
-      ctx->current_modelview_entry = &ctx->identity_entry;
-
-      _cogl_rectangle_immediate (framebuffer, ctx->stencil_pipeline,
-                                 -1.0, -1.0, 1.0, 1.0);
-      _cogl_rectangle_immediate (framebuffer, ctx->stencil_pipeline,
-                                 -1.0, -1.0, 1.0, 1.0);
-    }
-
-  ctx->current_projection_entry = old_projection_entry;
-  ctx->current_modelview_entry = old_modelview_entry;
-
-  GE (ctx, glStencilMask (~(GLuint) 0));
-  GE (ctx, glDepthMask (TRUE));
-  GE (ctx, glColorMask (TRUE, TRUE, TRUE, TRUE));
-
-  GE (ctx, glStencilFunc (GL_EQUAL, 0x1, 0x1));
-  GE (ctx, glStencilOp (GL_KEEP, GL_KEEP, GL_KEEP));
-}
-
-static void
-paint_primitive_silhouette (CoglFramebuffer *framebuffer,
-                            CoglPipeline *pipeline,
-                            void *user_data)
-{
-  _cogl_primitive_draw (user_data,
-                        framebuffer,
-                        pipeline,
-                        COGL_DRAW_SKIP_JOURNAL_FLUSH |
-                        COGL_DRAW_SKIP_PIPELINE_VALIDATION |
-                        COGL_DRAW_SKIP_FRAMEBUFFER_FLUSH);
-}
-
-static void
-add_stencil_clip_primitive (CoglFramebuffer *framebuffer,
-                            CoglMatrixEntry *modelview_entry,
-                            CoglPrimitive *primitive,
-                            float bounds_x1,
-                            float bounds_y1,
-                            float bounds_x2,
-                            float bounds_y2,
-                            gboolean merge,
-                            gboolean need_clear)
-{
-  add_stencil_clip_silhouette (framebuffer,
-                               paint_primitive_silhouette,
-                               modelview_entry,
-                               bounds_x1,
-                               bounds_y1,
-                               bounds_x2,
-                               bounds_y2,
-                               merge,
-                               need_clear,
-                               primitive);
-}
-
 void
-_cogl_clip_stack_gl_flush (CoglClipStack *stack,
+_cogl_clip_stack_gl_flush (CoglDriver      *driver,
+                           CoglClipStack   *stack,
                            CoglFramebuffer *framebuffer)
 {
   CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
@@ -476,26 +336,6 @@ _cogl_clip_stack_gl_flush (CoglClipStack *stack,
     {
       switch (entry->type)
         {
-        case COGL_CLIP_STACK_PRIMITIVE:
-            {
-              CoglClipStackPrimitive *primitive_entry =
-                (CoglClipStackPrimitive *) entry;
-
-              COGL_NOTE (CLIPPING, "Adding stencil clip for primitive");
-
-              add_stencil_clip_primitive (framebuffer,
-                                          primitive_entry->matrix_entry,
-                                          primitive_entry->primitive,
-                                          primitive_entry->bounds_x1,
-                                          primitive_entry->bounds_y1,
-                                          primitive_entry->bounds_x2,
-                                          primitive_entry->bounds_y2,
-                                          using_stencil_buffer,
-                                          TRUE);
-
-              using_stencil_buffer = TRUE;
-              break;
-            }
         case COGL_CLIP_STACK_RECT:
             {
               CoglClipStackRect *rect = (CoglClipStackRect *) entry;
@@ -525,7 +365,7 @@ _cogl_clip_stack_gl_flush (CoglClipStack *stack,
               /* If nrectangles <= 1, it can be fully represented with the
                * scissor clip.
                */
-              if (cairo_region_num_rectangles (region->region) > 1 ||
+              if (mtk_region_num_rectangles (region->region) > 1 ||
                   G_UNLIKELY (COGL_DEBUG_ENABLED (COGL_DEBUG_STENCILLING)))
                 {
                   COGL_NOTE (CLIPPING, "Adding stencil clip for region");
@@ -536,11 +376,6 @@ _cogl_clip_stack_gl_flush (CoglClipStack *stack,
                 }
               break;
             }
-        case COGL_CLIP_STACK_WINDOW_RECT:
-          break;
-          /* We don't need to do anything for window space rectangles because
-           * their functionality is entirely implemented by the entry bounding
-           * box */
         }
     }
 }

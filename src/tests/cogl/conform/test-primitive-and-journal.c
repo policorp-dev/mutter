@@ -47,7 +47,10 @@ create_primitives (CoglPrimitive *primitives[2])
                                            vertex_data);
   cogl_primitive_set_n_vertices (primitives[0], 4);
 
-  primitives[1] = cogl_primitive_copy (primitives[0]);
+  primitives[1] = cogl_primitive_new_p2c4 (test_ctx,
+                                           COGL_VERTICES_MODE_TRIANGLE_STRIP,
+                                           G_N_ELEMENTS (vertex_data),
+                                           vertex_data);
   cogl_primitive_set_first_vertex (primitives[1], 4);
   cogl_primitive_set_n_vertices (primitives[1], 4);
 }
@@ -55,9 +58,10 @@ create_primitives (CoglPrimitive *primitives[2])
 static CoglPipeline *
 create_pipeline (void)
 {
+  CoglColor color;
   CoglPipeline *pipeline = cogl_pipeline_new (test_ctx);
-
-  cogl_pipeline_set_color4ub (pipeline, 0, 255, 0, 255);
+  cogl_color_init_from_4f (&color, 0.0, 1.0, 0.0, 1.0);
+  cogl_pipeline_set_color (pipeline, &color);
 
   return pipeline;
 }

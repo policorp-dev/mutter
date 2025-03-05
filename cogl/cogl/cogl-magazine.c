@@ -51,10 +51,10 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-memory-stack-private.h"
-#include "cogl-magazine-private.h"
+#include "cogl/cogl-memory-stack-private.h"
+#include "cogl/cogl-magazine-private.h"
 #include <glib.h>
 
 #define ROUND_UP_8(X) ((X + (8 - 1)) & ~(8 - 1))
@@ -72,11 +72,4 @@ _cogl_magazine_new (size_t chunk_size, int initial_chunk_count)
   magazine->head = NULL;
 
   return magazine;
-}
-
-void
-_cogl_magazine_free (CoglMagazine *magazine)
-{
-  _cogl_memory_stack_free (magazine->stack);
-  g_free (magazine);
 }

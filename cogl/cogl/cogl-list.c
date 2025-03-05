@@ -23,12 +23,12 @@
 
 /* This list implementation is based on the Wayland source code */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#include "cogl-list.h"
+#include "cogl/cogl-list.h"
 
 void
 _cogl_list_init (CoglList *list)
@@ -53,23 +53,6 @@ _cogl_list_remove (CoglList *elm)
   elm->next->prev = elm->prev;
   elm->next = NULL;
   elm->prev = NULL;
-}
-
-int
-_cogl_list_length (CoglList *list)
-{
-  CoglList *e;
-  int count;
-
-  count = 0;
-  e = list->next;
-  while (e != list)
-    {
-      e = e->next;
-      count++;
-    }
-
-  return count;
 }
 
 int

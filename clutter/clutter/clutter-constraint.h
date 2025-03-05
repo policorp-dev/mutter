@@ -22,31 +22,24 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_CONSTRAINT_H__
-#define __CLUTTER_CONSTRAINT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-actor-meta.h>
+#include "clutter/clutter-actor-meta.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_CONSTRAINT                 (clutter_constraint_get_type ())
-#define CLUTTER_CONSTRAINT(obj)                 (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_CONSTRAINT, ClutterConstraint))
-#define CLUTTER_IS_CONSTRAINT(obj)              (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_CONSTRAINT))
-#define CLUTTER_CONSTRAINT_CLASS(klass)         (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_CONSTRAINT, ClutterConstraintClass))
-#define CLUTTER_IS_CONSTRAINT_CLASS(klass)      (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_CONSTRAINT))
-#define CLUTTER_CONSTRAINT_GET_CLASS(obj)       (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_CONSTRAINT, ClutterConstraintClass))
 
-typedef struct _ClutterConstraintClass          ClutterConstraintClass;
-
-struct _ClutterConstraint
-{
-  /*< private >*/
-  ClutterActorMeta parent_instance;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterConstraint,
+                          clutter_constraint,
+                          CLUTTER,
+                          CONSTRAINT,
+                          ClutterActorMeta)
 
 /**
  * ClutterConstraintClass:
@@ -75,19 +68,7 @@ struct _ClutterConstraintClass
                                   float               for_size,
                                   float              *minimum_size,
                                   float              *natural_size);
-
-  /*< private >*/
-  void (* _clutter_constraint1) (void);
-  void (* _clutter_constraint2) (void);
-  void (* _clutter_constraint3) (void);
-  void (* _clutter_constraint4) (void);
-  void (* _clutter_constraint5) (void);
-  void (* _clutter_constraint6) (void);
-  void (* _clutter_constraint7) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_constraint_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 void clutter_constraint_update_preferred_size (ClutterConstraint  *constraint,
@@ -123,5 +104,3 @@ CLUTTER_EXPORT
 gboolean           clutter_actor_has_constraints           (ClutterActor      *self);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_CONSTRAINT_H__ */

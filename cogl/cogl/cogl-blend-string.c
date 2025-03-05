@@ -31,16 +31,16 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include <glib.h>
 
-#include "cogl-context-private.h"
-#include "cogl-debug.h"
-#include "cogl-blend-string.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-debug.h"
+#include "cogl/cogl-blend-string.h"
 
 typedef enum _ParserState
 {
@@ -213,8 +213,6 @@ validate_blend_statements (CoglBlendStringStatement *statements,
   int i, j;
   const char *error_string;
   CoglBlendStringError detail = COGL_BLEND_STRING_ERROR_INVALID_ERROR;
-
-  _COGL_GET_CONTEXT (ctx, 0);
 
   for (i = 0; i < n_statements; i++)
     for (j = 0; j < statements[i].function->argc; j++)

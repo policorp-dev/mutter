@@ -62,6 +62,8 @@ static guint workspace_manager_signals [LAST_SIGNAL] = { 0 };
 static void prefs_changed_callback (MetaPreference pref,
                                     gpointer       data);
 
+static void meta_workspace_manager_init_workspaces (MetaWorkspaceManager *workspace_manager);
+
 static void
 meta_workspace_manager_get_property (GObject    *object,
                                      guint       prop_id,
@@ -73,28 +75,14 @@ meta_workspace_manager_get_property (GObject    *object,
   switch (prop_id)
     {
     case PROP_LAYOUT_COLUMNS:
-      g_value_set_int (value, workspace_manager->columns_of_workspaces);
+      g_value_set_int (value, meta_workspace_manager_get_layout_columns (workspace_manager));
       break;
     case PROP_LAYOUT_ROWS:
-      g_value_set_int (value, workspace_manager->rows_of_workspaces);
+      g_value_set_int (value, meta_workspace_manager_get_layout_rows (workspace_manager));
       break;
     case PROP_N_WORKSPACES:
       g_value_set_int (value, meta_workspace_manager_get_n_workspaces (workspace_manager));
       break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
-      break;
-    }
-}
-
-static void
-meta_workspace_manager_set_property (GObject      *object,
-                                     guint         prop_id,
-                                     const GValue *value,
-                                     GParamSpec   *pspec)
-{
-  switch (prop_id)
-    {
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -117,7 +105,6 @@ meta_workspace_manager_class_init (MetaWorkspaceManagerClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->get_property = meta_workspace_manager_get_property;
-  object_class->set_property = meta_workspace_manager_set_property;
 
   object_class->finalize = meta_workspace_manager_finalize;
 
@@ -180,25 +167,19 @@ meta_workspace_manager_class_init (MetaWorkspaceManagerClass *klass)
 
   g_object_class_install_property (object_class,
                                    PROP_LAYOUT_COLUMNS,
-                                   g_param_spec_int ("layout-columns",
-                                                     "Layout columns",
-                                                     "Number of columns in layout",
+                                   g_param_spec_int ("layout-columns", NULL, NULL,
                                                      -1, G_MAXINT, 1,
                                                      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class,
                                    PROP_LAYOUT_ROWS,
-                                   g_param_spec_int ("layout-rows",
-                                                     "Layout rows",
-                                                     "Number of rows in layout",
+                                   g_param_spec_int ("layout-rows", NULL, NULL,
                                                      -1, G_MAXINT, -1,
                                                      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class,
                                    PROP_N_WORKSPACES,
-                                   g_param_spec_int ("n-workspaces",
-                                                     "N Workspaces",
-                                                     "Number of workspaces",
+                                   g_param_spec_int ("n-workspaces", NULL, NULL,
                                                      1, G_MAXINT, 1,
                                                      G_PARAM_READABLE));
 }
@@ -500,10 +481,10 @@ meta_workspace_manager_update_num_workspaces (MetaWorkspaceManager *workspace_ma
  * the "active-workspace-changed" signal will be emitted.
  * If the workspace's index is the same as @new_index or the workspace
  * will not be found in the list, this function will return.
- * 
+ *
  * Calling this function will also emit the "workspaces-reordered" signal.
  */
-void 
+void
 meta_workspace_manager_reorder_workspace (MetaWorkspaceManager *workspace_manager,
                                           MetaWorkspace        *workspace,
                                           int                   new_index)
@@ -525,7 +506,7 @@ meta_workspace_manager_reorder_workspace (MetaWorkspaceManager *workspace_manage
   if (new_index == index)
     return;
 
-  active_index = 
+  active_index =
     meta_workspace_manager_get_active_workspace_index (workspace_manager);
 
   workspace_manager->workspaces =
@@ -577,11 +558,12 @@ meta_workspace_manager_update_workspace_layout (MetaWorkspaceManager *workspace_
   workspace_manager->rows_of_workspaces = n_rows;
   workspace_manager->columns_of_workspaces = n_columns;
 
-  meta_verbose ("Workspace layout rows = %d cols = %d orientation = %d starting corner = %u",
-                workspace_manager->rows_of_workspaces,
-                workspace_manager->columns_of_workspaces,
-                workspace_manager->vertical_workspaces,
-                workspace_manager->starting_corner);
+  meta_topic (META_DEBUG_WORKSPACES,
+              "Workspace layout rows = %d cols = %d orientation = %d starting corner = %u",
+              workspace_manager->rows_of_workspaces,
+              workspace_manager->columns_of_workspaces,
+              workspace_manager->vertical_workspaces,
+              workspace_manager->starting_corner);
   g_object_notify (G_OBJECT (workspace_manager), "layout-columns");
   g_object_notify (G_OBJECT (workspace_manager), "layout-rows");
 }
@@ -669,11 +651,12 @@ meta_workspace_manager_calc_workspace_layout (MetaWorkspaceManager *workspace_ma
 
   grid_area = rows * cols;
 
-  meta_verbose ("Getting layout rows = %d cols = %d current = %d "
-                "num_spaces = %d vertical = %s corner = %s",
-                rows, cols, current_space, num_workspaces,
-                workspace_manager->vertical_workspaces ? "(true)" : "(false)",
-                meta_workspace_manager_corner_to_string (workspace_manager->starting_corner));
+  meta_topic (META_DEBUG_WORKSPACES,
+              "Getting layout rows = %d cols = %d current = %d "
+              "num_spaces = %d vertical = %s corner = %s",
+              rows, cols, current_space, num_workspaces,
+              workspace_manager->vertical_workspaces ? "(true)" : "(false)",
+              meta_workspace_manager_corner_to_string (workspace_manager->starting_corner));
 
   /* ok, we want to setup the distances in the workspace array to go
    * in each direction. Remember, there are many ways that a workspace
@@ -879,7 +862,7 @@ meta_workspace_manager_calc_workspace_layout (MetaWorkspaceManager *workspace_ma
   layout->current_col = current_col;
 
 #ifdef WITH_VERBOSE_MODE
-  if (meta_is_verbose ())
+  if (meta_is_topic_enabled (META_DEBUG_WORKSPACES))
     {
       g_autoptr (GString) str = NULL;
 
@@ -906,7 +889,8 @@ meta_workspace_manager_calc_workspace_layout (MetaWorkspaceManager *workspace_ma
             }
           ++r;
         }
-      meta_verbose ("%s", str->str);
+      meta_topic (META_DEBUG_WORKSPACES,
+                  "%s", str->str);
     }
 #endif /* WITH_VERBOSE_MODE */
 }
@@ -1035,7 +1019,7 @@ meta_workspace_manager_get_active_workspace (MetaWorkspaceManager *workspace_man
   return workspace_manager->active_workspace;
 }
 
-void 
+void
 meta_workspace_manager_workspace_switched (MetaWorkspaceManager *workspace_manager,
                                            int                   from,
                                            int                   to,
@@ -1065,4 +1049,20 @@ prefs_changed_callback (MetaPreference pref,
       meta_workspace_manager_update_num_workspaces (workspace_manager,
                                                     timestamp, new_num);
     }
+}
+
+int
+meta_workspace_manager_get_layout_columns (MetaWorkspaceManager *workspace_manager)
+{
+  g_return_val_if_fail (META_IS_WORKSPACE_MANAGER (workspace_manager), -1);
+
+  return workspace_manager->columns_of_workspaces;
+}
+
+int
+meta_workspace_manager_get_layout_rows (MetaWorkspaceManager *workspace_manager)
+{
+  g_return_val_if_fail (META_IS_WORKSPACE_MANAGER (workspace_manager), -1);
+
+  return workspace_manager->rows_of_workspaces;
 }

@@ -19,8 +19,7 @@
  *         Christian Kellner <gicmo@gnome.org>
  */
 
-#ifndef META_X11_SELECTION_OUTPUT_STREAM_H
-#define META_X11_SELECTION_OUTPUT_STREAM_H
+#pragma once
 
 #include <gio/gio.h>
 
@@ -34,14 +33,12 @@ G_DECLARE_FINAL_TYPE (MetaX11SelectionOutputStream,
 
 GOutputStream * meta_x11_selection_output_stream_new         (MetaX11Display                *x11_display,
                                                               Window                         window,
-                                                              const char                    *selection,
-                                                              const char                    *target,
-                                                              const char                    *property,
-                                                              const char                    *type,
+                                                              Atom                           selection,
+                                                              Atom                           target,
+                                                              Atom                           property,
+                                                              Atom                           type,
                                                               int                            format,
                                                               gulong                         timestamp);
 
 gboolean        meta_x11_selection_output_stream_xevent        (MetaX11SelectionOutputStream *stream,
                                                                 const XEvent                 *xevent);
-
-#endif /* META_X11_SELECTION_OUTPUT_STREAM_H */

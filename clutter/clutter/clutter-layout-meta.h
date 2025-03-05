@@ -22,68 +22,37 @@
  *      Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_LAYOUT_META_H__
-#define __CLUTTER_LAYOUT_META_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-types.h>
-#include <clutter/clutter-child-meta.h>
-#include <clutter/clutter-layout-manager.h>
+#include "clutter/clutter-types.h"
+#include "clutter/clutter-layout-manager.h"
 
 G_BEGIN_DECLS
 
-#define CLUTTER_TYPE_LAYOUT_META                (clutter_layout_meta_get_type ())
-#define CLUTTER_LAYOUT_META(obj)                (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_LAYOUT_META, ClutterLayoutMeta))
-#define CLUTTER_IS_LAYOUT_META(obj)             (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_LAYOUT_META))
-#define CLUTTER_LAYOUT_META_CLASS(klass)        (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_LAYOUT_META, ClutterLayoutMetaClass))
-#define CLUTTER_IS_LAYOUT_META_CLASS(klass)     (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_LAYOUT_META))
-#define CLUTTER_LAYOUT_META_GET_CLASS(obj)      (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_LAYOUT_META, ClutterLayoutMetaClass))
+#define CLUTTER_TYPE_LAYOUT_META (clutter_layout_meta_get_type ())
 
-/* ClutterLayoutMeta is defined in clutter-types.h */
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterLayoutMeta, clutter_layout_meta, CLUTTER, LAYOUT_META, GObject)
 
-typedef struct _ClutterLayoutMetaClass          ClutterLayoutMetaClass;
-
-struct _ClutterLayoutMeta
-{
-  /*< private >*/
-  ClutterChildMeta parent_instance;
-
-  /*< public >*/
-  ClutterLayoutManager *manager;
-
-  /*< private >*/
-  /* padding */
-  gint32 dummy0;
-  gpointer dummy1;
-};
-
-/**
- * ClutterLayoutMetaClass:
- *
- * The #ClutterLayoutMetaClass contains only private data and
- * should never be accessed directly
- */
 struct _ClutterLayoutMetaClass
 {
-  /*< private >*/
-  ClutterChildMetaClass parent_class;
-
-  /* padding, for expansion */
-  void (*_clutter_padding1) (void);
-  void (*_clutter_padding2) (void);
-  void (*_clutter_padding3) (void);
-  void (*_clutter_padding4) (void);
+  GObjectClass parent_class;
 };
 
 CLUTTER_EXPORT
-GType clutter_layout_meta_get_type (void) G_GNUC_CONST;
-
+ClutterActor         *clutter_layout_meta_get_container (ClutterLayoutMeta    *data);
 CLUTTER_EXPORT
-ClutterLayoutManager *clutter_layout_meta_get_manager (ClutterLayoutMeta *data);
+ClutterActor         *clutter_layout_meta_get_actor     (ClutterLayoutMeta    *data);
+CLUTTER_EXPORT
+ClutterLayoutManager *clutter_layout_meta_get_manager   (ClutterLayoutMeta    *data);
+CLUTTER_EXPORT
+gboolean              clutter_layout_meta_is_for        (ClutterLayoutMeta    *data,
+                                                         ClutterLayoutManager *manager,
+                                                         ClutterActor         *container,
+                                                         ClutterActor         *actor);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_LAYOUT_META_H__ */

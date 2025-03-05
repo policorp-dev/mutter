@@ -28,30 +28,24 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_PIPELINE_H__
-#define __COGL_PIPELINE_H__
-
-/* We forward declare the CoglPipeline type here to avoid some circular
- * dependency issues with the following headers.
- */
-typedef struct _CoglPipeline CoglPipeline;
-
-#include <cogl/cogl-types.h>
-#include <cogl/cogl-context.h>
-#include <cogl/cogl-snippet.h>
+#include "cogl/cogl-types.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-snippet.h"
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-pipeline
- * @short_description: Functions for creating and manipulating the GPU
- *                     pipeline
+ * CoglPipeline:
+ *
+ * Functions for creating and manipulating the GPU pipeline
  *
  * Cogl allows creating and manipulating objects representing the full
  * configuration of the GPU pipeline. In simplified terms the GPU
@@ -62,15 +56,10 @@ G_BEGIN_DECLS
  * mapping. Finally it blends the result with the framebuffer.
  */
 
-#define COGL_PIPELINE(OBJECT) ((CoglPipeline *)OBJECT)
+#define COGL_TYPE_PIPELINE (cogl_pipeline_get_type ())
 
-/**
- * cogl_pipeline_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
 COGL_EXPORT
-GType cogl_pipeline_get_gtype (void);
+G_DECLARE_FINAL_TYPE (CoglPipeline, cogl_pipeline, COGL, PIPELINE, GObject)
 
 /**
  * cogl_pipeline_new: (constructor)
@@ -80,9 +69,6 @@ GType cogl_pipeline_get_gtype (void);
  * a primitive white.
  *
  * Return value: (transfer full): a pointer to a new #CoglPipeline
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT CoglPipeline *
 cogl_pipeline_new (CoglContext *context);
@@ -101,27 +87,9 @@ cogl_pipeline_new (CoglContext *context);
  * state changes.
  *
  * Return value: (transfer full): a pointer to the newly allocated #CoglPipeline
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT CoglPipeline *
 cogl_pipeline_copy (CoglPipeline *source);
-
-/**
- * cogl_is_pipeline:
- * @object: A #CoglObject
- *
- * Gets whether the given @object references an existing pipeline object.
- *
- * Return value: %TRUE if the @object references a #CoglPipeline,
- *   %FALSE otherwise
- *
- * Since: 2.0
- * Stability: Unstable
- */
-COGL_EXPORT gboolean
-cogl_is_pipeline (void *object);
 
 /**
  * CoglPipelineLayerCallback:
@@ -131,9 +99,6 @@ cogl_is_pipeline (void *object);
  *
  * The callback prototype used with cogl_pipeline_foreach_layer() for
  * iterating all the layers of a @pipeline.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 typedef gboolean (*CoglPipelineLayerCallback) (CoglPipeline *pipeline,
                                                int layer_index,
@@ -142,15 +107,11 @@ typedef gboolean (*CoglPipelineLayerCallback) (CoglPipeline *pipeline,
 /**
  * cogl_pipeline_foreach_layer:
  * @pipeline: A #CoglPipeline object
- * @callback: (scope call): A #CoglPipelineLayerCallback to be
- *            called for each layer index
- * @user_data: (closure): Private data that will be passed to the
- *             callback
+ * @callback: (scope call) (closure user_data): A #CoglPipelineLayerCallback
+ *            to be called for each layer index
+ * @user_data: Private data that will be passed to the callback
  *
  * Iterates all the layer indices of the given @pipeline.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_foreach_layer (CoglPipeline *pipeline,
@@ -173,14 +134,35 @@ cogl_pipeline_foreach_layer (CoglPipeline *pipeline,
  * before calling this function.
  *
  * Return value: A integer representing the location of the given uniform.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT int
 cogl_pipeline_get_uniform_location (CoglPipeline *pipeline,
                                     const char *uniform_name);
 
-G_END_DECLS
+COGL_EXPORT gboolean
+cogl_pipeline_has_capability (CoglPipeline *pipeline,
+                              GQuark        domain,
+                              unsigned int  capability);
 
-#endif /* __COGL_PIPELINE_H__ */
+/**
+ * cogl_pipeline_set_static_name:
+ * @pipeline: A #CoglPipeline object
+ * @name: A descriptive name
+ *
+ * Set a pipeline name. It may be used for debugging or logging purposes. The
+ * string must be a static string, and string. It will not be copied.
+ */
+COGL_EXPORT void
+cogl_pipeline_set_static_name  (CoglPipeline *pipeline,
+                                const char   *name);
+
+/**
+ * cogl_pipeline_get_name:
+ * @pipeline: A #CoglPipeline object
+ *
+ * Returns: (transfer none): The pipeline name, or %NULL
+ */
+COGL_EXPORT const char *
+cogl_pipeline_get_name (CoglPipeline *pipeline);
+
+G_END_DECLS

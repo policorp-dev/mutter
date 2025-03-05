@@ -31,27 +31,27 @@
  *   Neil Roberts <neil@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <string.h>
 
-#include "cogl-util.h"
-#include "cogl-context-private.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-offscreen.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "driver/gl/cogl-pipeline-opengl-private.h"
+#include "cogl/cogl-util.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-offscreen.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-gl-private.h"
 
-#include "cogl-context-private.h"
-#include "cogl-object-private.h"
-#include "cogl-pipeline-cache.h"
-#include "cogl-pipeline-state-private.h"
-#include "cogl-attribute-private.h"
-#include "cogl-framebuffer-private.h"
-#include "driver/gl/cogl-pipeline-fragend-glsl-private.h"
-#include "driver/gl/cogl-pipeline-vertend-glsl-private.h"
-#include "driver/gl/cogl-pipeline-progend-glsl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-pipeline-cache.h"
+#include "cogl/cogl-pipeline-state-private.h"
+#include "cogl/cogl-attribute-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/driver/gl/cogl-pipeline-fragend-glsl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-vertend-glsl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-progend-glsl-private.h"
 #include "deprecated/cogl-program-private.h"
+#include "deprecated/cogl-shader-private.h"
 
 /* These are used to generalise updating some uniforms that are
    required when building for drivers missing some fixed function
@@ -124,6 +124,10 @@ typedef struct
      uniform is actually set */
   GArray *uniform_locations;
 
+  /* Stores the updated uniform values only for debugging purposes.
+   * key: uniform_name from CoglContext, value: boxed value  */
+  GHashTable *uniform_values;
+
   /* Array of attribute locations. */
   GArray *attribute_locations;
 
@@ -139,12 +143,31 @@ typedef struct
   CoglPipelineCacheEntry *cache_entry;
 } CoglPipelineProgramState;
 
-static CoglUserDataKey program_state_key;
+static GQuark program_state_key = 0;
+
+typedef struct
+{
+  CoglPipelineProgramState *program_state;
+  CoglPipeline *instance;
+} CoglPipelineProgramStateCache;
+
+static GQuark
+get_cache_key (void)
+{
+  if (G_UNLIKELY (program_state_key == 0))
+    program_state_key = g_quark_from_static_string ("program-state-progend-key");
+
+  return program_state_key;
+}
 
 static CoglPipelineProgramState *
 get_program_state (CoglPipeline *pipeline)
 {
-  return cogl_object_get_user_data (COGL_OBJECT (pipeline), &program_state_key);
+  CoglPipelineProgramStateCache *cache;
+  cache = g_object_get_qdata (G_OBJECT (pipeline), get_cache_key ());
+  if (cache)
+    return cache->program_state;
+  return NULL;
 }
 
 #define UNIFORM_LOCATION_UNKNOWN -2
@@ -169,8 +192,7 @@ _cogl_pipeline_progend_glsl_get_attrib_location (CoglPipeline *pipeline,
 {
   CoglPipelineProgramState *program_state = get_program_state (pipeline);
   int *locations;
-
-  _COGL_GET_CONTEXT (ctx, -1);
+  CoglContext *ctx = pipeline->context;
 
   g_return_val_if_fail (program_state != NULL, -1);
   g_return_val_if_fail (program_state->program != 0, -1);
@@ -225,6 +247,13 @@ clear_flushed_matrix_stacks (CoglPipelineProgramState *program_state)
   _cogl_matrix_entry_cache_init (&program_state->modelview_cache);
 }
 
+static void
+_cogl_boxed_value_free (CoglBoxedValue *bv)
+{
+  _cogl_boxed_value_destroy (bv);
+  g_free (bv);
+}
+
 static CoglPipelineProgramState *
 program_state_new (int n_layers,
                    CoglPipelineCacheEntry *cache_entry)
@@ -237,6 +266,9 @@ program_state_new (int n_layers,
   program_state->unit_state = g_new (UnitState, n_layers);
   program_state->uniform_locations = NULL;
   program_state->attribute_locations = NULL;
+  program_state->uniform_values =
+    g_hash_table_new_full (NULL, NULL, NULL,
+                           (GDestroyNotify) _cogl_boxed_value_free);
   program_state->cache_entry = cache_entry;
   _cogl_matrix_entry_cache_init (&program_state->modelview_cache);
   _cogl_matrix_entry_cache_init (&program_state->projection_cache);
@@ -245,22 +277,21 @@ program_state_new (int n_layers,
 }
 
 static void
-destroy_program_state (void *user_data,
-                       void *instance)
+destroy_program_state (void *user_data)
 {
-  CoglPipelineProgramState *program_state = user_data;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglPipelineProgramStateCache *cache = user_data;
+  CoglPipelineProgramState *program_state = cache->program_state;
+  CoglContext *ctx = cache->instance->context;
 
   /* If the program state was last used for this pipeline then clear
      it so that if same address gets used again for a new pipeline
      then we won't think it's the same pipeline and avoid updating the
      uniforms */
-  if (program_state->last_used_for_pipeline == instance)
+  if (program_state->last_used_for_pipeline == cache->instance)
     program_state->last_used_for_pipeline = NULL;
 
   if (program_state->cache_entry &&
-      program_state->cache_entry->pipeline != instance)
+      program_state->cache_entry->pipeline != cache->instance)
     program_state->cache_entry->usage_count--;
 
   if (--program_state->ref_count == 0)
@@ -278,8 +309,12 @@ destroy_program_state (void *user_data,
       if (program_state->uniform_locations)
         g_array_free (program_state->uniform_locations, TRUE);
 
+      g_hash_table_destroy (program_state->uniform_values);
+
       g_free (program_state);
     }
+
+  g_free (cache);
 }
 
 static void
@@ -297,27 +332,30 @@ set_program_state (CoglPipeline *pipeline,
         program_state->cache_entry->usage_count++;
     }
 
-  _cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                              &program_state_key,
-                              program_state,
-                              destroy_program_state);
+  CoglPipelineProgramStateCache *cache = g_new0 (CoglPipelineProgramStateCache, 1);
+  cache->instance = pipeline;
+  cache->program_state = program_state;
+
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           cache,
+                           destroy_program_state);
 }
 
 static void
 dirty_program_state (CoglPipeline *pipeline)
 {
-  cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                             &program_state_key,
-                             NULL,
-                             NULL);
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           NULL,
+                           NULL);
 }
 
 static void
-link_program (GLint gl_program)
+link_program (CoglContext *ctx,
+              GLint        gl_program)
 {
   GLint link_status;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
 
   GE( ctx, glLinkProgram (gl_program) );
 
@@ -360,8 +398,7 @@ get_uniform_cb (CoglPipeline *pipeline,
   CoglPipelineProgramState *program_state = state->program_state;
   UnitState *unit_state = &program_state->unit_state[state->unit];
   GLint uniform_location;
-
-  _COGL_GET_CONTEXT (ctx, FALSE);
+  CoglContext *ctx = pipeline->context;
 
   /* We can reuse the source buffer to create the uniform name because
      the program has now been linked */
@@ -413,8 +450,7 @@ update_constants_cb (CoglPipeline *pipeline,
   UpdateUniformsState *state = user_data;
   CoglPipelineProgramState *program_state = state->program_state;
   UnitState *unit_state = &program_state->unit_state[state->unit++];
-
-  _COGL_GET_CONTEXT (ctx, FALSE);
+  CoglContext *ctx = pipeline->context;
 
   if (unit_state->combine_constant_uniform != -1 &&
       (state->update_all || unit_state->dirty_combine_constant))
@@ -468,6 +504,7 @@ update_builtin_uniforms (CoglContext *context,
 
 typedef struct
 {
+  CoglPipeline *pipeline;
   CoglPipelineProgramState *program_state;
   unsigned long *uniform_differences;
   int n_differences;
@@ -480,6 +517,8 @@ static gboolean
 flush_uniform_cb (int uniform_num, void *user_data)
 {
   FlushUniformsClosure *data = user_data;
+  char *uniform_name = g_ptr_array_index (data->ctx->uniform_names,
+                                          uniform_num);
 
   if (COGL_FLAGS_GET (data->uniform_differences, uniform_num))
     {
@@ -510,9 +549,6 @@ flush_uniform_cb (int uniform_num, void *user_data)
 
       if (uniform_location == UNIFORM_LOCATION_UNKNOWN)
         {
-          const char *uniform_name =
-            g_ptr_array_index (data->ctx->uniform_names, uniform_num);
-
           uniform_location =
             data->ctx->glGetUniformLocation (data->program_state->program,
                                              uniform_name);
@@ -521,9 +557,39 @@ flush_uniform_cb (int uniform_num, void *user_data)
         }
 
       if (uniform_location != -1)
-        _cogl_boxed_value_set_uniform (data->ctx,
-                                       uniform_location,
-                                       data->values + data->value_index);
+        {
+          if (G_UNLIKELY (COGL_DEBUG_ENABLED (COGL_DEBUG_SHOW_UNIFORMS)))
+            {
+              const CoglBoxedValue *pipeline_uniform;
+              CoglBoxedValue *program_uniform;
+              CoglBoxedValue *pipeline_uniform_copy;
+
+              pipeline_uniform = data->values + data->value_index;
+              program_uniform =
+                g_hash_table_lookup (data->program_state->uniform_values,
+                                     uniform_name);
+
+              if (!_cogl_boxed_value_equal (pipeline_uniform, program_uniform))
+                {
+                  pipeline_uniform_copy = g_malloc (sizeof (CoglBoxedValue));
+                  _cogl_boxed_value_copy (pipeline_uniform_copy,
+                                          pipeline_uniform);
+                  g_hash_table_insert (data->program_state->uniform_values,
+                                       uniform_name,
+                                       pipeline_uniform_copy);
+
+                  g_message ("Updated uniform on pipeline %s (program %i): %s;",
+                             data->pipeline->name ? data->pipeline->name : "N\\A",
+                             data->program_state->program,
+                             _cogl_boxed_value_to_string (pipeline_uniform,
+                                                          uniform_name));
+                }
+            }
+
+          _cogl_boxed_value_set_uniform (data->ctx,
+                                         uniform_location,
+                                         data->values + data->value_index);
+      }
 
       data->n_differences--;
       COGL_FLAGS_SET (data->uniform_differences, uniform_num, FALSE);
@@ -544,14 +610,14 @@ _cogl_pipeline_progend_glsl_flush_uniforms (CoglPipeline *pipeline,
   CoglPipelineUniformsState *uniforms_state;
   FlushUniformsClosure data;
   int n_uniform_longs;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   if (pipeline->differences & COGL_PIPELINE_STATE_UNIFORMS)
     uniforms_state = &pipeline->big_state->uniforms_state;
   else
     uniforms_state = NULL;
 
+  data.pipeline = pipeline;
   data.program_state = program_state;
   data.ctx = ctx;
 
@@ -602,7 +668,7 @@ _cogl_pipeline_progend_glsl_flush_uniforms (CoglPipeline *pipeline,
 
       for (i = 0; i < n_uniform_longs; i++)
         data.n_differences +=
-          _cogl_util_popcountl (data.uniform_differences[i]);
+          __builtin_popcountl (data.uniform_differences[i]);
     }
 
   while (pipeline && data.n_differences > 0)
@@ -633,26 +699,90 @@ _cogl_pipeline_progend_glsl_start (CoglPipeline *pipeline)
   return TRUE;
 }
 
+static CoglPipelineSnippetList *
+get_fragment_snippets (CoglPipeline *pipeline)
+{
+  pipeline =
+    _cogl_pipeline_get_authority (pipeline,
+                                  COGL_PIPELINE_STATE_FRAGMENT_SNIPPETS);
+
+  return &pipeline->big_state->fragment_snippets;
+}
+
+static CoglPipelineSnippetList *
+get_vertex_snippets (CoglPipeline *pipeline)
+{
+  pipeline =
+    _cogl_pipeline_get_authority (pipeline,
+                                  COGL_PIPELINE_STATE_VERTEX_SNIPPETS);
+
+  return &pipeline->big_state->vertex_snippets;
+}
+
+static gboolean
+needs_recompile (CoglShader   *shader,
+                 CoglPipeline *pipeline,
+                 CoglPipeline *prev)
+{
+  /* XXX: currently the only things that will affect the
+   * boilerplate for user shaders, apart from driver features,
+   * are the pipeline layer-indices, texture-unit-indices and
+   * snippets
+   */
+  CoglPipeline *authority, *authority_prev;
+
+  if (pipeline == prev)
+    return FALSE;
+
+  if (!_cogl_pipeline_layer_and_unit_numbers_equal (prev, pipeline))
+    return TRUE;
+
+  switch (shader->type)
+    {
+    case COGL_SHADER_TYPE_VERTEX:
+      authority =
+        _cogl_pipeline_get_authority (pipeline,
+                                      COGL_PIPELINE_STATE_VERTEX_SNIPPETS);
+      authority_prev =
+        _cogl_pipeline_get_authority (prev,
+                                      COGL_PIPELINE_STATE_VERTEX_SNIPPETS);
+
+      if (!_cogl_pipeline_vertex_snippets_state_equal (authority_prev, authority))
+        return TRUE;
+      break;
+    case COGL_SHADER_TYPE_FRAGMENT:
+      authority =
+        _cogl_pipeline_get_authority (pipeline,
+                                      COGL_PIPELINE_STATE_FRAGMENT_SNIPPETS);
+      authority_prev =
+        _cogl_pipeline_get_authority (prev,
+                                      COGL_PIPELINE_STATE_FRAGMENT_SNIPPETS);
+
+      if (!_cogl_pipeline_fragment_snippets_state_equal (authority_prev, authority))
+        return TRUE;
+      break;
+    default:
+      g_assert_not_reached ();
+      break;
+    }
+
+  return FALSE;
+}
+
 static void
-_cogl_shader_compile_real (CoglHandle handle,
+_cogl_shader_compile_real (CoglShader   *shader,
                            CoglPipeline *pipeline)
 {
-  CoglShader *shader = handle;
+  g_autoptr(GString) hooks_source = NULL;
+  CoglPipelineSnippetData snippet_data;
+  const char *shader_sources[4];
   GLenum gl_type;
   GLint status;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   if (shader->gl_handle)
     {
-      CoglPipeline *prev = shader->compilation_pipeline;
-
-      /* XXX: currently the only things that will affect the
-       * boilerplate for user shaders, apart from driver features,
-       * are the pipeline layer-indices and texture-unit-indices
-       */
-      if (pipeline == prev ||
-          _cogl_pipeline_layer_and_unit_numbers_equal (prev, pipeline))
+      if (!needs_recompile (shader, pipeline, shader->compilation_pipeline))
         return;
 
       GE (ctx, glDeleteShader (shader->gl_handle));
@@ -660,23 +790,43 @@ _cogl_shader_compile_real (CoglHandle handle,
 
       if (shader->compilation_pipeline)
         {
-          cogl_object_unref (shader->compilation_pipeline);
+          g_object_unref (shader->compilation_pipeline);
           shader->compilation_pipeline = NULL;
         }
     }
+
+  hooks_source = g_string_new ("");
+  memset (&snippet_data, 0, sizeof (snippet_data));
+  snippet_data.chain_function = "cogl_main";
+  snippet_data.final_name = "cogl_hooks";
+  snippet_data.source_buf = hooks_source;
 
   switch (shader->type)
     {
     case COGL_SHADER_TYPE_VERTEX:
       gl_type = GL_VERTEX_SHADER;
+      snippet_data.snippets = get_vertex_snippets (pipeline);
+      snippet_data.hook = COGL_SNIPPET_HOOK_VERTEX;
+      snippet_data.function_prefix = "cogl_vertex_hook";
       break;
     case COGL_SHADER_TYPE_FRAGMENT:
       gl_type = GL_FRAGMENT_SHADER;
+      snippet_data.snippets = get_fragment_snippets (pipeline);
+      snippet_data.hook = COGL_SNIPPET_HOOK_FRAGMENT;
+      snippet_data.function_prefix = "cogl_fragment_hook";
       break;
     default:
       g_assert_not_reached ();
       break;
     }
+
+  _cogl_pipeline_snippet_generate_code (&snippet_data);
+
+  shader_sources[0] = "#define main cogl_main\n";
+  shader_sources[1] = shader->source;
+  shader_sources[2] = hooks_source->str;
+  shader_sources[3] = "#undef main\n"
+                      "void main () { cogl_hooks(); }\n";
 
   shader->gl_handle = ctx->glCreateShader (gl_type);
 
@@ -684,13 +834,12 @@ _cogl_shader_compile_real (CoglHandle handle,
                                                  shader->gl_handle,
                                                  gl_type,
                                                  pipeline,
-                                                 1,
-                                                 (const char **)
-                                                  &shader->source,
+                                                 G_N_ELEMENTS (shader_sources),
+                                                 shader_sources,
                                                  NULL);
   GE (ctx, glCompileShader (shader->gl_handle));
 
-  shader->compilation_pipeline = cogl_object_ref (pipeline);
+  shader->compilation_pipeline = g_object_ref (pipeline);
 
   GE (ctx, glGetShaderiv (shader->gl_handle, GL_COMPILE_STATUS, &status));
   if (!status)
@@ -719,8 +868,7 @@ _cogl_pipeline_progend_glsl_end (CoglPipeline *pipeline,
   UpdateUniformsState state;
   CoglProgram *user_program;
   CoglPipelineCacheEntry *cache_entry = NULL;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   program_state = get_program_state (pipeline);
 
@@ -821,7 +969,7 @@ _cogl_pipeline_progend_glsl_end (CoglPipeline *pipeline,
       GE( ctx, glBindAttribLocation (program_state->program,
                                      0, "cogl_position_in"));
 
-      link_program (program_state->program);
+      link_program (ctx, program_state->program);
 
       program_changed = TRUE;
     }
@@ -901,7 +1049,7 @@ _cogl_pipeline_progend_glsl_end (CoglPipeline *pipeline,
                                               program_changed);
 
   if (user_program)
-    _cogl_program_flush_uniforms (user_program,
+    _cogl_program_flush_uniforms (ctx, user_program,
                                   gl_program,
                                   program_changed);
 
@@ -915,7 +1063,7 @@ _cogl_pipeline_progend_glsl_pre_change_notify (CoglPipeline *pipeline,
                                                CoglPipelineState change,
                                                const CoglColor *new_color)
 {
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   if ((change & (_cogl_pipeline_get_state_for_vertex_codegen (ctx) |
                  _cogl_pipeline_get_state_for_fragment_codegen (ctx))))
@@ -952,8 +1100,8 @@ _cogl_pipeline_progend_glsl_layer_pre_change_notify (
                                                 CoglPipelineLayer *layer,
                                                 CoglPipelineLayerState change)
 {
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
   CoglTextureUnit *unit;
+  CoglContext *ctx = owner->context;
 
   if ((change & (_cogl_pipeline_get_layer_state_for_fragment_codegen (ctx) |
                  COGL_PIPELINE_LAYER_STATE_AFFECTS_VERTEX_CODEGEN)))
@@ -984,7 +1132,7 @@ _cogl_pipeline_progend_glsl_layer_pre_change_notify (
    * the changes so we can try to minimize redundant OpenGL calls if
    * the same layer is flushed again.
    */
-  unit = _cogl_get_texture_unit (_cogl_pipeline_layer_get_unit_index (layer));
+  unit = _cogl_get_texture_unit (ctx, _cogl_pipeline_layer_get_unit_index (layer));
   if (unit->layer == layer)
     unit->layer_changes_since_flush |= change;
 }
@@ -1002,8 +1150,7 @@ _cogl_pipeline_progend_glsl_pre_paint (CoglPipeline *pipeline,
   gboolean need_modelview;
   gboolean need_projection;
   graphene_matrix_t modelview, projection;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   program_state = get_program_state (pipeline);
 
@@ -1128,8 +1275,7 @@ update_float_uniform (CoglPipeline *pipeline,
 {
   float (* float_getter_func) (CoglPipeline *) = getter_func;
   float value;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   value = float_getter_func (pipeline);
   GE( ctx, glUniform1f (uniform_location, value) );

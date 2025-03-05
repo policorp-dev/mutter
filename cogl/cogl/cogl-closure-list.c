@@ -27,11 +27,11 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <glib.h>
 
-#include "cogl-closure-list-private.h"
+#include "cogl/cogl-closure-list-private.h"
 
 void
 _cogl_closure_disconnect (CoglClosure *closure)
@@ -57,7 +57,7 @@ CoglClosure *
 _cogl_closure_list_add (CoglList *list,
                         void *function,
                         void *user_data,
-                        CoglUserDataDestroyCallback destroy_cb)
+                        GDestroyNotify destroy_cb)
 {
   CoglClosure *closure = g_new0 (CoglClosure, 1);
 

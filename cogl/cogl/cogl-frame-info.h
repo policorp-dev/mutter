@@ -30,15 +30,14 @@
  * Authors:
  *   Owen Taylor <otaylor@redhat.com>
  */
+
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_FRAME_INFO_H
-#define __COGL_FRAME_INFO_H
-
-#include <cogl/cogl-types.h>
-#include <cogl/cogl-output.h>
+#include "cogl/cogl-types.h"
 
 #include <glib-object.h>
 #include <glib.h>
@@ -50,30 +49,14 @@ G_BEGIN_DECLS
  *
  * Frame information.
  */
-typedef struct _CoglFrameInfo CoglFrameInfo;
-#define COGL_FRAME_INFO(X) ((CoglFrameInfo *)(X))
+#define COGL_TYPE_FRAME_INFO (cogl_frame_info_get_type ())
 
-/**
- * cogl_frame_info_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
 COGL_EXPORT
-GType cogl_frame_info_get_gtype (void);
-
-/**
- * cogl_is_frame_info:
- * @object: A #CoglObject pointer
- *
- * Gets whether the given object references a #CoglFrameInfo.
- *
- * Return value: %TRUE if the object references a #CoglFrameInfo
- *   and %FALSE otherwise.
- * Since: 2.0
- * Stability: unstable
- */
-COGL_EXPORT gboolean
-cogl_is_frame_info (void *object);
+G_DECLARE_FINAL_TYPE (CoglFrameInfo,
+                      cogl_frame_info,
+                      COGL,
+                      FRAME_INFO,
+                      GObject)
 
 /**
  * cogl_frame_info_get_frame_counter:
@@ -83,8 +66,6 @@ cogl_is_frame_info (void *object);
  * to this frame.
  *
  * Return value: The frame counter value
- * Since: 1.14
- * Stability: unstable
  */
 COGL_EXPORT
 int64_t cogl_frame_info_get_frame_counter (CoglFrameInfo *info);
@@ -99,15 +80,28 @@ int64_t cogl_frame_info_get_frame_counter (CoglFrameInfo *info);
  * The presentation time measured in microseconds, is based on
  * CLOCK_MONOTONIC.
  *
- * <note>Some buggy Mesa drivers up to 9.0.1 may
- * incorrectly report non-monotonic timestamps.</note>
+ * Some buggy Mesa drivers up to 9.0.1 may
+ * incorrectly report non-monotonic timestamps.
  *
  * Return value: the presentation time for the frame
- * Since: 1.14
- * Stability: unstable
  */
 COGL_EXPORT
 int64_t cogl_frame_info_get_presentation_time_us (CoglFrameInfo *info);
+
+/**
+ * cogl_frame_info_get_target_presentation_time_us:
+ * @info: a #CoglFrameInfo object
+ *
+ * Gets the target presentation time for the frame. This is the time at
+ * which the frame was expected to became visible to the user.
+ *
+ * The target presentation time measured in microseconds, is based on
+ * CLOCK_MONOTONIC.
+ *
+ * Return value: the presentation time for the frame if available, or 0
+ */
+COGL_EXPORT
+int64_t cogl_frame_info_get_target_presentation_time_us (CoglFrameInfo *info);
 
 /**
  * cogl_frame_info_get_refresh_rate:
@@ -116,22 +110,17 @@ int64_t cogl_frame_info_get_presentation_time_us (CoglFrameInfo *info);
  * Gets the refresh rate in Hertz for the output that the frame was on
  * at the time the frame was presented.
  *
- * <note>Some platforms can't associate a #CoglOutput with a
+ * Some platforms can't associate a #CoglOutput with a
  * #CoglFrameInfo object but are able to report a refresh rate via
  * this api. Therefore if you need this information then this api is
  * more reliable than using cogl_frame_info_get_output() followed by
- * cogl_output_get_refresh_rate().</note>
+ * cogl_output_get_refresh_rate().
  *
  * Return value: the refresh rate in Hertz
- * Since: 1.14
- * Stability: unstable
  */
 COGL_EXPORT
 float cogl_frame_info_get_refresh_rate (CoglFrameInfo *info);
 
-/**
- * cogl_frame_info_get_global_frame_counter: (skip)
- */
 COGL_EXPORT
 int64_t cogl_frame_info_get_global_frame_counter (CoglFrameInfo *info);
 
@@ -151,11 +140,12 @@ COGL_EXPORT
 unsigned int cogl_frame_info_get_sequence (CoglFrameInfo *info);
 
 COGL_EXPORT
+gboolean cogl_frame_info_has_valid_gpu_rendering_duration (CoglFrameInfo *info);
+
+COGL_EXPORT
 int64_t cogl_frame_info_get_rendering_duration_ns (CoglFrameInfo *info);
 
 COGL_EXPORT
 int64_t cogl_frame_info_get_time_before_buffer_swap_us (CoglFrameInfo *info);
 
 G_END_DECLS
-
-#endif /* __COGL_FRAME_INFO_H */

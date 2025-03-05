@@ -1,3 +1,5 @@
+#define COGL_DISABLE_DEPRECATION_WARNINGS
+
 #include <cogl/cogl.h>
 
 #include <string.h>
@@ -87,21 +89,21 @@ static CoglPipeline *
 create_pipeline_for_shader (TestState *state, const char *shader_source)
 {
   CoglPipeline *pipeline;
-  CoglHandle shader;
-  CoglHandle program;
+  CoglShader *shader;
+  CoglProgram *program;
 
   pipeline = cogl_pipeline_new (test_ctx);
 
-  shader = cogl_create_shader (COGL_SHADER_TYPE_FRAGMENT);
+  shader = cogl_shader_new (COGL_SHADER_TYPE_FRAGMENT);
   cogl_shader_source (shader, shader_source);
 
-  program = cogl_create_program ();
+  program = cogl_program_new ();
   cogl_program_attach_shader (program, shader);
 
   cogl_pipeline_set_user_program (pipeline, program);
 
-  cogl_object_unref (shader);
-  cogl_object_unref (program);
+  g_object_unref (shader);
+  g_object_unref (program);
 
   return pipeline;
 }
@@ -163,15 +165,15 @@ init_long_pipeline_state (TestState *state)
 static void
 destroy_state (TestState *state)
 {
-  cogl_object_unref (state->pipeline_red);
-  cogl_object_unref (state->pipeline_green);
-  cogl_object_unref (state->pipeline_blue);
-  cogl_object_unref (state->matrix_pipeline);
-  cogl_object_unref (state->vector_pipeline);
-  cogl_object_unref (state->int_pipeline);
+  g_object_unref (state->pipeline_red);
+  g_object_unref (state->pipeline_green);
+  g_object_unref (state->pipeline_blue);
+  g_object_unref (state->matrix_pipeline);
+  g_object_unref (state->vector_pipeline);
+  g_object_unref (state->int_pipeline);
 
   if (state->long_pipeline)
-    cogl_object_unref (state->long_pipeline);
+    g_object_unref (state->long_pipeline);
 }
 
 static void
@@ -211,7 +213,7 @@ paint_color_pipelines (TestState *state)
       paint_pipeline (temp_pipeline, i + 3);
     }
 
-  cogl_object_unref (temp_pipeline);
+  g_object_unref (temp_pipeline);
 }
 
 static void
@@ -365,7 +367,7 @@ validate_result (void)
 
   for (i = 0; i <= 8; i++)
     {
-      int green_value = i / 8.0f * 255.0f + 0.5f;
+      int green_value = (int) (i / 8.0f * 255.0f + 0.5f);
       check_pos (i + 3, 0xff0000ff + (green_value << 16));
     }
 

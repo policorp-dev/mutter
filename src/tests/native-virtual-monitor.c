@@ -12,15 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "config.h"
-
-#include "tests/native-virtual-monitor.h"
 
 #include "backends/meta-backend-private.h"
 #include "backends/meta-logical-monitor.h"
@@ -28,11 +24,14 @@
 #include "backends/meta-virtual-monitor.h"
 #include "backends/native/meta-renderer-native.h"
 #include "tests/meta-ref-test.h"
+#include "tests/meta-test/meta-context-test.h"
+
+static MetaContext *test_context;
 
 static void
 meta_test_virtual_monitor_create (void)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   MetaMonitorManager *monitor_manager = meta_backend_get_monitor_manager (backend);
   MetaMonitorConfigManager *config_manager =
     meta_monitor_manager_get_config_manager (monitor_manager);
@@ -72,7 +71,7 @@ meta_test_virtual_monitor_create (void)
   g_assert_cmpstr (meta_monitor_get_vendor (monitor), ==, "MetaTestVendor");
   g_assert_cmpstr (meta_monitor_get_product (monitor), ==, "MetaVirtualMonitor");
   g_assert_cmpstr (meta_monitor_get_serial (monitor), ==, "0x1234");
-  g_assert (meta_monitor_get_main_output (monitor) ==
+  g_assert_true (meta_monitor_get_main_output (monitor) ==
             meta_virtual_monitor_get_output (virtual_monitor));
 
   monitors_config = meta_monitor_manager_ensure_configured (monitor_manager);
@@ -91,7 +90,7 @@ meta_test_virtual_monitor_create (void)
   logical_monitor_monitors =
     meta_logical_monitor_get_monitors (logical_monitors->data);
   g_assert_cmpint (g_list_length (logical_monitor_monitors), ==, 1);
-  g_assert (logical_monitor_monitors->data == monitor);
+  g_assert_true (logical_monitor_monitors->data == monitor);
 
   views = meta_renderer_get_views (renderer);
   g_assert_cmpint (g_list_length (views), ==, 1);
@@ -106,7 +105,7 @@ meta_test_virtual_monitor_create (void)
   actor = clutter_actor_new ();
   clutter_actor_set_position (actor, 10, 10);
   clutter_actor_set_size (actor, 40, 40);
-  clutter_actor_set_background_color (actor, CLUTTER_COLOR_LightSkyBlue);
+  clutter_actor_set_background_color (actor, &COGL_COLOR_INIT (114, 159, 207, 255));
   clutter_actor_add_child (meta_backend_get_stage (backend), actor);
 
   for (i = 0; i < 5; i++)
@@ -127,9 +126,27 @@ meta_test_virtual_monitor_create (void)
   clutter_actor_destroy (actor);
 }
 
-void
-init_virtual_monitor_tests (void)
+static void
+init_tests (MetaContext *context)
 {
+  test_context = context;
+
   g_test_add_func ("/backends/native/virtual-monitor/create",
                    meta_test_virtual_monitor_create);
+}
+
+int
+main (int    argc,
+      char **argv)
+{
+  g_autoptr (MetaContext) context = NULL;
+
+  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
+                                      META_CONTEXT_TEST_FLAG_NO_X11);
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
+
+  init_tests (context);
+
+  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
+                                      META_TEST_RUN_FLAG_NONE);
 }

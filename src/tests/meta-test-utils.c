@@ -25,8 +25,12 @@
 #include <string.h>
 #include <X11/Xlib-xcb.h>
 
+#include "backends/meta-cursor-tracker-private.h"
 #include "backends/meta-monitor-config-store.h"
 #include "backends/meta-virtual-monitor.h"
+#include "backends/native/meta-backend-native.h"
+#include "backends/native/meta-input-thread.h"
+#include "backends/native/meta-seat-native.h"
 #include "core/display-private.h"
 #include "core/window-private.h"
 #include "meta-test/meta-context-test.h"
@@ -36,6 +40,8 @@
 
 struct _MetaTestClient
 {
+  MetaContext *context;
+
   char *id;
   MetaWindowClientType type;
   GSubprocess *subprocess;
@@ -68,20 +74,33 @@ typedef struct
   GList *subprocesses;
 } ClientProcessHandler;
 
+typedef struct _MetaTestComandWatcher
+{
+  MetaTestCommandFunc func;
+  gpointer user_data;
+
+  GDataInputStream *client_stdout;
+  GOutputStream *client_stdin;
+  GCancellable *cancellable;
+} MetaTestCommandWatcher;
+
 G_DEFINE_QUARK (meta-test-client-error-quark, meta_test_client_error)
 
-static char *test_client_path;
+static char *test_runner_client_path;
+
+static void read_line_async (GDataInputStream       *client_stdout,
+                             MetaTestCommandWatcher *watcher);
 
 void
 meta_ensure_test_client_path (int    argc,
                               char **argv)
 {
-  test_client_path = g_test_build_filename (G_TEST_BUILT,
-                                            "src",
-                                            "tests",
-                                            "mutter-test-client",
-                                            NULL);
-  if (!g_file_test (test_client_path,
+  test_runner_client_path = g_test_build_filename (G_TEST_BUILT,
+                                                   "src",
+                                                   "tests",
+                                                   "mutter-test-client",
+                                                   NULL);
+  if (!g_file_test (test_runner_client_path,
                     G_FILE_TEST_EXISTS | G_FILE_TEST_IS_EXECUTABLE))
     {
       g_autofree char *basename = NULL;
@@ -90,11 +109,11 @@ meta_ensure_test_client_path (int    argc,
       basename = g_path_get_basename (argv[0]);
 
       dirname = g_path_get_dirname (argv[0]);
-      test_client_path = g_build_filename (dirname,
-                                           "mutter-test-client", NULL);
+      test_runner_client_path = g_build_filename (dirname,
+                                                  "mutter-test-client", NULL);
     }
 
-  if (!g_file_test (test_client_path,
+  if (!g_file_test (test_runner_client_path,
                     G_FILE_TEST_EXISTS | G_FILE_TEST_IS_EXECUTABLE))
     g_error ("mutter-test-client executable not found");
 }
@@ -205,7 +224,7 @@ meta_async_waiter_process_x11_event (MetaAsyncWaiter       *waiter,
                                      MetaX11Display        *x11_display,
                                      XSyncAlarmNotifyEvent *event)
 {
-  g_assert (x11_display == waiter->x11_display);
+  g_assert_true (x11_display == waiter->x11_display);
 
   if (event->alarm != waiter->alarm)
     return FALSE;
@@ -239,13 +258,63 @@ test_client_line_read (GObject      *source,
   g_main_loop_quit (client->loop);
 }
 
+static gboolean
+meta_test_client_do_line (MetaTestClient  *client,
+                          const char      *line_out,
+                          GError         **error)
+{
+  g_autoptr (GError) local_error = NULL;
+  g_autofree char *line = NULL;
+
+  if (!g_data_output_stream_put_string (client->in, line_out,
+                                        client->cancellable, error))
+    return FALSE;
+
+  g_data_input_stream_read_line_async (client->out,
+                                       G_PRIORITY_DEFAULT,
+                                       client->cancellable,
+                                       test_client_line_read,
+                                       client);
+
+  client->error = &local_error;
+  g_main_loop_run (client->loop);
+  line = client->line;
+  client->line = NULL;
+  client->error = NULL;
+
+  if (local_error)
+    {
+      g_propagate_error (error, g_steal_pointer (&local_error));
+      return FALSE;
+    }
+
+  if (!line)
+    {
+      g_set_error (error,
+                   META_TEST_CLIENT_ERROR,
+                   META_TEST_CLIENT_ERROR_RUNTIME_ERROR,
+                   "test client exited");
+      return FALSE;
+    }
+
+  if (strcmp (line, "OK") != 0)
+    {
+      g_set_error (error,
+                   META_TEST_CLIENT_ERROR,
+                   META_TEST_CLIENT_ERROR_RUNTIME_ERROR,
+                   "%s", line);
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
 gboolean
 meta_test_client_dov (MetaTestClient  *client,
                       GError         **error,
                       va_list          vap)
 {
   GString *command = g_string_new (NULL);
-  char *line = NULL;
   GError *local_error = NULL;
 
   while (TRUE)
@@ -266,46 +335,11 @@ meta_test_client_dov (MetaTestClient  *client,
 
   g_string_append_c (command, '\n');
 
-  if (!g_data_output_stream_put_string (client->in, command->str,
-                                        client->cancellable, &local_error))
+  if (!meta_test_client_do_line (client, command->str, &local_error))
     goto out;
-
-  g_data_input_stream_read_line_async (client->out,
-                                       G_PRIORITY_DEFAULT,
-                                       client->cancellable,
-                                       test_client_line_read,
-                                       client);
-
-  client->error = &local_error;
-  g_main_loop_run (client->loop);
-  line = client->line;
-  client->line = NULL;
-  client->error = NULL;
-
-  if (!line)
-    {
-      if (!local_error)
-        {
-          g_set_error (&local_error,
-                       META_TEST_CLIENT_ERROR,
-                       META_TEST_CLIENT_ERROR_RUNTIME_ERROR,
-                       "test client exited");
-        }
-      goto out;
-    }
-
-  if (strcmp (line, "OK") != 0)
-    {
-      g_set_error (&local_error,
-                   META_TEST_CLIENT_ERROR,
-                   META_TEST_CLIENT_ERROR_RUNTIME_ERROR,
-                   "%s", line);
-      goto out;
-    }
 
  out:
   g_string_free (command, TRUE);
-  g_free (line);
 
   if (local_error)
     {
@@ -331,6 +365,29 @@ meta_test_client_do (MetaTestClient  *client,
   va_end (vap);
 
   return retval;
+}
+
+void
+meta_test_client_run (MetaTestClient *client,
+                      const char     *script)
+{
+  g_auto (GStrv) lines = NULL;
+  int i;
+
+  lines = g_strsplit (script, "\n", -1);
+  for (i = 0; lines[i]; i++)
+    {
+      g_autoptr (GError) error = NULL;
+
+      if (strlen (lines[i]) > 1)
+        {
+          g_autofree char *line = NULL;
+
+          line = g_strdup_printf ("%s\n", lines[i]);
+          if (!meta_test_client_do_line (client, line, &error))
+            g_error ("Failed to do line '%s': %s", lines[i], error->message);
+        }
+    }
 }
 
 gboolean
@@ -385,7 +442,7 @@ meta_test_client_find_window (MetaTestClient  *client,
                               const char      *window_id,
                               GError         **error)
 {
-  MetaDisplay *display = meta_get_display ();
+  MetaDisplay *display = meta_context_get_display (client->context);
   g_autofree char *expected_title = NULL;
   MetaWindow *window;
 
@@ -439,17 +496,20 @@ wait_for_showing_before_redraw (gpointer user_data)
 }
 
 void
-meta_test_client_wait_for_window_shown (MetaTestClient *client,
-                                        MetaWindow     *window)
+meta_wait_for_window_shown (MetaWindow *window)
 {
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaCompositor *compositor = meta_display_get_compositor (display);
+  MetaLaters *laters = meta_compositor_get_laters (compositor);
+
   WaitForShownData data = {
     .loop = g_main_loop_new (NULL, FALSE),
     .window = window,
   };
-  meta_later_add (META_LATER_BEFORE_REDRAW,
-                  wait_for_showing_before_redraw,
-                  &data,
-                  NULL);
+  meta_laters_add (laters, META_LATER_BEFORE_REDRAW,
+                   wait_for_showing_before_redraw,
+                   &data,
+                   NULL);
   g_main_loop_run (data.loop);
   g_clear_signal_handler (&data.shown_handler_id, window);
   g_main_loop_unref (data.loop);
@@ -566,16 +626,19 @@ meta_test_client_new (MetaContext           *context,
   ClientProcessHandler *process_handler;
   MetaWaylandCompositor *compositor;
   const char *wayland_display_name;
+#ifdef HAVE_XWAYLAND
   const char *x11_display_name;
+#endif
 
   launcher =  g_subprocess_launcher_new ((G_SUBPROCESS_FLAGS_STDIN_PIPE |
                                           G_SUBPROCESS_FLAGS_STDOUT_PIPE));
 
-  g_assert (meta_is_wayland_compositor ());
+  g_assert_true (meta_is_wayland_compositor ());
   compositor = meta_context_get_wayland_compositor (context);
   wayland_display_name = meta_wayland_get_wayland_display_name (compositor);
+#ifdef HAVE_XWAYLAND
   x11_display_name = meta_wayland_get_public_xwayland_display_name (compositor);
-
+#endif
   if (wayland_display_name)
     {
       g_subprocess_launcher_setenv (launcher,
@@ -583,16 +646,18 @@ meta_test_client_new (MetaContext           *context,
                                     TRUE);
     }
 
+#ifdef HAVE_XWAYLAND
   if (x11_display_name)
     {
       g_subprocess_launcher_setenv (launcher,
                                     "DISPLAY", x11_display_name,
                                     TRUE);
     }
+#endif
 
   subprocess = g_subprocess_launcher_spawn (launcher,
                                             error,
-                                            test_client_path,
+                                            test_runner_client_path,
                                             "--client-id",
                                             id,
                                             (type == META_WINDOW_CLIENT_TYPE_WAYLAND ?
@@ -611,6 +676,7 @@ meta_test_client_new (MetaContext           *context,
                                  process_handler);
 
   client = g_new0 (MetaTestClient, 1);
+  client->context = context;
   client->type = type;
   client->id = g_strdup (id);
   client->cancellable = g_cancellable_new ();
@@ -666,7 +732,7 @@ meta_test_client_quit (MetaTestClient  *client,
 void
 meta_test_client_destroy (MetaTestClient *client)
 {
-  MetaDisplay *display = meta_get_display ();
+  MetaDisplay *display = meta_context_get_display (client->context);
   MetaX11Display *x11_display;
   GError *error = NULL;
 
@@ -713,18 +779,43 @@ meta_set_custom_monitor_config_full (MetaBackend            *backend,
   MetaMonitorConfigManager *config_manager = monitor_manager->config_manager;
   MetaMonitorConfigStore *config_store;
   GError *error = NULL;
-  const char *path;
+  g_autofree char *path = NULL;
 
   g_assert_nonnull (config_manager);
 
   config_store = meta_monitor_config_manager_get_store (config_manager);
 
-  path = g_test_get_filename (G_TEST_DIST, "tests", "monitor-configs",
-                              filename, NULL);
+  path = g_test_build_filename (G_TEST_DIST, "tests", "monitor-configs",
+                                filename, NULL);
   if (!meta_monitor_config_store_set_custom (config_store, path, NULL,
                                              configs_flags,
                                              &error))
     g_warning ("Failed to set custom config: %s", error->message);
+}
+
+static void
+set_true_cb (gpointer user_data)
+{
+  gboolean *value = user_data;
+
+  *value = TRUE;
+}
+
+void
+meta_wait_for_monitors_changed (MetaContext *context)
+{
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaMonitorManager *monitor_manager = meta_backend_get_monitor_manager (backend);
+  gulong monitors_changed_handler_id;
+  gboolean monitors_changed = FALSE;
+
+  monitors_changed_handler_id =
+    g_signal_connect_swapped (monitor_manager, "monitors-changed",
+                              G_CALLBACK (set_true_cb), &monitors_changed);
+  while (!monitors_changed)
+    g_main_context_iteration (NULL, TRUE);
+
+  g_signal_handler_disconnect (monitor_manager, monitors_changed_handler_id);
 }
 
 static void
@@ -736,23 +827,37 @@ on_view_presented (ClutterStage      *stage,
   *presented_views = g_list_remove (*presented_views, view);
 }
 
+static void
+raise_error (const char *message)
+{
+  g_error ("%s", message);
+}
+
 void
 meta_wait_for_paint (MetaContext *context)
 {
   MetaBackend *backend = meta_context_get_backend (context);
   ClutterActor *stage = meta_backend_get_stage (backend);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
+  MetaMonitorManager *monitor_manager = meta_backend_get_monitor_manager (backend);
   GList *views;
-  gulong handler_id;
+  gulong presented_handler_id;
+  gulong monitors_changed_handler_id;
+
+  monitors_changed_handler_id =
+    g_signal_connect_swapped (monitor_manager, "monitors-changed",
+                              G_CALLBACK (raise_error),
+                              (char *) "Monitors changed while waiting for paint");
 
   clutter_actor_queue_redraw (stage);
 
   views = g_list_copy (meta_renderer_get_views (renderer));
-  handler_id = g_signal_connect (stage, "presented",
-                                 G_CALLBACK (on_view_presented), &views);
+  presented_handler_id = g_signal_connect (stage, "presented",
+                                           G_CALLBACK (on_view_presented), &views);
   while (views)
     g_main_context_iteration (NULL, TRUE);
-  g_signal_handler_disconnect (stage, handler_id);
+  g_signal_handler_disconnect (stage, presented_handler_id);
+  g_signal_handler_disconnect (monitor_manager, monitors_changed_handler_id);
 }
 
 MetaVirtualMonitor *
@@ -782,4 +887,248 @@ meta_create_test_monitor (MetaContext *context,
   meta_monitor_manager_reload (monitor_manager);
 
   return virtual_monitor;
+}
+
+#ifdef HAVE_NATIVE_BACKEND
+static GMutex mutex;
+static GCond cond;
+
+static gboolean
+queue_callback (GTask *task)
+{
+  g_mutex_lock (&mutex);
+  g_cond_signal (&cond);
+  g_mutex_unlock (&mutex);
+
+  g_task_return_boolean (task, TRUE);
+
+  return G_SOURCE_REMOVE;
+}
+#endif
+
+void
+meta_flush_input (MetaContext *context)
+{
+#ifdef HAVE_NATIVE_BACKEND
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterSeat *seat;
+  MetaSeatNative *seat_native;
+  g_autoptr (GTask) task = NULL;
+
+  g_assert_true (META_IS_BACKEND_NATIVE (backend));
+
+  seat = meta_backend_get_default_seat (backend);
+  seat_native = META_SEAT_NATIVE (seat);
+
+  task = g_task_new (backend, NULL, NULL, NULL);
+
+  g_mutex_lock (&mutex);
+
+  meta_seat_impl_run_input_task (seat_native->impl, task,
+                                 (GSourceFunc) queue_callback);
+
+  g_cond_wait (&cond, &mutex);
+  g_mutex_unlock (&mutex);
+#endif
+}
+
+GSubprocess *
+meta_launch_test_executable (GSubprocessFlags  subprocess_flags,
+                             const char       *name,
+                             const char       *argv0,
+                             ...)
+{
+  g_autoptr (GPtrArray) args = NULL;
+  const char *arg;
+  va_list ap;
+  g_autofree char *test_client_path = NULL;
+  GSubprocessLauncher *launcher;
+  GSubprocess *subprocess;
+  GError *error = NULL;
+
+  args = g_ptr_array_new ();
+
+  test_client_path = g_test_build_filename (G_TEST_BUILT, name, NULL);
+  g_ptr_array_add (args, test_client_path);
+
+  va_start (ap, argv0);
+  g_ptr_array_add (args, (char *) argv0);
+  while ((arg = va_arg (ap, const char *)))
+    g_ptr_array_add (args, (char *) arg);
+
+  g_ptr_array_add (args, NULL);
+  va_end (ap);
+
+  launcher = g_subprocess_launcher_new (subprocess_flags);
+  g_subprocess_launcher_setenv (launcher,
+                                "XDG_RUNTIME_DIR", getenv ("XDG_RUNTIME_DIR"),
+                                TRUE);
+  g_subprocess_launcher_setenv (launcher,
+                                "G_TEST_SRCDIR", g_test_get_dir (G_TEST_DIST),
+                                TRUE);
+  g_subprocess_launcher_setenv (launcher,
+                                "G_TEST_BUILDDIR", g_test_get_dir (G_TEST_BUILT),
+                                TRUE);
+  g_subprocess_launcher_setenv (launcher,
+                                "G_MESSAGES_DEBUG", "all",
+                                TRUE);
+  subprocess = g_subprocess_launcher_spawnv (launcher,
+                                             (const char * const *) args->pdata,
+                                             &error);
+  if (!subprocess)
+    g_error ("Failed to launch screen cast test client: %s", error->message);
+
+  return subprocess;
+}
+
+static void
+process_line (const char             *line,
+              MetaTestCommandWatcher *watcher)
+{
+  g_autoptr (GError) error = NULL;
+  g_auto (GStrv) argv = NULL;
+  int argc;
+
+  if (!g_shell_parse_argv (line, &argc, &argv, &error))
+    g_assert_no_error (error);
+
+  if (!watcher->func (argc, argv, watcher->user_data))
+    g_error ("Unknown command '%s'", line);
+
+  if (watcher->client_stdin)
+    {
+      g_output_stream_printf (watcher->client_stdin, NULL, NULL, &error,
+                              "OK\n");
+      g_assert_no_error (error);
+      g_output_stream_flush (watcher->client_stdin, NULL, &error);
+      g_assert_no_error (error);
+    }
+}
+
+static void
+line_read_cb (GObject      *source_object,
+              GAsyncResult *res,
+              gpointer      user_data)
+{
+  GDataInputStream *client_stdout = G_DATA_INPUT_STREAM (source_object);
+  MetaTestCommandWatcher *watcher = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autofree char *line = NULL;
+
+  line = g_data_input_stream_read_line_finish_utf8 (client_stdout,
+                                                    res,
+                                                    NULL,
+                                                    &error);
+  if (error)
+    {
+      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_error ("Failed to read line: %s", error->message);
+      return;
+    }
+
+  if (line)
+    process_line (line, watcher);
+
+  read_line_async (client_stdout, watcher);
+}
+
+static void
+read_line_async (GDataInputStream       *client_stdout,
+                 MetaTestCommandWatcher *watcher)
+{
+  g_data_input_stream_read_line_async (client_stdout,
+                                       G_PRIORITY_DEFAULT,
+                                       watcher->cancellable,
+                                       line_read_cb,
+                                       watcher);
+}
+
+static void
+watcher_test_client_exited (GObject      *source_object,
+                            GAsyncResult *result,
+                            gpointer      user_data)
+{
+  MetaTestCommandWatcher *watcher = user_data;
+  GError *error = NULL;
+
+  if (!g_subprocess_wait_finish (G_SUBPROCESS (source_object),
+                                 result,
+                                 &error))
+    g_error ("Screen cast test client exited with an error: %s", error->message);
+
+  g_cancellable_cancel (watcher->cancellable);
+  g_clear_object (&watcher->client_stdout);
+  g_clear_object (&watcher->client_stdin);
+  g_free (watcher);
+}
+
+void
+meta_test_process_watch_commands (GSubprocess         *subprocess,
+                                  MetaTestCommandFunc  func,
+                                  gpointer             user_data)
+{
+  MetaTestCommandWatcher *watcher;
+  GInputStream *stdout_stream;
+  GOutputStream *stdin_stream;
+
+  watcher = g_new0 (MetaTestCommandWatcher, 1);
+
+  watcher->func = func;
+  watcher->user_data = user_data;
+
+  stdout_stream = g_subprocess_get_stdout_pipe (subprocess);
+  if (stdout_stream)
+    watcher->client_stdout = g_data_input_stream_new (stdout_stream);
+
+  stdin_stream = g_subprocess_get_stdin_pipe (subprocess);
+  if (stdin_stream)
+    watcher->client_stdin = g_object_ref (stdin_stream);
+
+  watcher->cancellable = g_cancellable_new ();
+
+  read_line_async (watcher->client_stdout, watcher);
+
+  g_subprocess_wait_check_async (subprocess,
+                                 NULL,
+                                 watcher_test_client_exited,
+                                 watcher);
+}
+
+static void
+test_client_exited (GObject      *source_object,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+  GError *error = NULL;
+
+  if (!g_subprocess_wait_finish (G_SUBPROCESS (source_object),
+                                 result,
+                                 &error))
+    g_error ("Screen cast test client exited with an error: %s", error->message);
+
+  g_main_loop_quit (user_data);
+}
+
+void
+meta_wait_test_process (GSubprocess *subprocess)
+{
+  GMainLoop *loop;
+
+  loop = g_main_loop_new (NULL, FALSE);
+  g_subprocess_wait_check_async (subprocess,
+                                 NULL,
+                                 test_client_exited,
+                                 loop);
+  g_main_loop_run (loop);
+  g_assert_true (g_subprocess_get_successful (subprocess));
+}
+
+void
+meta_wait_for_window_cursor (MetaContext *context)
+{
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaCursorTracker *cursor_tracker = meta_backend_get_cursor_tracker (backend);
+
+  while (!meta_cursor_tracker_has_window_cursor (cursor_tracker))
+    g_main_context_iteration (NULL, TRUE);
 }

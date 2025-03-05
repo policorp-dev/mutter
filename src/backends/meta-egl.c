@@ -15,9 +15,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
@@ -45,6 +43,10 @@ struct _MetaEgl
 
   PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
   PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+
+  PFNEGLCREATESYNCPROC eglCreateSync;
+  PFNEGLDESTROYSYNCPROC eglDestroySync;
+  PFNEGLWAITSYNCPROC eglWaitSync;
 
   PFNEGLBINDWAYLANDDISPLAYWL eglBindWaylandDisplayWL;
   PFNEGLQUERYWAYLANDBUFFERWL eglQueryWaylandBufferWL;
@@ -160,6 +162,28 @@ set_egl_error (GError **error)
 
   error_number = eglGetError ();
   if (error_number == EGL_SUCCESS)
+    {
+      g_warning ("Expected an EGL error but eglGetError returned EGL_SUCCESS");
+      error_number = -1;
+    }
+
+  error_str = get_egl_error_str (error_number);
+  g_set_error_literal (error, META_EGL_ERROR,
+                       error_number,
+                       error_str);
+}
+
+static void
+check_egl_error (GError **error)
+{
+  EGLint error_number;
+  const char *error_str;
+
+  if (!error)
+    return;
+
+  error_number = eglGetError ();
+  if (error_number == EGL_SUCCESS)
     return;
 
   error_str = get_egl_error_str (error_number);
@@ -238,6 +262,14 @@ meta_egl_has_extensions (MetaEgl      *egl,
   va_end (var_args);
 
   return has_extensions;
+}
+
+const char *
+meta_egl_query_string (MetaEgl    *egl,
+                       EGLDisplay  display,
+                       EGLint      name)
+{
+  return eglQueryString (display, name);
 }
 
 gboolean
@@ -609,7 +641,7 @@ meta_egl_create_dmabuf_image (MetaEgl         *egl,
                               const uint64_t  *modifiers,
                               GError         **error)
 {
-  EGLint attribs[37];
+  EGLint attribs[39];
   int atti = 0;
 
   /* This requires the Mesa commit in
@@ -626,6 +658,8 @@ meta_egl_create_dmabuf_image (MetaEgl         *egl,
   attribs[atti++] = height;
   attribs[atti++] = EGL_LINUX_DRM_FOURCC_EXT;
   attribs[atti++] = drm_format;
+  attribs[atti++] = EGL_IMAGE_PRESERVED_KHR;
+  attribs[atti++] = EGL_TRUE;
 
   if (n_planes > 0)
     {
@@ -778,25 +812,32 @@ meta_egl_query_devices (MetaEgl      *egl,
   return TRUE;
 }
 
-const char *
-meta_egl_query_device_string (MetaEgl     *egl,
-                              EGLDeviceEXT device,
-                              EGLint       name,
-                              GError     **error)
+gboolean
+meta_egl_query_device_string (MetaEgl       *egl,
+                              EGLDeviceEXT   device,
+                              EGLint         name,
+                              const char   **out_string,
+                              GError       **error)
 {
+  g_autoptr (GError) local_error = NULL;
   const char *device_string;
 
   if (!is_egl_proc_valid (egl->eglQueryDeviceStringEXT, error))
-    return NULL;
+    return FALSE;
 
   device_string = egl->eglQueryDeviceStringEXT (device, name);
   if (!device_string)
     {
-      set_egl_error (error);
-      return NULL;
+      check_egl_error (&local_error);
+      if (local_error)
+        {
+          g_propagate_error (error, g_steal_pointer (&local_error));
+          return FALSE;
+        }
     }
 
-  return device_string;
+  *out_string = device_string;
+  return TRUE;
 }
 
 gboolean
@@ -809,14 +850,18 @@ meta_egl_egl_device_has_extensions (MetaEgl        *egl,
   va_list var_args;
   const char *extensions_str;
   gboolean has_extensions;
-  GError *error = NULL;
+  g_autoptr (GError) error = NULL;
 
-  extensions_str = meta_egl_query_device_string (egl, device, EGL_EXTENSIONS,
-                                                 &error);
-  if (!extensions_str)
+  if (!meta_egl_query_device_string (egl, device, EGL_EXTENSIONS,
+                                     &extensions_str, &error))
     {
       g_warning ("Failed to query device string: %s", error->message);
-      g_error_free (error);
+      return FALSE;
+    }
+
+  if (!extensions_str)
+    {
+      g_warning ("EGL_EXTENSIONS device string returned NULL");
       return FALSE;
     }
 
@@ -1121,6 +1166,69 @@ meta_egl_query_display_attrib (MetaEgl     *egl,
   return TRUE;
 }
 
+gboolean
+meta_egl_create_sync (MetaEgl           *egl,
+                      EGLDisplay         display,
+                      EGLenum            type,
+                      const EGLAttrib   *attrib_list,
+                      EGLSync           *egl_sync,
+                      GError           **error)
+{
+  EGLSync sync;
+
+  if (!is_egl_proc_valid (egl->eglCreateSync, error))
+    return FALSE;
+
+  sync = egl->eglCreateSync (display, type, attrib_list);
+
+  if (sync == EGL_NO_SYNC)
+    {
+      set_egl_error (error);
+      return FALSE;
+    }
+
+  *egl_sync = sync;
+
+  return TRUE;
+}
+
+gboolean
+meta_egl_destroy_sync (MetaEgl     *egl,
+                       EGLDisplay   display,
+                       EGLSync      sync,
+                       GError     **error)
+{
+  if (!is_egl_proc_valid (egl->eglDestroySync, error))
+    return FALSE;
+
+  if (!egl->eglDestroySync (display, sync))
+    {
+      set_egl_error (error);
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+gboolean
+meta_egl_wait_sync (MetaEgl     *egl,
+                    EGLDisplay   display,
+                    EGLSync      sync,
+                    EGLint       flags,
+                    GError     **error)
+{
+  if (!is_egl_proc_valid (egl->eglWaitSync, error))
+    return FALSE;
+
+  if (!egl->eglWaitSync (display, sync, flags))
+    {
+      set_egl_error (error);
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
 #define GET_EGL_PROC_ADDR(proc) \
   egl->proc = (void *) eglGetProcAddress (#proc);
 
@@ -1133,6 +1241,10 @@ meta_egl_constructed (GObject *object)
 
   GET_EGL_PROC_ADDR (eglCreateImageKHR);
   GET_EGL_PROC_ADDR (eglDestroyImageKHR);
+
+  GET_EGL_PROC_ADDR (eglCreateSync);
+  GET_EGL_PROC_ADDR (eglDestroySync);
+  GET_EGL_PROC_ADDR (eglWaitSync);
 
   GET_EGL_PROC_ADDR (eglBindWaylandDisplayWL);
   GET_EGL_PROC_ADDR (eglQueryWaylandBufferWL);

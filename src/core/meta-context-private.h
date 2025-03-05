@@ -12,20 +12,24 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_CONTEXT_PRIVATE_H
-#define META_CONTEXT_PRIVATE_H
+#pragma once
 
 #include "core/meta-private-enums.h"
+#include "core/meta-service-channel.h"
+#include "core/meta-session-manager.h"
 #include "core/util-private.h"
 #include "meta/meta-backend.h"
 #include "meta/meta-context.h"
+#include "meta/meta-debug-control.h"
 #include "wayland/meta-wayland-types.h"
+
+#ifdef HAVE_PROFILER
+#include "core/meta-profiler.h"
+#endif
 
 struct _MetaContextClass
 {
@@ -53,18 +57,25 @@ struct _MetaContextClass
 #ifdef HAVE_X11
   gboolean (* is_x11_sync) (MetaContext *context);
 #endif
+
+  MetaSessionManager * (* get_session_manager) (MetaContext *context);
 };
 
 const char * meta_context_get_name (MetaContext *context);
 
+const char * meta_context_get_nick (MetaContext *context);
+
 const char * meta_context_get_gnome_wm_keybindings (MetaContext *context);
 
-gboolean meta_context_get_unsafe_mode (MetaContext *context);
 void meta_context_set_unsafe_mode (MetaContext *context,
                                    gboolean     enable);
 
+gboolean meta_context_get_unsafe_mode (MetaContext *context);
+
+#ifdef HAVE_WAYLAND
 META_EXPORT_TEST
-MetaWaylandCompositor * meta_context_get_wayland_compositor (MetaContext *context);
+MetaServiceChannel * meta_context_get_service_channel (MetaContext *context);
+#endif
 
 MetaX11DisplayPolicy meta_context_get_x11_display_policy (MetaContext *context);
 
@@ -73,4 +84,17 @@ META_EXPORT_TEST
 gboolean meta_context_is_x11_sync (MetaContext *context);
 #endif
 
-#endif /* META_CONTEXT_PRIVATE_H */
+#ifdef HAVE_PROFILER
+MetaProfiler *
+meta_context_get_profiler (MetaContext *context);
+
+void meta_context_set_trace_file (MetaContext *context,
+                                  const char  *trace_file);
+#endif
+
+META_EXPORT_TEST
+MetaSessionManager * meta_context_get_session_manager (MetaContext *context);
+
+META_EXPORT_TEST
+void meta_context_set_plugin_options (MetaContext *context,
+                                      GVariant    *plugin_options);

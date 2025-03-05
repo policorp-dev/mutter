@@ -15,16 +15,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
  */
 
-#ifndef META_EGL_H
-#define META_EGL_H
+#pragma once
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -49,6 +46,10 @@ gboolean meta_egl_has_extensions (MetaEgl      *egl,
                                   const char ***missing_extensions,
                                   const char   *first_extension,
                                   ...);
+
+const char * meta_egl_query_string (MetaEgl    *egl,
+                                    EGLDisplay  display,
+                                    EGLint      name);
 
 gboolean meta_egl_initialize (MetaEgl   *egl,
                               EGLDisplay display,
@@ -176,10 +177,11 @@ gboolean meta_egl_query_devices (MetaEgl      *egl,
                                  EGLint       *num_devices,
                                  GError      **error);
 
-const char * meta_egl_query_device_string (MetaEgl     *egl,
-                                           EGLDeviceEXT device,
-                                           EGLint       name,
-                                           GError     **error);
+gboolean meta_egl_query_device_string (MetaEgl       *egl,
+                                       EGLDeviceEXT   device,
+                                       EGLint         name,
+                                       const char   **out_string,
+                                       GError       **error);
 
 gboolean meta_egl_egl_device_has_extensions (MetaEgl        *egl,
                                              EGLDeviceEXT    device,
@@ -275,4 +277,20 @@ gboolean meta_egl_query_display_attrib (MetaEgl     *egl,
                                         EGLAttrib   *value,
                                         GError     **error);
 
-#endif /* META_EGL_H */
+gboolean meta_egl_create_sync (MetaEgl           *egl,
+                               EGLDisplay         display,
+                               EGLenum            type,
+                               const EGLAttrib   *attrib_list,
+                               EGLSync           *egl_sync,
+                               GError           **error);
+
+gboolean meta_egl_destroy_sync (MetaEgl     *egl,
+                                EGLDisplay   display,
+                                EGLSync      sync,
+                                GError     **error);
+
+gboolean meta_egl_wait_sync (MetaEgl     *egl,
+                             EGLDisplay   display,
+                             EGLSync      sync,
+                             EGLint       flags,
+                             GError     **error);

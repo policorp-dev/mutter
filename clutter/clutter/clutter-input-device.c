@@ -32,27 +32,25 @@
  * its contents are usually defined by the Clutter backend in use.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-input-device.h"
+#include "clutter/clutter-input-device.h"
 
-#include "clutter-actor-private.h"
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-event-private.h"
-#include "clutter-marshal.h"
-#include "clutter-private.h"
-#include "clutter-stage-private.h"
-#include "clutter-input-device-private.h"
-#include "clutter-input-device-tool.h"
+#include "clutter/clutter-actor-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-event-private.h"
+#include "clutter/clutter-marshal.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-stage-private.h"
+#include "clutter/clutter-input-device-private.h"
+#include "clutter/clutter-input-device-tool.h"
 
 #include <math.h>
 
 enum
 {
   PROP_0,
-
-  PROP_BACKEND,
 
   PROP_NAME,
 
@@ -88,8 +86,6 @@ struct _ClutterInputDevicePrivate
   char *device_name;
 
   ClutterSeat *seat;
-
-  ClutterBackend *backend;
 
   char *vendor_id;
   char *product_id;
@@ -198,10 +194,6 @@ clutter_input_device_set_property (GObject      *gobject,
       priv->device_mode = g_value_get_enum (value);
       break;
 
-    case PROP_BACKEND:
-      priv->backend = g_value_get_object (value);
-      break;
-
     case PROP_NAME:
       priv->device_name = g_value_dup_string (value);
       break;
@@ -272,10 +264,6 @@ clutter_input_device_get_property (GObject    *gobject,
       g_value_set_enum (value, priv->device_mode);
       break;
 
-    case PROP_BACKEND:
-      g_value_set_object (value, priv->backend);
-      break;
-
     case PROP_NAME:
       g_value_set_string (value, priv->device_name);
       break;
@@ -329,11 +317,10 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * The name of the device
    */
   obj_props[PROP_NAME] =
-    g_param_spec_string ("name",
-                         P_("Name"),
-                         P_("The name of the device"),
+    g_param_spec_string ("name", NULL, NULL,
                          NULL,
-                         CLUTTER_PARAM_READWRITE |
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
                          G_PARAM_CONSTRUCT_ONLY);
 
   /**
@@ -342,12 +329,11 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * The type of the device
    */
   obj_props[PROP_DEVICE_TYPE] =
-    g_param_spec_enum ("device-type",
-                       P_("Device Type"),
-                       P_("The type of the device"),
+    g_param_spec_enum ("device-type", NULL, NULL,
                        CLUTTER_TYPE_INPUT_DEVICE_TYPE,
                        CLUTTER_POINTER_DEVICE,
-                       CLUTTER_PARAM_READWRITE |
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS |
                        G_PARAM_CONSTRUCT_ONLY);
 
   /**
@@ -356,11 +342,10 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * The capabilities of the device
    */
   obj_props[PROP_CAPABILITIES] =
-    g_param_spec_flags ("capabilities",
-                        P_("Capabilities"),
-                        P_("The capabilities of the device"),
+    g_param_spec_flags ("capabilities", NULL, NULL,
                         CLUTTER_TYPE_INPUT_CAPABILITIES, 0,
-                        CLUTTER_PARAM_READWRITE |
+                        G_PARAM_READWRITE |
+                        G_PARAM_STATIC_STRINGS |
                         G_PARAM_CONSTRUCT_ONLY);
 
   /**
@@ -369,11 +354,11 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * The #ClutterSeat instance which owns the device
    */
   obj_props[PROP_SEAT] =
-    g_param_spec_object ("seat",
-                         P_("Seat"),
-                         P_("Seat"),
+    g_param_spec_object ("seat", NULL, NULL,
                          CLUTTER_TYPE_SEAT,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT_ONLY);
 
   /**
    * ClutterInputDevice:mode:
@@ -381,12 +366,12 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * The mode of the device.
    */
   obj_props[PROP_DEVICE_MODE] =
-    g_param_spec_enum ("device-mode",
-                       P_("Device Mode"),
-                       P_("The mode of the device"),
+    g_param_spec_enum ("device-mode", NULL, NULL,
                        CLUTTER_TYPE_INPUT_MODE,
                        CLUTTER_INPUT_MODE_FLOATING,
-                       CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS |
+                       G_PARAM_CONSTRUCT_ONLY);
 
   /**
    * ClutterInputDevice:has-cursor:
@@ -394,23 +379,11 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * Whether the device has an on screen cursor following its movement.
    */
   obj_props[PROP_HAS_CURSOR] =
-    g_param_spec_boolean ("has-cursor",
-                          P_("Has Cursor"),
-                          P_("Whether the device has a cursor"),
+    g_param_spec_boolean ("has-cursor", NULL, NULL,
                           FALSE,
-                          CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
-
-  /**
-   * ClutterInputDevice:backend:
-   *
-   * The #ClutterBackend that created the device.
-   */
-  obj_props[PROP_BACKEND] =
-    g_param_spec_object ("backend",
-                         P_("Backend"),
-                         P_("The backend instance"),
-                         CLUTTER_TYPE_BACKEND,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                          G_PARAM_READWRITE |
+                          G_PARAM_STATIC_STRINGS |
+                          G_PARAM_CONSTRUCT_ONLY);
 
   /**
    * ClutterInputDevice:vendor-id:
@@ -418,11 +391,11 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * Vendor ID of this device.2
    */
   obj_props[PROP_VENDOR_ID] =
-    g_param_spec_string ("vendor-id",
-                         P_("Vendor ID"),
-                         P_("Vendor ID"),
+    g_param_spec_string ("vendor-id", NULL, NULL,
                          NULL,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT_ONLY);
 
   /**
    * ClutterInputDevice:product-id:
@@ -430,46 +403,46 @@ clutter_input_device_class_init (ClutterInputDeviceClass *klass)
    * Product ID of this device.2
    */
   obj_props[PROP_PRODUCT_ID] =
-    g_param_spec_string ("product-id",
-                         P_("Product ID"),
-                         P_("Product ID"),
+    g_param_spec_string ("product-id", NULL, NULL,
                          NULL,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT_ONLY);
 
   obj_props[PROP_N_RINGS] =
-    g_param_spec_int ("n-rings",
-                      P_("Number of rings"),
-                      P_("Number of rings (circular sliders) in this device"),
+    g_param_spec_int ("n-rings", NULL, NULL,
                       0, G_MAXINT, 0,
-                      CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS |
+                      G_PARAM_CONSTRUCT_ONLY);
 
   obj_props[PROP_N_STRIPS] =
-    g_param_spec_int ("n-strips",
-                      P_("Number of strips"),
-                      P_("Number of strips (linear sliders) in this device"),
+    g_param_spec_int ("n-strips", NULL, NULL,
                       0, G_MAXINT, 0,
-                      CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS |
+                      G_PARAM_CONSTRUCT_ONLY);
 
   obj_props[PROP_N_MODE_GROUPS] =
-    g_param_spec_int ("n-mode-groups",
-                      P_("Number of mode groups"),
-                      P_("Number of mode groups"),
+    g_param_spec_int ("n-mode-groups", NULL, NULL,
                       0, G_MAXINT, 0,
-                      CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS |
+                      G_PARAM_CONSTRUCT_ONLY);
 
   obj_props[PROP_N_BUTTONS] =
-    g_param_spec_int ("n-buttons",
-                      P_("Number of buttons"),
-                      P_("Number of buttons"),
+    g_param_spec_int ("n-buttons", NULL, NULL,
                       0, G_MAXINT, 0,
-                      CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS |
+                      G_PARAM_CONSTRUCT_ONLY);
 
   obj_props[PROP_DEVICE_NODE] =
-    g_param_spec_string ("device-node",
-                         P_("Device node path"),
-                         P_("Device node path"),
+    g_param_spec_string ("device-node", NULL, NULL,
                          NULL,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT_ONLY);
 
   gobject_class->constructed = clutter_input_device_constructed;
   gobject_class->dispose = clutter_input_device_dispose;
@@ -788,4 +761,26 @@ clutter_input_device_get_seat (ClutterInputDevice *device)
   g_return_val_if_fail (CLUTTER_IS_INPUT_DEVICE (device), NULL);
 
   return priv->seat;
+}
+
+/**
+ * clutter_input_device_get_dimensions:
+ * @device: a #ClutterInputDevice
+ * @width: (out): Return location for device width (in millimeters)
+ * @height: (out): Return location for device height (in millimeters)
+ *
+ * Returns: %TRUE if the device reports the physical size of its input area.
+ **/
+gboolean
+clutter_input_device_get_dimensions (ClutterInputDevice *device,
+                                     unsigned int       *width,
+                                     unsigned int       *height)
+{
+  g_return_val_if_fail (CLUTTER_IS_INPUT_DEVICE (device), FALSE);
+  g_return_val_if_fail (width != NULL && height != NULL, FALSE);
+
+  if (!CLUTTER_INPUT_DEVICE_GET_CLASS (device)->get_dimensions)
+    return FALSE;
+
+  return CLUTTER_INPUT_DEVICE_GET_CLASS (device)->get_dimensions (device, width, height);
 }

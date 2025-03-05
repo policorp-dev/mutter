@@ -28,16 +28,15 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_PIPELINE_LAYER_STATE_H__
-#define __COGL_PIPELINE_LAYER_STATE_H__
-
-#include <cogl/cogl-pipeline.h>
-#include <cogl/cogl-color.h>
-#include <cogl/cogl-texture.h>
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-color.h"
+#include "cogl/cogl-texture.h"
 
 G_BEGIN_DECLS
 
@@ -104,8 +103,6 @@ typedef enum
  * if you are trying to render the full texture then you may get
  * artifacts around the edges when the pixels from the other side are
  * merged in if the wrap mode is set to repeat.
- *
- * Since: 2.0
  */
 /* GL_ALWAYS is just used here as a value that is known not to clash
  * with any valid GL wrap modes
@@ -143,11 +140,8 @@ typedef enum
  * explicitly specify the type of default texture required, use
  * cogl_pipeline_set_layer_null_texture() instead.
  *
- * <note>In the future, we may define other types of pipeline layers, such
- * as purely GLSL based layers.</note>
- *
- * Since: 2.0
- * Stability: unstable
+ * In the future, we may define other types of pipeline layers, such
+ * as purely GLSL based layers.
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_texture (CoglPipeline *pipeline,
@@ -167,9 +161,6 @@ cogl_pipeline_set_layer_texture (CoglPipeline *pipeline,
  * cogl_pipeline_copy(). In that case this function can be used to
  * specify the texture type so that any pipeline copies can share the
  * internal texture type state for efficiency.
- *
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_null_texture (CoglPipeline *pipeline,
@@ -182,8 +173,6 @@ cogl_pipeline_set_layer_null_texture (CoglPipeline *pipeline,
  *
  * Return value: (transfer none): the texture that was set for the
  *   given layer of the pipeline or %NULL if no texture was set.
- * Stability: unstable
- * Since: 1.10
  */
 COGL_EXPORT CoglTexture *
 cogl_pipeline_get_layer_texture (CoglPipeline *pipeline,
@@ -195,8 +184,6 @@ cogl_pipeline_get_layer_texture (CoglPipeline *pipeline,
  * @layer_index: Specifies the layer you want to remove
  *
  * This function removes a layer from your pipeline
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_remove_layer (CoglPipeline *pipeline,
@@ -206,95 +193,68 @@ cogl_pipeline_remove_layer (CoglPipeline *pipeline,
  * cogl_pipeline_set_layer_combine:
  * @pipeline: A #CoglPipeline object
  * @layer_index: Specifies the layer you want define a combine function for
- * @blend_string: A <link linkend="cogl-Blend-Strings">Cogl blend string</link>
- *    describing the desired texture combine function.
+ * @blend_string: A Cogl blend string describing the desired
+ *  texture combine function.
  * @error: A #GError that may report parse errors or lack of GPU/driver
  *   support. May be %NULL, in which case a warning will be printed out if an
  *   error is encountered.
  *
- * If not already familiar; you can refer
- * <link linkend="cogl-Blend-Strings">here</link> for an overview of what blend
- * strings are and there syntax.
  *
  * These are all the functions available for texture combining:
- * <itemizedlist>
- *   <listitem>REPLACE(arg0) = arg0</listitem>
- *   <listitem>MODULATE(arg0, arg1) = arg0 x arg1</listitem>
- *   <listitem>ADD(arg0, arg1) = arg0 + arg1</listitem>
- *   <listitem>ADD_SIGNED(arg0, arg1) = arg0 + arg1 - 0.5</listitem>
- *   <listitem>INTERPOLATE(arg0, arg1, arg2) = arg0 x arg2 + arg1 x (1 - arg2)</listitem>
- *   <listitem>SUBTRACT(arg0, arg1) = arg0 - arg1</listitem>
- *   <listitem>
- *     <programlisting>
+ * 
+ * - `REPLACE(arg0) = arg0`
+ * - `MODULATE(arg0, arg1) = arg0 x arg1`
+ * - `ADD(arg0, arg1) = arg0 + arg1`
+ * - `ADD_SIGNED(arg0, arg1) = arg0 + arg1 - 0.5`
+ * - `INTERPOLATE(arg0, arg1, arg2) = arg0 x arg2 + arg1 x (1 - arg2)`
+ * - `SUBTRACT(arg0, arg1) = arg0 - arg1`
+ * - 
+ * ```
  *  DOT3_RGB(arg0, arg1) = 4 x ((arg0[R] - 0.5)) * (arg1[R] - 0.5) +
  *                              (arg0[G] - 0.5)) * (arg1[G] - 0.5) +
  *                              (arg0[B] - 0.5)) * (arg1[B] - 0.5))
- *     </programlisting>
- *   </listitem>
- *   <listitem>
- *     <programlisting>
+ * ```
+ * -
+ * ```
  *  DOT3_RGBA(arg0, arg1) = 4 x ((arg0[R] - 0.5)) * (arg1[R] - 0.5) +
  *                               (arg0[G] - 0.5)) * (arg1[G] - 0.5) +
  *                               (arg0[B] - 0.5)) * (arg1[B] - 0.5))
- *     </programlisting>
- *   </listitem>
- * </itemizedlist>
+ * ```
  *
- * Refer to the
- * <link linkend="cogl-Blend-String-syntax">color-source syntax</link> for
- * describing the arguments. The valid source names for texture combining
- * are:
- * <variablelist>
- *   <varlistentry>
- *     <term>TEXTURE</term>
- *     <listitem>Use the color from the current texture layer</listitem>
- *   </varlistentry>
- *   <varlistentry>
- *     <term>TEXTURE_0, TEXTURE_1, etc</term>
- *     <listitem>Use the color from the specified texture layer</listitem>
- *   </varlistentry>
- *   <varlistentry>
- *     <term>CONSTANT</term>
- *     <listitem>Use the color from the constant given with
- *     cogl_pipeline_set_layer_combine_constant()</listitem>
- *   </varlistentry>
- *   <varlistentry>
- *     <term>PRIMARY</term>
- *     <listitem>Use the color of the pipeline as set with
- *     cogl_pipeline_set_color()</listitem>
- *   </varlistentry>
- *   <varlistentry>
- *     <term>PREVIOUS</term>
- *     <listitem>Either use the texture color from the previous layer, or
+ * The valid source names for texture combining are:
+ * 
+ * - `TEXTURE`: Use the color from the current texture layer
+ * - `TEXTURE_0, TEXTURE_1, etc`: Use the color from the specified texture layer
+ * - `CONSTANT`: Use the color from the constant given with
+ *     [method@Cogl.Pipeline.set_layer_combine_constant]
+ * - `PRIMARY`: Use the color of the pipeline as set with
+ *     [method@Cogl.Pipeline.set_color]
+ * - `PREVIOUS`: Either use the texture color from the previous layer, or
  *     if this is layer 0, use the color of the pipeline as set with
- *     cogl_pipeline_set_color()</listitem>
- *   </varlistentry>
- * </variablelist>
+ *     [method@Cogl.Pipeline.set_color]
+ * 
+ * Layer Combine Examples:
+ * 
+ * This is effectively what the default blending is:
+ * 
+ * ```
+ * RGBA = MODULATE (PREVIOUS, TEXTURE)
+ * ```
+ * 
+ * This could be used to cross-fade between two images, using
+ * the alpha component of a constant as the interpolator. The constant
+ * color is given by calling [method@Cogl.Pipeline.set_layer_combine_constant].
+ * 
+ * ```
+ * RGBA = INTERPOLATE (PREVIOUS, TEXTURE, CONSTANT[A])
+ * ```
  *
- * <refsect2 id="cogl-Layer-Combine-Examples">
- *   <title>Layer Combine Examples</title>
- *   <para>This is effectively what the default blending is:</para>
- *   <informalexample><programlisting>
- *   RGBA = MODULATE (PREVIOUS, TEXTURE)
- *   </programlisting></informalexample>
- *   <para>This could be used to cross-fade between two images, using
- *   the alpha component of a constant as the interpolator. The constant
- *   color is given by calling
- *   cogl_pipeline_set_layer_combine_constant().</para>
- *   <informalexample><programlisting>
- *   RGBA = INTERPOLATE (PREVIOUS, TEXTURE, CONSTANT[A])
- *   </programlisting></informalexample>
- * </refsect2>
- *
- * <note>You can't give a multiplication factor for arguments as you can
- * with blending.</note>
+ * You can't give a multiplication factor for arguments as you can
+ * with blending.
  *
  * Return value: %TRUE if the blend string was successfully parsed, and the
  *   described texture combining is supported by the underlying driver and
  *   or hardware. On failure, %FALSE is returned and @error is set
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT gboolean
 cogl_pipeline_set_layer_combine (CoglPipeline *pipeline,
@@ -311,9 +271,6 @@ cogl_pipeline_set_layer_combine (CoglPipeline *pipeline,
  *
  * When you are using the 'CONSTANT' color source in a layer combine
  * description then you can use this function to define its value.
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_combine_constant (CoglPipeline    *pipeline,
@@ -328,9 +285,6 @@ cogl_pipeline_set_layer_combine_constant (CoglPipeline    *pipeline,
  *
  * This function lets you set a matrix that can be used to e.g. translate
  * and rotate a single layer of a pipeline used to fill your geometry.
- *
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_matrix (CoglPipeline     *pipeline,
@@ -344,12 +298,27 @@ cogl_pipeline_set_layer_matrix (CoglPipeline     *pipeline,
  * Retrieves the number of layers defined for the given @pipeline
  *
  * Return value: the number of layers
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT int
 cogl_pipeline_get_n_layers (CoglPipeline *pipeline);
+
+/**
+ * cogl_pipeline_get_layer_filters:
+ * @pipeline: A #CoglPipeline object
+ * @layer_index: the layer number to change.
+ * @min_filter: (out): Return location for the filter used when scaling
+ *   a texture down.
+ * @mag_filter: (out): Return location for the filter used when magnifying
+ *   a texture.
+ *
+ * Returns the decimation and interpolation filters used when a texture is
+ * drawn at other scales than 100%.
+ */
+COGL_EXPORT void
+cogl_pipeline_get_layer_filters (CoglPipeline       *pipeline,
+                                 int                 layer_index,
+                                 CoglPipelineFilter *min_filter,
+                                 CoglPipelineFilter *mag_filter);
 
 /**
  * cogl_pipeline_set_layer_filters:
@@ -361,61 +330,16 @@ cogl_pipeline_get_n_layers (CoglPipeline *pipeline);
  * Changes the decimation and interpolation filters used when a texture is
  * drawn at other scales than 100%.
  *
- * <note>It is an error to pass anything other than
+ * It is an error to pass anything other than
  * %COGL_PIPELINE_FILTER_NEAREST or %COGL_PIPELINE_FILTER_LINEAR as
  * magnification filters since magnification doesn't ever need to
- * reference values stored in the mipmap chain.</note>
- *
- * Since: 1.10
- * Stability: unstable
+ * reference values stored in the mipmap chain.
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_filters (CoglPipeline      *pipeline,
                                  int                layer_index,
                                  CoglPipelineFilter min_filter,
                                  CoglPipelineFilter mag_filter);
-
-/**
- * cogl_pipeline_get_layer_min_filter:
- * @pipeline: A #CoglPipeline object
- * @layer_index: the layer number to change.
- *
- * Retrieves the currently set minification #CoglPipelineFilter set on
- * the specified layer. The miniifcation filter determines how the
- * layer should be sampled when down-scaled.
- *
- * The default filter is %COGL_PIPELINE_FILTER_LINEAR but this can be
- * changed using cogl_pipeline_set_layer_filters().
- *
- * Return value: The minification #CoglPipelineFilter for the
- *               specified layer.
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT CoglPipelineFilter
-cogl_pipeline_get_layer_min_filter (CoglPipeline *pipeline,
-                                    int layer_index);
-
-/**
- * cogl_pipeline_get_layer_mag_filter:
- * @pipeline: A #CoglPipeline object
- * @layer_index: the layer number to change.
- *
- * Retrieves the currently set magnification #CoglPipelineFilter set on
- * the specified layer. The magnification filter determines how the
- * layer should be sampled when up-scaled.
- *
- * The default filter is %COGL_PIPELINE_FILTER_LINEAR but this can be
- * changed using cogl_pipeline_set_layer_filters().
- *
- * Return value: The magnification #CoglPipelineFilter for the
- *               specified layer.
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT CoglPipelineFilter
-cogl_pipeline_get_layer_mag_filter (CoglPipeline *pipeline,
-                                    int layer_index);
 
 /**
  * cogl_pipeline_set_layer_point_sprite_coords_enabled:
@@ -432,8 +356,6 @@ cogl_pipeline_get_layer_mag_filter (CoglPipeline *pipeline,
  * fixed for the entire point.
  *
  * Return value: %TRUE if the function succeeds, %FALSE otherwise.
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT gboolean
 cogl_pipeline_set_layer_point_sprite_coords_enabled (CoglPipeline *pipeline,
@@ -451,9 +373,6 @@ cogl_pipeline_set_layer_point_sprite_coords_enabled (CoglPipeline *pipeline,
  *
  * Return value: whether the texture coordinates will be replaced with
  * point sprite coordinates.
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT gboolean
 cogl_pipeline_get_layer_point_sprite_coords_enabled (CoglPipeline *pipeline,
@@ -469,9 +388,6 @@ cogl_pipeline_get_layer_point_sprite_coords_enabled (CoglPipeline *pipeline,
  *
  * Return value: the wrap mode for the 's' coordinate of texture lookups on
  * this layer.
- *
- * Since: 1.6
- * Stability: unstable
  */
 COGL_EXPORT CoglPipelineWrapMode
 cogl_pipeline_get_layer_wrap_mode_s (CoglPipeline *pipeline,
@@ -484,9 +400,6 @@ cogl_pipeline_get_layer_wrap_mode_s (CoglPipeline *pipeline,
  * @mode: the new wrap mode
  *
  * Sets the wrap mode for the 's' coordinate of texture lookups on this layer.
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_wrap_mode_s (CoglPipeline        *pipeline,
@@ -503,9 +416,6 @@ cogl_pipeline_set_layer_wrap_mode_s (CoglPipeline        *pipeline,
  *
  * Return value: the wrap mode for the 't' coordinate of texture lookups on
  * this layer.
- *
- * Since: 1.6
- * Stability: unstable
  */
 COGL_EXPORT CoglPipelineWrapMode
 cogl_pipeline_get_layer_wrap_mode_t (CoglPipeline *pipeline,
@@ -519,9 +429,6 @@ cogl_pipeline_get_layer_wrap_mode_t (CoglPipeline *pipeline,
  * @mode: the new wrap mode
  *
  * Sets the wrap mode for the 't' coordinate of texture lookups on this layer.
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_wrap_mode_t (CoglPipeline        *pipeline,
@@ -538,9 +445,6 @@ cogl_pipeline_set_layer_wrap_mode_t (CoglPipeline        *pipeline,
  * this layer. This is equivalent to calling
  * cogl_pipeline_set_layer_wrap_mode_s() and
  * cogl_pipeline_set_layer_wrap_mode_t() separately.
- *
- * Since: 2.0
- * Stability: unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_layer_wrap_mode (CoglPipeline        *pipeline,
@@ -558,9 +462,6 @@ cogl_pipeline_set_layer_wrap_mode (CoglPipeline        *pipeline,
  * around depends on the hook that is given to
  * cogl_snippet_new(). Note that some hooks can't be used with a layer
  * and need to be added with cogl_pipeline_add_snippet() instead.
- *
- * Since: 1.10
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_add_layer_snippet (CoglPipeline *pipeline,
@@ -573,5 +474,3 @@ cogl_pipeline_set_layer_max_mipmap_level (CoglPipeline *pipeline,
                                           int           max_level);
 
 G_END_DECLS
-
-#endif /* __COGL_PIPELINE_LAYER_STATE_H__ */

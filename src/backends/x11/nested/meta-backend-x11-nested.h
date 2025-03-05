@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_BACKEND_X11_NESTED_H
-#define META_BACKEND_X11_NESTED_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -26,15 +23,7 @@
 #include "core/util-private.h"
 
 #define META_TYPE_BACKEND_X11_NESTED (meta_backend_x11_nested_get_type ())
-META_EXPORT_TEST
-G_DECLARE_DERIVABLE_TYPE (MetaBackendX11Nested, meta_backend_x11_nested,
-                          META, BACKEND_X11_NESTED, MetaBackendX11)
-
-struct _MetaBackendX11NestedClass
-{
-  MetaBackendX11Class parent_class;
-
-  void (* init_gpus) (MetaBackendX11Nested *backend_x11_nested);
-};
-
-#endif /* META_BACKEND_X11_NESTED_H */
+G_DECLARE_FINAL_TYPE (MetaBackendX11Nested,
+                      meta_backend_x11_nested,
+                      META, BACKEND_X11_NESTED,
+                      MetaBackendX11)

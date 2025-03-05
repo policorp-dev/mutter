@@ -14,16 +14,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_WAYLAND_OUTPUTS_H
-#define META_WAYLAND_OUTPUTS_H
+#pragma once
 
 #include "backends/meta-monitor-manager-private.h"
 #include "wayland/meta-wayland-private.h"
@@ -34,10 +31,10 @@ G_DECLARE_FINAL_TYPE (MetaWaylandOutput, meta_wayland_output,
 
 const GList * meta_wayland_output_get_resources (MetaWaylandOutput *wayland_output);
 
-MetaLogicalMonitor * meta_wayland_output_get_logical_monitor (MetaWaylandOutput *wayland_output);
+MetaMonitor * meta_wayland_output_get_monitor (MetaWaylandOutput *wayland_output);
+
+MetaMonitorMode * meta_wayland_output_get_monitor_mode (MetaWaylandOutput *wayland_output);
 
 void meta_wayland_outputs_finalize (MetaWaylandCompositor *compositor);
 
 void meta_wayland_outputs_init (MetaWaylandCompositor *compositor);
-
-#endif /* META_WAYLAND_OUTPUTS_H */

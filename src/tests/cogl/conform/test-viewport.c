@@ -12,7 +12,7 @@
 #define FRAMEBUFFER_WIDTH  640
 #define FRAMEBUFFER_HEIGHT 480
 
-static const ClutterColor stage_color = { 0x0, 0x0, 0x0, 0xff };
+static const CoglColor stage_color = { 0x0, 0x0, 0x0, 0xff };
 
 static void
 assert_region_color (int x,
@@ -34,10 +34,10 @@ assert_region_color (int x,
       {
         uint8_t *pixel = &data[y*width*4 + x*4];
 #if 1
-        g_assert (pixel[RED] == red &&
-                  pixel[GREEN] == green &&
-                  pixel[BLUE] == blue &&
-                  pixel[ALPHA] == alpha);
+        g_assert_true (pixel[RED] == red &&
+                       pixel[GREEN] == green &&
+                       pixel[BLUE] == blue &&
+                       pixel[ALPHA] == alpha);
 #endif
       }
   g_free (data);
@@ -64,19 +64,19 @@ assert_rectangle_color_and_black_border (int x,
   assert_region_color (x-10, y+height, width+20, 10, 0x00, 0x00, 0x00, 0xff);
 }
 
-
 static void
-on_after_paint (ClutterActor        *actor,
-                ClutterPaintContext *paint_context,
-                void                *state)
+on_after_paint (ClutterActor     *actor,
+                ClutterStageView *view,
+                ClutterFrame     *frame,
+                void             *state)
 {
   float saved_viewport[4];
   graphene_matrix_t saved_projection;
   graphene_matrix_t projection;
   graphene_matrix_t modelview;
   guchar *data;
-  CoglHandle tex;
-  CoglHandle offscreen;
+  CoglTexture *tex;
+  CoglOffscreen *offscreen;
   CoglColor black;
   float x0;
   float y0;
@@ -84,7 +84,7 @@ on_after_paint (ClutterActor        *actor,
   float height;
 
   /* for clearing the offscreen framebuffer to black... */
-  cogl_color_init_from_4ub (&black, 0x00, 0x00, 0x00, 0xff);
+  cogl_color_init_from_4f (&black, 0.0, 0.0, 0.0, 1.0);
 
   cogl_get_viewport (saved_viewport);
   cogl_get_projection_matrix (&saved_projection);
@@ -363,7 +363,7 @@ on_after_paint (ClutterActor        *actor,
   cogl_rectangle (-1, 1, 1, -1);
 #endif
 
-  cogl_object_unref (tex);
+  g_object_unref (tex);
 
   /* Finally restore the stage's original state... */
   cogl_pop_matrix ();

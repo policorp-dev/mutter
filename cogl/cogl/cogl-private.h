@@ -28,15 +28,15 @@
  *
  */
 
-#ifndef __COGL_PRIVATE_H__
-#define __COGL_PRIVATE_H__
+#pragma once
 
-#include <cogl/cogl-pipeline.h>
-
-#include "cogl-context.h"
-#include "cogl-flags.h"
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-flags.h"
 
 G_BEGIN_DECLS
+
+#define I_(str)  (g_intern_static_string ((str)))
 
 typedef enum
 {
@@ -46,11 +46,10 @@ typedef enum
   COGL_PRIVATE_FEATURE_EXT_PACKED_DEPTH_STENCIL,
   COGL_PRIVATE_FEATURE_OES_PACKED_DEPTH_STENCIL,
   COGL_PRIVATE_FEATURE_TEXTURE_FORMAT_BGRA8888,
-  COGL_PRIVATE_FEATURE_TEXTURE_FORMAT_RGBA1010102,
-  COGL_PRIVATE_FEATURE_TEXTURE_FORMAT_HALF_FLOAT,
+  COGL_PRIVATE_FEATURE_TEXTURE_FORMAT_SIZED_RGBA,
   COGL_PRIVATE_FEATURE_UNPACK_SUBIMAGE,
   COGL_PRIVATE_FEATURE_SAMPLER_OBJECTS,
-  COGL_PRIVATE_FEATURE_READ_PIXELS_ANY_FORMAT,
+  COGL_PRIVATE_FEATURE_READ_PIXELS_ANY_STRIDE,
   COGL_PRIVATE_FEATURE_FORMAT_CONVERSION,
   COGL_PRIVATE_FEATURE_QUERY_FRAMEBUFFER_BITS,
   COGL_PRIVATE_FEATURE_QUERY_TEXTURE_PARAMETERS,
@@ -74,30 +73,10 @@ typedef enum
   COGL_N_PRIVATE_FEATURES
 } CoglPrivateFeature;
 
-/* Sometimes when evaluating pipelines, either during comparisons or
- * if calculating a hash value we need to tweak the evaluation
- * semantics */
-typedef enum _CoglPipelineEvalFlags
-{
-  COGL_PIPELINE_EVAL_FLAG_NONE = 0
-} CoglPipelineEvalFlags;
-
-void
-_cogl_transform_point (const graphene_matrix_t *matrix_mv,
-                       const graphene_matrix_t *matrix_p,
-                       const float             *viewport,
-                       float                   *x,
-                       float                   *y);
-
 gboolean
 _cogl_check_extension (const char *name, char * const *ext);
-
-void
-_cogl_init (void);
 
 #define _cogl_has_private_feature(ctx, feature) \
   COGL_FLAGS_GET ((ctx)->private_features, (feature))
 
 G_END_DECLS
-
-#endif /* __COGL_PRIVATE_H__ */

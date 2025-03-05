@@ -1,11 +1,10 @@
 /* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; -*- */
 
-#ifndef META_BACKGROUND_GROUP_H
-#define META_BACKGROUND_GROUP_H
+#pragma once
 
 #include "clutter/clutter.h"
 
-#include <meta/common.h>
+#include "meta/common.h"
 
 #define META_TYPE_BACKGROUND_GROUP (meta_background_group_get_type ())
 
@@ -22,5 +21,3 @@ struct _MetaBackgroundGroupClass
 
 META_EXPORT
 ClutterActor *meta_background_group_new (void);
-
-#endif /* META_BACKGROUND_GROUP_H */

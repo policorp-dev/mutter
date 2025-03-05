@@ -3,7 +3,7 @@ cogl_tests = [
   [ 'test-blend-strings', [] ],
   [ 'test-blend', [] ],
   [ 'test-depth-test', [] ],
-  [ 'test-color-hsl', [] ],
+  [ 'test-color', [] ],
   [ 'test-backface-culling', [] ],
   [ 'test-just-vertex-shader', [] ],
   [ 'test-pipeline-user-matrix', [] ],
@@ -15,15 +15,16 @@ cogl_tests = [
   [ 'test-sub-texture', [] ],
   [ 'test-custom-attributes', [] ],
   [ 'test-offscreen', [] ],
+  [ 'test-offscreen-texture-formats', [] ],
   [ 'test-journal', [] ],
   [ 'test-primitive', [] ],
   [ 'test-sparse-pipeline', [] ],
-  [ 'test-read-texture-formats', ['gl', 'gl3'] ],
+  [ 'test-read-texture-formats', ['gl3'] ],
   [ 'test-write-texture-formats', [] ],
   [ 'test-point-size', [] ],
   [ 'test-point-size-attribute', [] ],
   [ 'test-point-sprite', [] ],
-  [ 'test-point-sprite-known-failure', ['gl', 'gl3', 'gles2'] ],
+  [ 'test-point-sprite-known-failure', ['gl3', 'gles2'] ],
   [ 'test-no-gl-header', [] ],
   [ 'test-layer-remove', [] ],
   [ 'test-alpha-test', [] ],
@@ -35,16 +36,13 @@ cogl_tests = [
   [ 'test-primitive-and-journal', [] ],
   [ 'test-copy-replace-texture', [] ],
   [ 'test-pipeline-cache-unrefs-texture', [] ],
-  [ 'test-texture-no-allocate', [] ],
   [ 'test-pipeline-shader-state', [] ],
   [ 'test-texture-rg', [] ],
-  [ 'test-fence', [] ],
 ]
 
 #unported = [
 #  "test-multitexture",
 #  "test-npot-texture",
-#  "test-object",
 #  "test-readpixels",
 #  "test-texture-mipmaps",
 #  "test-texture-pixmap-x11",
@@ -58,9 +56,6 @@ cogl_test_conformance_includes = [
 
 cogl_test_c_args = [
   cogl_debug_c_args,
-  '-DCOGL_ENABLE_EXPERIMENTAL_API',
-  '-DCOGL_DISABLE_DEPRECATED',
-  '-DCOGL_DISABLE_DEPRECATION_WARNINGS',
   '-DTESTS_DATADIR="@0@/tests/data"'.format(cogl_srcdir),
   '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
 ]
@@ -69,8 +64,9 @@ test_env = environment()
 test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 test_env.set('G_ENABLE_DIAGNOSTIC', '0')
+test_env.set('GSETTINGS_SCHEMA_DIR', locally_compiled_schemas_dir)
 
-cogl_test_variants = [ 'gl', 'gl3', 'gles2' ]
+cogl_test_variants = [ 'gl3', 'gles2' ]
 
 foreach cogl_test: cogl_tests
   test_case = cogl_test[0]
@@ -92,12 +88,22 @@ foreach cogl_test: cogl_tests
   foreach variant: cogl_test_variants
     variant_test_env = test_env
     variant_test_env.set('COGL_DRIVER', variant)
+    variant_test_env.set('COGL_DEBUG', 'winsys')
 
     test(test_name + '-' + variant, test_executable,
+      args: variant in known_failures ? ['-m', 'no-undefined'] : [],
       suite: ['cogl', 'cogl/conform'],
       env: variant_test_env,
       is_parallel: false,
-      should_fail: variant in known_failures,
     )
+
+    if variant in known_failures
+      test('-'.join([test_name, 'should-fail', variant]), test_executable,
+        suite: ['cogl', 'cogl/conform', 'failing'],
+        env: variant_test_env,
+        is_parallel: false,
+        should_fail: true,
+      )
+    endif
   endforeach
 endforeach

@@ -19,13 +19,12 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_MAIN_H
-#define META_MAIN_H
+#pragma once
 
 #include <glib.h>
 
-#include <meta/common.h>
-#include <meta/meta-context.h>
+#include "meta/common.h"
+#include "meta/meta-context.h"
 
 META_EXPORT
 void            meta_restart                (const char  *message,
@@ -48,5 +47,3 @@ typedef enum
 /* exit immediately */
 META_EXPORT
 void meta_exit (MetaExitCode code) G_GNUC_NORETURN;
-
-#endif

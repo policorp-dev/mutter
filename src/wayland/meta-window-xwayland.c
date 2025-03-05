@@ -20,19 +20,23 @@
 
 #include <X11/Xatom.h>
 
-#include "core/frame.h"
-#include "meta/meta-x11-errors.h"
+#include "mtk/mtk-x11.h"
+#include "x11/meta-x11-display-private.h"
+#include "x11/meta-x11-frame.h"
 #include "x11/window-x11.h"
 #include "x11/window-x11-private.h"
 #include "x11/xprops.h"
 #include "wayland/meta-window-xwayland.h"
-#include "wayland/meta-wayland.h"
+#include "wayland/meta-wayland-private.h"
+#include "wayland/meta-wayland-surface-private.h"
+#include "wayland/meta-xwayland.h"
 
 enum
 {
   PROP_0,
 
   PROP_XWAYLAND_MAY_GRAB_KEYBOARD,
+  PROP_SURFACE,
 
   PROP_LAST
 };
@@ -42,6 +46,8 @@ static GParamSpec *obj_props[PROP_LAST];
 struct _MetaWindowXwayland
 {
   MetaWindowX11 parent;
+
+  MetaWaylandSurface *surface;
 
   gboolean xwayland_may_grab_keyboard;
   int freeze_count;
@@ -100,12 +106,12 @@ meta_window_xwayland_init (MetaWindowXwayland *window_xwayland)
  *    resolution sized window cover the full actual monitor resolution.
  */
 static void
-meta_window_xwayland_adjust_fullscreen_monitor_rect (MetaWindow    *window,
-                                                     MetaRectangle *fs_monitor_rect)
+meta_window_xwayland_adjust_fullscreen_monitor_rect (MetaWindow   *window,
+                                                     MtkRectangle *fs_monitor_rect)
 {
   MetaX11Display *x11_display = window->display->x11_display;
-  MetaRectangle win_monitor_rect;
-  cairo_rectangle_int_t *rects;
+  MtkRectangle win_monitor_rect;
+  MtkRectangle *rects;
   uint32_t *list = NULL;
   int i, n_items = 0;
 
@@ -118,20 +124,22 @@ meta_window_xwayland_adjust_fullscreen_monitor_rect (MetaWindow    *window,
   win_monitor_rect = meta_logical_monitor_get_layout (window->monitor);
 
   if (!meta_prop_get_cardinal_list (x11_display,
-                                    window->xwindow,
+                                    meta_window_x11_get_xwindow (window),
                                     x11_display->atom__XWAYLAND_RANDR_EMU_MONITOR_RECTS,
                                     &list, &n_items))
     return;
 
   if (n_items % 4)
     {
-      meta_verbose ("_XWAYLAND_RANDR_EMU_MONITOR_RECTS on %s has %d values which is not a multiple of 4",
-                    window->desc, n_items);
+      meta_topic (META_DEBUG_WAYLAND,
+                  "_XWAYLAND_RANDR_EMU_MONITOR_RECTS on %s has %d "
+                  "values which is not a multiple of 4",
+                  window->desc, n_items);
       g_free (list);
       return;
     }
 
-  rects = (cairo_rectangle_int_t *) list;
+  rects = (MtkRectangle *) list;
   n_items = n_items / 4;
   for (i = 0; i < n_items; i++)
     {
@@ -150,7 +158,10 @@ static void
 meta_window_xwayland_force_restore_shortcuts (MetaWindow         *window,
                                               ClutterInputDevice *source)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *compositor =
+    meta_context_get_wayland_compositor (context);
 
   meta_wayland_compositor_restore_shortcuts (compositor, source);
 }
@@ -159,9 +170,20 @@ static gboolean
 meta_window_xwayland_shortcuts_inhibited (MetaWindow         *window,
                                           ClutterInputDevice *source)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *compositor =
+    meta_context_get_wayland_compositor (context);
 
   return meta_wayland_compositor_is_shortcuts_inhibited (compositor, source);
+}
+
+static MetaWaylandSurface *
+meta_window_xwayland_get_wayland_surface (MetaWindow *window)
+{
+  MetaWindowXwayland *xwayland_window = META_WINDOW_XWAYLAND (window);
+
+  return xwayland_window->surface;
 }
 
 static void
@@ -178,9 +200,9 @@ apply_allow_commits_x11_property (MetaWindowXwayland *xwayland_window,
   if (!x11_display)
     return;
 
-  frame = meta_window_get_frame (window);
+  frame = meta_window_x11_get_frame (window);
   if (!frame)
-    xwin = window->xwindow;
+    xwin = meta_window_x11_get_xwindow (window);
   else
     xwin = meta_frame_get_xwindow (frame);
 
@@ -189,12 +211,12 @@ apply_allow_commits_x11_property (MetaWindowXwayland *xwayland_window,
 
   property[0] = !!allow_commits;
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XChangeProperty (x11_display->xdisplay, xwin,
                    x11_display->atom__XWAYLAND_ALLOW_COMMITS,
                    XA_CARDINAL, 32, PropModeReplace,
                    (guchar*) &property, 1);
-  meta_x11_error_trap_pop (x11_display);
+  mtk_x11_error_trap_pop (x11_display->xdisplay);
   XFlush (x11_display->xdisplay);
 }
 
@@ -251,6 +273,9 @@ meta_window_xwayland_get_property (GObject    *object,
     case PROP_XWAYLAND_MAY_GRAB_KEYBOARD:
       g_value_set_boolean (value, window->xwayland_may_grab_keyboard);
       break;
+    case PROP_SURFACE:
+      g_value_set_object (value, window->surface);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -270,10 +295,65 @@ meta_window_xwayland_set_property (GObject      *object,
     case PROP_XWAYLAND_MAY_GRAB_KEYBOARD:
       window->xwayland_may_grab_keyboard = g_value_get_boolean (value);
       break;
+    case PROP_SURFACE:
+      window->surface = g_value_get_object (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
     }
+}
+
+static void
+meta_window_xwayland_process_property_notify (MetaWindow     *window,
+                                              XPropertyEvent *event)
+{
+  MetaWindowX11Class *parent_class =
+    META_WINDOW_X11_CLASS (meta_window_xwayland_parent_class);
+
+  parent_class->process_property_notify (window, event);
+
+  if (event->atom == window->display->x11_display->atom__XWAYLAND_RANDR_EMU_MONITOR_RECTS &&
+      meta_window_is_fullscreen (window))
+    meta_window_queue (window, META_QUEUE_MOVE_RESIZE);
+}
+
+static void
+meta_window_xwayland_stage_to_protocol (MetaWindow *window,
+                                        int         stage_x,
+                                        int         stage_y,
+                                        int        *protocol_x,
+                                        int        *protocol_y)
+{
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *wayland_compositor =
+    meta_context_get_wayland_compositor (context);
+  MetaXWaylandManager *xwayland_manager = &wayland_compositor->xwayland_manager;
+
+  meta_xwayland_stage_to_protocol_point (xwayland_manager,
+                                         stage_x, stage_y,
+                                         protocol_x, protocol_y);
+}
+
+static void
+meta_window_xwayland_protocol_to_stage (MetaWindow          *window,
+                                        int                  protocol_x,
+                                        int                  protocol_y,
+                                        int                 *stage_x,
+                                        int                 *stage_y,
+                                        MtkRoundingStrategy  rounding_strategy)
+{
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *wayland_compositor =
+    meta_context_get_wayland_compositor (context);
+  MetaXWaylandManager *xwayland_manager = &wayland_compositor->xwayland_manager;
+
+  meta_xwayland_protocol_to_stage (xwayland_manager,
+                                   protocol_x, protocol_y,
+                                   stage_x, stage_y,
+                                   rounding_strategy);
 }
 
 static void
@@ -286,20 +366,36 @@ meta_window_xwayland_class_init (MetaWindowXwaylandClass *klass)
   window_class->adjust_fullscreen_monitor_rect = meta_window_xwayland_adjust_fullscreen_monitor_rect;
   window_class->force_restore_shortcuts = meta_window_xwayland_force_restore_shortcuts;
   window_class->shortcuts_inhibited = meta_window_xwayland_shortcuts_inhibited;
+  window_class->get_wayland_surface = meta_window_xwayland_get_wayland_surface;
+  window_class->stage_to_protocol = meta_window_xwayland_stage_to_protocol;
+  window_class->protocol_to_stage = meta_window_xwayland_protocol_to_stage;
 
   window_x11_class->freeze_commits = meta_window_xwayland_freeze_commits;
   window_x11_class->thaw_commits = meta_window_xwayland_thaw_commits;
   window_x11_class->always_update_shape = meta_window_xwayland_always_update_shape;
+  window_x11_class->process_property_notify = meta_window_xwayland_process_property_notify;
 
   gobject_class->get_property = meta_window_xwayland_get_property;
   gobject_class->set_property = meta_window_xwayland_set_property;
 
   obj_props[PROP_XWAYLAND_MAY_GRAB_KEYBOARD] =
-    g_param_spec_boolean ("xwayland-may-grab-keyboard",
-                          "Xwayland may use keyboard grabs",
-                          "Whether the client may use Xwayland keyboard grabs on this window",
+    g_param_spec_boolean ("xwayland-may-grab-keyboard", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE);
 
+  obj_props[PROP_SURFACE] =
+    g_param_spec_object ("surface", NULL, NULL,
+                         META_TYPE_WAYLAND_SURFACE,
+                         G_PARAM_CONSTRUCT |
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (gobject_class, PROP_LAST, obj_props);
+}
+
+void
+meta_window_xwayland_set_surface (MetaWindowXwayland *window,
+                                  MetaWaylandSurface *surface)
+{
+  window->surface = surface;
 }

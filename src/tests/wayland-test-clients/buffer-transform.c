@@ -22,11 +22,6 @@
 
 #include "wayland-test-client-utils.h"
 
-static WaylandDisplay *display;
-static struct wl_surface *surface;
-static struct xdg_surface *xdg_surface;
-static struct xdg_toplevel *xdg_toplevel;
-
 static gboolean waiting_for_configure = FALSE;
 static gboolean fullscreen = 0;
 static uint32_t window_width = 0;
@@ -88,65 +83,75 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 };
 
 static void
-draw_main (void)
+draw_main (WaylandDisplay    *display,
+           struct wl_surface *surface,
+           gboolean           rotated)
 {
   static uint32_t color0 = 0xffffffff;
   static uint32_t color1 = 0xff00ffff;
   static uint32_t color2 = 0xffff00ff;
   static uint32_t color3 = 0xffffff00;
-  struct wl_buffer *buffer;
-  void *buffer_data;
-  uint32_t *pixels;
-  int x, y, size;
+  WaylandBuffer *buffer;
+  int x, y;
+  uint32_t width;
+  uint32_t height;
 
-  if (!create_shm_buffer (display, window_width, window_height,
-                          &buffer, &buffer_data, &size))
-    g_error ("Failed to create shm buffer");
+  width = rotated ? window_height : window_width,
+  height = rotated ? window_width : window_height,
 
-  pixels = buffer_data;
-  for (y = 0; y < window_height; y++)
+  buffer = wayland_buffer_create (display, NULL,
+                                  width, height,
+                                  DRM_FORMAT_XRGB8888,
+                                  NULL, 0,
+                                  GBM_BO_USE_LINEAR);
+  if (!buffer)
+    g_error ("Failed to create buffer");
+
+  for (y = 0; y < height; y++)
     {
-      for (x = 0; x < window_width; x++)
+      for (x = 0; x < width; x++)
         {
           uint32_t current_color;
 
-          if (y < window_height / 2)
+          if (y < height / 2)
             {
-              if (x < window_width / 2)
+              if (x < width / 2)
                 current_color = color0;
               else
                 current_color = color1;
             }
           else
             {
-              if (x < window_width / 2)
+              if (x < width / 2)
                 current_color = color2;
               else
                 current_color = color3;
             }
 
-          pixels[y * window_width + x] = current_color;
+          wayland_buffer_draw_pixel (buffer, x, y, current_color);
         }
     }
 
-  wl_surface_attach (surface, buffer, 0, 0);
+  wl_surface_attach (surface, wayland_buffer_get_wl_buffer (buffer), 0, 0);
 }
 
 static void
-wait_for_configure (void)
+wait_for_configure (WaylandDisplay *display)
 {
   waiting_for_configure = TRUE;
   while (waiting_for_configure || window_width == 0)
-    {
-      if (wl_display_dispatch (display->display) == -1)
-        exit (EXIT_FAILURE);
-    }
+    wayland_display_dispatch (display);
 }
 
 int
 main (int    argc,
       char **argv)
 {
+  g_autoptr (WaylandDisplay) display = NULL;
+  struct xdg_toplevel *xdg_toplevel;
+  struct xdg_surface *xdg_surface;
+  struct wl_surface *surface;
+
   display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
 
   surface = wl_compositor_create_surface (display->compositor);
@@ -157,9 +162,9 @@ main (int    argc,
 
   xdg_toplevel_set_fullscreen(xdg_toplevel, NULL);
   wl_surface_commit (surface);
-  wait_for_configure ();
+  wait_for_configure (display);
 
-  draw_main ();
+  draw_main (display, surface, FALSE);
   wl_surface_commit (surface);
   wait_for_effects_completed (display, surface);
 
@@ -167,35 +172,34 @@ main (int    argc,
   wl_surface_commit (surface);
   wait_for_view_verified (display, 0);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_90);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_180);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 1);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_180);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 2);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_270);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED_180);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 3);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED);
+  draw_main (display, surface, TRUE);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_90);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 4);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED_90);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_270);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 5);
 
-  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED_180);
+  wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED_90);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 6);
 
   wl_surface_set_buffer_transform (surface, WL_OUTPUT_TRANSFORM_FLIPPED_270);
   wl_surface_commit (surface);
   wait_for_view_verified (display, 7);
-
-  g_clear_object (&display);
 
   return EXIT_SUCCESS;
 }

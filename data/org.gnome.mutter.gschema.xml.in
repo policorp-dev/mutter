@@ -3,15 +3,16 @@
   <flags id="org.gnome.mutter.MetaExperimentalFeature">
     <value nick="scale-monitor-framebuffer" value="1"/>
     <value nick="kms-modifiers" value="2"/>
-    <value nick="rt-scheduler" value="4"/>
-    <value nick="autoclose-xwayland" value="8"/>
+    <value nick="autoclose-xwayland" value="4"/>
+    <value nick="variable-refresh-rate" value="8"/>
+    <value nick="xwayland-native-scaling" value="16"/>
   </flags>
 
   <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
           gettext-domain="@GETTEXT_DOMAIN@">
 
     <key name="overlay-key" type="s">
-      <default>'Super_L'</default>
+      <default>'Super'</default>
       <summary>Modifier to use for extended window management operations</summary>
       <description>
         This key will initiate the “overlay”, which is a combination window
@@ -62,15 +63,6 @@
       </description>
     </key>
 
-    <key name="no-tab-popup" type="b">
-      <default>false</default>
-      <summary>No tab popup</summary>
-      <description>
-        Determines whether the use of popup and highlight frame should
-        be disabled for window cycling.
-      </description>
-    </key>
-
     <key name="focus-change-on-pointer-rest" type="b">
       <default>false</default>
       <summary>Delay focus changes until the pointer stops moving</summary>
@@ -102,7 +94,7 @@
     </key>
 
     <key name="center-new-windows" type="b">
-      <default>false</default>
+      <default>true</default>
       <summary>Place new windows in the center</summary>
       <description>
         When true, the new windows will always be put in the center of the
@@ -135,13 +127,22 @@
                                         supported by the driver. Requires a
                                         restart.
 
-        • “rt-scheduler”              — makes mutter request a low priority
-                                        real-time scheduling. Requires a restart.
-
         • “autoclose-xwayland”        — automatically terminates Xwayland if all
                                         relevant X11 clients are gone.
                                         Requires a restart.
 
+        • “variable-refresh-rate”     — makes mutter dynamically adjust the
+                                        refresh rate of the monitor when
+                                        applicable if supported by the monitor,
+                                        GPU and DRM driver. Configurable in
+                                        Settings. Requires a restart.
+
+        • “xwayland-native-scaling”   — lets Xwayland clients use their native
+                                        scaling support. If scaling is not
+                                        supported by client, the client will
+                                        be unscaled. Setting only takes effect
+                                        when “scale-monitor-framebuffer” is
+                                        enabled as well.
       </description>
     </key>
 
@@ -163,6 +164,19 @@
       </description>
     </key>
 
+    <key name="output-luminance" type="a(ssssud)">
+      <default>[]</default>
+      <!-- TRANSLATORS: Luminance is different from brightness.
+           See https://en.wikipedia.org/wiki/Luminance -->
+      <summary>Per output luminance settings</summary>
+      <description>
+        Per output and color mode luminance setting. Each entry consists of a
+        tuple with connector, vendor, product, serial, and a color mode, as well
+        as an associated floating point value representing the output luminance
+        in percent (%). The default when not specified is 100%.
+      </description>
+    </key>
+
     <child name="keybindings" schema="org.gnome.mutter.keybindings"/>
 
   </schema>
@@ -178,16 +192,6 @@
       <summary>View split on right</summary>
     </key>
 
-    <key name="tab-popup-select" type="as">
-      <default>[]</default>
-      <summary>Select window from tab popup</summary>
-    </key>
-
-    <key name="tab-popup-cancel" type="as">
-      <default>[]</default>
-      <summary>Cancel tab popup</summary>
-    </key>
-
     <key name="switch-monitor" type="as">
       <default><![CDATA[['<Super>p','XF86Display']]]></default>
       <summary>Switch monitor configurations</summary>
@@ -196,6 +200,11 @@
     <key name="rotate-monitor" type="as">
       <default><![CDATA[['XF86RotateWindows']]]></default>
       <summary>Rotates the built-in monitor configuration</summary>
+    </key>
+
+    <key name="cancel-input-capture" type="as">
+      <default><![CDATA[['<Super><Shift>Escape']]]></default>
+      <summary>Cancel any active input capture session</summary>
     </key>
 
   </schema>

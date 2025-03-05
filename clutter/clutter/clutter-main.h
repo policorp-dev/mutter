@@ -21,16 +21,15 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_MAIN_H__
-#define __CLUTTER_MAIN_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-actor.h>
-#include <clutter/clutter-stage.h>
-#include <pango/pango.h>
+#include "clutter/clutter-actor.h"
+#include "clutter/clutter-stage.h"
+#include "cogl/cogl.h"
 
 G_BEGIN_DECLS
 
@@ -55,6 +54,9 @@ typedef enum
   CLUTTER_DEBUG_OOB_TRANSFORMS      = 1 << 16,
   CLUTTER_DEBUG_FRAME_TIMINGS       = 1 << 17,
   CLUTTER_DEBUG_DETAILED_TRACE      = 1 << 18,
+  CLUTTER_DEBUG_GRABS               = 1 << 19,
+  CLUTTER_DEBUG_FRAME_CLOCK         = 1 << 20,
+  CLUTTER_DEBUG_GESTURES            = 1 << 21,
 } ClutterDebugFlag;
 
 typedef enum
@@ -75,6 +77,7 @@ typedef enum
   CLUTTER_DEBUG_PAINT_DAMAGE_REGION             = 1 << 8,
   CLUTTER_DEBUG_DISABLE_DYNAMIC_MAX_RENDER_TIME = 1 << 9,
   CLUTTER_DEBUG_PAINT_MAX_RENDER_TIME           = 1 << 10,
+  CLUTTER_DEBUG_DISABLE_TRIPLE_BUFFERING        = 1 << 11,
 } ClutterDrawDebugFlag;
 
 /**
@@ -88,52 +91,39 @@ typedef enum
  */
 #define CLUTTER_PRIORITY_REDRAW         (G_PRIORITY_HIGH_IDLE + 50)
 
+typedef enum _ClutterPipelineCapability
+{
+  CLUTTER_PIPELINE_CAPABILITY_COLOR_STATE,
+} ClutterPipelineCapability;
+
+#define CLUTTER_PIPELINE_CAPABILITY (clutter_pipeline_capability_quark ())
 CLUTTER_EXPORT
-void                    clutter_do_event                        (ClutterEvent *event);
+GQuark clutter_pipeline_capability_quark (void);
+
+CLUTTER_EXPORT
+void                    clutter_stage_handle_event              (ClutterStage *stage,
+                                                                 ClutterEvent *event);
 
 /* Debug utility functions */
 CLUTTER_EXPORT
 gboolean                clutter_get_accessibility_enabled       (void);
 
-CLUTTER_EXPORT
-void                    clutter_disable_accessibility           (void);
-
 /* Threading functions */
 CLUTTER_EXPORT
-guint                   clutter_threads_add_idle                (GSourceFunc    func,
-                                                                 gpointer       data);
-CLUTTER_EXPORT
-guint                   clutter_threads_add_idle_full           (gint           priority,
-                                                                 GSourceFunc    func,
-                                                                 gpointer       data,
-                                                                 GDestroyNotify notify);
-CLUTTER_EXPORT
-guint                   clutter_threads_add_timeout             (guint          interval,
-                                                                 GSourceFunc    func,
-                                                                 gpointer       data);
-CLUTTER_EXPORT
-guint                   clutter_threads_add_timeout_full        (gint           priority,
-                                                                 guint          interval,
-                                                                 GSourceFunc    func,
-                                                                 gpointer       data,
-                                                                 GDestroyNotify notify);
-CLUTTER_EXPORT
-guint                   clutter_threads_add_repaint_func        (GSourceFunc    func,
-                                                                 gpointer       data,
-                                                                 GDestroyNotify notify);
-CLUTTER_EXPORT
-guint                   clutter_threads_add_repaint_func_full   (ClutterRepaintFlags flags,
-                                                                 GSourceFunc    func,
-                                                                 gpointer       data,
-                                                                 GDestroyNotify notify);
+guint                   clutter_threads_add_repaint_func        (ClutterRepaintFlags flags,
+                                                                 GSourceFunc         func,
+                                                                 gpointer            data,
+                                                                 GDestroyNotify      notify);
 CLUTTER_EXPORT
 void                    clutter_threads_remove_repaint_func     (guint          handle_id);
 
 CLUTTER_EXPORT
-PangoFontMap *          clutter_get_font_map                    (void);
+ClutterTextDirection    clutter_get_default_text_direction      (void);
 
 CLUTTER_EXPORT
-ClutterTextDirection    clutter_get_default_text_direction      (void);
+void                    clutter_get_debug_flags                 (ClutterDebugFlag     *debug_flags,
+                                                                 ClutterDrawDebugFlag *draw_flags,
+                                                                 ClutterPickDebugFlag *pick_flags);
 
 CLUTTER_EXPORT
 void                    clutter_add_debug_flags                 (ClutterDebugFlag     debug_flags,
@@ -148,6 +138,7 @@ void                    clutter_remove_debug_flags              (ClutterDebugFla
 CLUTTER_EXPORT
 void                    clutter_debug_set_max_render_time_constant (int max_render_time_constant_us);
 
-G_END_DECLS
+CLUTTER_EXPORT
+ClutterTextDirection    clutter_get_text_direction (void);
 
-#endif /* _CLUTTER_MAIN_H__ */
+G_END_DECLS

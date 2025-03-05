@@ -27,14 +27,20 @@
 
 struct _MetaBackendTest
 {
-  MetaBackendX11Nested parent;
+  MetaBackendNative parent;
 
   MetaGpu *gpu;
 
   gboolean is_lid_closed;
 };
 
-G_DEFINE_TYPE (MetaBackendTest, meta_backend_test, META_TYPE_BACKEND_X11_NESTED)
+static GInitableIface *initable_parent_iface;
+
+static void initable_iface_init (GInitableIface *initable_iface);
+
+G_DEFINE_TYPE_WITH_CODE (MetaBackendTest, meta_backend_test, META_TYPE_BACKEND_NATIVE,
+                         G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
+                                                initable_iface_init))
 
 void
 meta_backend_test_set_is_lid_closed (MetaBackendTest *backend_test,
@@ -57,17 +63,6 @@ meta_backend_test_is_lid_closed (MetaBackend *backend)
   return backend_test->is_lid_closed;
 }
 
-static void
-meta_backend_test_init_gpus (MetaBackendX11Nested *backend_x11_nested)
-{
-  MetaBackendTest *backend_test = META_BACKEND_TEST (backend_x11_nested);
-
-  backend_test->gpu = g_object_new (META_TYPE_GPU_TEST,
-                                    "backend", backend_test,
-                                    NULL);
-  meta_backend_add_gpu (META_BACKEND (backend_test), backend_test->gpu);
-}
-
 static MetaMonitorManager *
 meta_backend_test_create_monitor_manager (MetaBackend *backend,
                                           GError     **error)
@@ -85,98 +80,72 @@ meta_backend_test_create_color_manager (MetaBackend *backend)
                        NULL);
 }
 
-ClutterInputDevice *
+static void
+set_true_cb (gboolean *value)
+{
+  *value = TRUE;
+}
+
+ClutterVirtualInputDevice *
 meta_backend_test_add_test_device (MetaBackendTest        *backend_test,
-                                   const char             *name,
                                    ClutterInputDeviceType  device_type,
                                    int                     n_buttons)
 {
-  g_autoptr (GList) devices = NULL;
   MetaBackend *backend = META_BACKEND (backend_test);
   ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
   ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
-  ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
-  ClutterInputDevice *device;
-  ClutterEvent *event;
-  const char *product_id;
-  bool has_cursor = TRUE;
+  ClutterVirtualInputDevice *virtual_device;
+  gboolean was_updated = FALSE;
 
-  switch (device_type)
-    {
-    case CLUTTER_POINTER_DEVICE:
-      product_id = "MetaTestPointer";
-      break;
-    case CLUTTER_KEYBOARD_DEVICE:
-      product_id = "MetaTestKeyboard";
-      has_cursor = FALSE;
-      break;
-    case CLUTTER_EXTENSION_DEVICE:
-      product_id = "MetaTestExtension";
-      has_cursor = FALSE;
-      break;
-    case CLUTTER_JOYSTICK_DEVICE:
-      product_id = "MetaTestJoystick";
-      break;
-    case CLUTTER_TABLET_DEVICE:
-      product_id = "MetaTestTablet";
-      break;
-    case CLUTTER_TOUCHPAD_DEVICE:
-      product_id = "MetaTestTouchpad";
-      break;
-    case CLUTTER_TOUCHSCREEN_DEVICE:
-      product_id = "MetaTestTouchscreen";
-      break;
-    case CLUTTER_PEN_DEVICE:
-      product_id = "MetaTestPen";
-      break;
-    case CLUTTER_ERASER_DEVICE:
-      product_id = "MetaTestEraser";
-      break;
-    case CLUTTER_CURSOR_DEVICE:
-      product_id = "MetaTestCursor";
-      break;
-    case CLUTTER_PAD_DEVICE:
-      product_id = "MetaTestPad";
-      has_cursor = FALSE;
-      break;
+  g_signal_connect_swapped (seat, "device-added", G_CALLBACK (set_true_cb),
+                            &was_updated);
 
-    default:
-      g_assert_not_reached ();
-    }
+  virtual_device = clutter_seat_create_virtual_device (seat, device_type);
 
-  device = g_object_new (CLUTTER_TYPE_INPUT_DEVICE,
-                         "name", name,
-                         "device-type", CLUTTER_TOUCHSCREEN_DEVICE,
-                         "seat", seat,
-                         "has-cursor", has_cursor,
-                         "backend", clutter_backend,
-                         "vendor-id", "MetaTest",
-                         "product-id", product_id,
-                         "n-buttons", n_buttons,
-                         NULL);
+  while (!was_updated)
+    g_main_context_iteration (NULL, TRUE);
 
-  event = clutter_event_new (CLUTTER_DEVICE_ADDED);
-  clutter_event_set_device (event, device);
-  clutter_event_set_stage (event, stage);
-  clutter_event_put (event);
-  clutter_event_free (event);
+  g_signal_handlers_disconnect_by_func (seat, set_true_cb, &was_updated);
 
-  return device;
+  return virtual_device;
 }
 
 void
-meta_backend_test_remove_device (MetaBackendTest    *backend_test,
-                                 ClutterInputDevice *device)
+meta_backend_test_remove_test_device (MetaBackendTest           *backend_test,
+                                      ClutterVirtualInputDevice *virtual_device)
 {
   MetaBackend *backend = META_BACKEND (backend_test);
-  ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
-  ClutterEvent *event;
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
+  gboolean was_updated = FALSE;
 
-  event = clutter_event_new (CLUTTER_DEVICE_REMOVED);
-  clutter_event_set_device (event, device);
-  clutter_event_set_stage (event, stage);
-  clutter_event_put (event);
-  clutter_event_free (event);
+  g_signal_connect_swapped (seat, "device-removed", G_CALLBACK (set_true_cb),
+                            &was_updated);
+
+  g_object_run_dispose (G_OBJECT (virtual_device));
+
+  while (!was_updated)
+    g_main_context_iteration (NULL, TRUE);
+
+  g_signal_handlers_disconnect_by_func (seat, set_true_cb, &was_updated);
+}
+
+static gboolean
+meta_backend_test_initable_init (GInitable     *initable,
+                                 GCancellable  *cancellable,
+                                 GError       **error)
+{
+  MetaBackendTest *backend_test = META_BACKEND_TEST (initable);
+
+  backend_test->gpu = g_object_new (META_TYPE_GPU_TEST,
+                                    "backend", backend_test,
+                                    NULL);
+  meta_backend_add_gpu (META_BACKEND (backend_test), backend_test->gpu);
+
+  if (!initable_parent_iface->init (initable, cancellable, error))
+    return FALSE;
+
+  return TRUE;
 }
 
 static void
@@ -185,15 +154,19 @@ meta_backend_test_init (MetaBackendTest *backend_test)
 }
 
 static void
+initable_iface_init (GInitableIface *initable_iface)
+{
+  initable_parent_iface = g_type_interface_peek_parent (initable_iface);
+
+  initable_iface->init = meta_backend_test_initable_init;
+}
+
+static void
 meta_backend_test_class_init (MetaBackendTestClass *klass)
 {
   MetaBackendClass *backend_class = META_BACKEND_CLASS (klass);
-  MetaBackendX11NestedClass *backend_x11_nested_class =
-    META_BACKEND_X11_NESTED_CLASS (klass);
 
   backend_class->create_monitor_manager = meta_backend_test_create_monitor_manager;
   backend_class->create_color_manager = meta_backend_test_create_color_manager;
   backend_class->is_lid_closed = meta_backend_test_is_lid_closed;
-
-  backend_x11_nested_class->init_gpus = meta_backend_test_init_gpus;
 }

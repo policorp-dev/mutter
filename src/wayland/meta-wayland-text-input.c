@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -60,6 +58,20 @@ struct _MetaWaylandTextInput
 
   GHashTable *resource_serials;
 
+  /* This saves the uncommitted middle state of surrounding text from client
+   * between `set_surrounding_text` and `commit`, will be cleared after
+   * committed.
+   */
+  struct
+  {
+    char *text;
+    uint32_t cursor;
+    uint32_t anchor;
+  } pending_surrounding;
+
+  /* This is the actual committed surrounding text after `commit`, we need this
+   * to convert between char based offset and byte based offset.
+   */
   struct
   {
     char *text;
@@ -67,7 +79,7 @@ struct _MetaWaylandTextInput
     uint32_t anchor;
   } surrounding;
 
-  cairo_rectangle_int_t cursor_rect;
+  MtkRectangle cursor_rect;
 
   uint32_t content_type_hint;
   uint32_t content_type_purpose;
@@ -96,16 +108,32 @@ G_DECLARE_FINAL_TYPE (MetaWaylandTextInputFocus, meta_wayland_text_input_focus,
 G_DEFINE_TYPE (MetaWaylandTextInputFocus, meta_wayland_text_input_focus,
                CLUTTER_TYPE_INPUT_FOCUS)
 
+static MetaBackend *
+backend_from_text_input (MetaWaylandTextInput *text_input)
+{
+  MetaWaylandSeat *seat = text_input->seat;
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+
+  return meta_context_get_backend (context);
+}
+
 static void
 meta_wayland_text_input_focus_request_surrounding (ClutterInputFocus *focus)
 {
   MetaWaylandTextInput *text_input;
+  long cursor, anchor;
 
+  /* Clutter uses char offsets but text-input-v3 uses byte offsets. */
   text_input = META_WAYLAND_TEXT_INPUT_FOCUS (focus)->text_input;
+  cursor = g_utf8_strlen (text_input->surrounding.text,
+                          text_input->surrounding.cursor);
+  anchor = g_utf8_strlen (text_input->surrounding.text,
+                          text_input->surrounding.anchor);
   clutter_input_focus_set_surrounding (focus,
-				       text_input->surrounding.text,
-				       text_input->surrounding.cursor,
-                                       text_input->surrounding.anchor);
+                                       text_input->surrounding.text,
+                                       cursor,
+                                       anchor);
 }
 
 static uint32_t
@@ -208,14 +236,32 @@ meta_wayland_text_input_focus_delete_surrounding (ClutterInputFocus *focus,
                                                   guint              len)
 {
   MetaWaylandTextInput *text_input;
+  const char *start, *end;
+  const char *before, *after;
+  const char *cursor;
   uint32_t before_length;
   uint32_t after_length;
   struct wl_resource *resource;
 
+  /* offset and len are counted by UTF-8 chars, but text_input_v3's lengths are
+   * counted by bytes, so we convert UTF-8 char offsets to pointers here, this
+   * needs the surrounding text
+   */
   text_input = META_WAYLAND_TEXT_INPUT_FOCUS (focus)->text_input;
-  before_length = ABS (MIN (offset, 0));
-  after_length = MAX (0, offset + len);
-  g_warn_if_fail (ABS (offset) <= len);
+  offset = MIN (offset, 0);
+
+  start = text_input->surrounding.text;
+  end = start + strlen (text_input->surrounding.text);
+  cursor = start + text_input->surrounding.cursor;
+
+  before = g_utf8_offset_to_pointer (cursor, offset);
+  g_return_if_fail (before >= start);
+
+  after = g_utf8_offset_to_pointer (cursor, offset + len);
+  g_return_if_fail (after <= end);
+
+  before_length = cursor - before;
+  after_length = after - cursor;
 
   wl_resource_for_each (resource, &text_input->focus_resource_list)
     {
@@ -252,21 +298,21 @@ meta_wayland_text_input_focus_set_preedit_text (ClutterInputFocus *focus,
                                                 unsigned int       anchor)
 {
   MetaWaylandTextInput *text_input;
-  gsize pos = 0;
+  gsize cursor_pos = 0, anchor_pos = 0;
 
   text_input = META_WAYLAND_TEXT_INPUT_FOCUS (focus)->text_input;
-
-  if (text)
-    pos = g_utf8_offset_to_pointer (text, cursor) - text;
 
   g_clear_pointer (&text_input->preedit.string, g_free);
   text_input->preedit.string = g_strdup (text);
 
   if (text)
-    pos = g_utf8_offset_to_pointer (text, cursor) - text;
+    {
+      cursor_pos = g_utf8_offset_to_pointer (text, cursor) - text;
+      anchor_pos = g_utf8_offset_to_pointer (text, anchor) - text;
+    }
 
-  text_input->preedit.cursor = pos;
-  text_input->preedit.anchor = anchor;
+  text_input->preedit.cursor = cursor_pos;
+  text_input->preedit.anchor = anchor_pos;
   text_input->preedit.changed = TRUE;
 
   meta_wayland_text_input_focus_defer_done (focus);
@@ -332,6 +378,27 @@ move_resources_for_client (struct wl_list *destination,
     }
 }
 
+static void
+reset_text_input_focus (MetaWaylandTextInput *text_input)
+{
+  if (wl_list_empty (&text_input->focus_resource_list))
+    {
+      ClutterInputFocus *focus = text_input->input_focus;
+      MetaBackend *backend = backend_from_text_input (text_input);
+      ClutterBackend *clutter_backend =
+        meta_backend_get_clutter_backend (backend);
+      ClutterInputMethod *input_method;
+
+      if (clutter_input_focus_is_focused (focus))
+        {
+          input_method = clutter_backend_get_input_method (clutter_backend);
+          clutter_input_focus_reset (focus);
+          meta_wayland_text_input_focus_flush_done (focus);
+          clutter_input_method_focus_out (input_method);
+        }
+    }
+}
+
 void
 meta_wayland_text_input_set_focus (MetaWaylandTextInput *text_input,
 				   MetaWaylandSurface   *surface)
@@ -345,17 +412,7 @@ meta_wayland_text_input_set_focus (MetaWaylandTextInput *text_input,
     {
       if (!wl_list_empty (&text_input->focus_resource_list))
         {
-          ClutterInputFocus *focus = text_input->input_focus;
-          ClutterInputMethod *input_method;
           struct wl_resource *resource;
-
-          if (clutter_input_focus_is_focused (focus))
-            {
-              input_method = clutter_backend_get_input_method (clutter_get_default_backend ());
-              clutter_input_focus_reset (focus);
-              meta_wayland_text_input_focus_flush_done (focus);
-              clutter_input_method_focus_out (input_method);
-            }
 
           wl_resource_for_each (resource, &text_input->focus_resource_list)
             {
@@ -365,13 +422,22 @@ meta_wayland_text_input_set_focus (MetaWaylandTextInput *text_input,
 
           move_resources (&text_input->resource_list,
                           &text_input->focus_resource_list);
+
+          reset_text_input_focus (text_input);
         }
 
       wl_list_remove (&text_input->surface_listener.link);
       text_input->surface = NULL;
+      /* Wayland set_surrounding_text() does not support to set null string
+       * for applications with the non-supported surrounding text feature
+       * and reset the values here with focus changes.
+       */
+      g_clear_pointer (&text_input->surrounding.text, g_free);
+      text_input->surrounding.cursor = 0;
+      text_input->surrounding.anchor = 0;
     }
 
-  if (surface)
+  if (surface && surface->resource)
     {
       struct wl_resource *focus_surface_resource;
 
@@ -403,6 +469,7 @@ text_input_destructor (struct wl_resource *resource)
 
   g_hash_table_remove (text_input->resource_serials, resource);
   wl_list_remove (wl_resource_get_link (resource));
+  reset_text_input_focus (text_input);
 }
 
 static void
@@ -456,14 +523,22 @@ text_input_set_surrounding_text (struct wl_client   *client,
                                  int32_t             anchor)
 {
   MetaWaylandTextInput *text_input = wl_resource_get_user_data (resource);
+  size_t text_len = strlen (text);
 
   if (!client_matches_focus (text_input, client))
     return;
 
-  g_free (text_input->surrounding.text);
-  text_input->surrounding.text = g_strdup (text);
-  text_input->surrounding.cursor = cursor;
-  text_input->surrounding.anchor = anchor;
+  if (cursor < 0 || anchor < 0 || cursor > text_len || anchor > text_len)
+    {
+      g_warning ("Client sent invalid surrounding text (text_len=%lu, cursor=%d, "
+                 "anchor=%d), ignoring", text_len, cursor, anchor);
+      return;
+    }
+
+  g_free (text_input->pending_surrounding.text);
+  text_input->pending_surrounding.text = g_strdup (text);
+  text_input->pending_surrounding.cursor = cursor;
+  text_input->pending_surrounding.anchor = anchor;
   text_input->pending_state |= META_WAYLAND_PENDING_STATE_SURROUNDING_TEXT;
 }
 
@@ -576,18 +651,18 @@ text_input_set_cursor_rectangle (struct wl_client   *client,
   if (!client_matches_focus (text_input, client))
     return;
 
-  text_input->cursor_rect = (cairo_rectangle_int_t) { x, y, width, height };
+  text_input->cursor_rect = (MtkRectangle) { x, y, width, height };
   text_input->pending_state |= META_WAYLAND_PENDING_STATE_INPUT_RECT;
 }
 
 static void
 meta_wayland_text_input_reset (MetaWaylandTextInput *text_input)
 {
-  g_clear_pointer (&text_input->surrounding.text, g_free);
+  g_clear_pointer (&text_input->pending_surrounding.text, g_free);
   text_input->content_type_hint = ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE;
   text_input->content_type_purpose = ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL;
   text_input->text_change_cause = ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD;
-  text_input->cursor_rect = (cairo_rectangle_int_t) { 0, 0, 0, 0 };
+  text_input->cursor_rect = (MtkRectangle) { 0, 0, 0, 0 };
   text_input->pending_state = META_WAYLAND_PENDING_STATE_NONE;
 }
 
@@ -598,6 +673,9 @@ text_input_commit_state (struct wl_client   *client,
   MetaWaylandTextInput *text_input = wl_resource_get_user_data (resource);
   ClutterInputFocus *focus = text_input->input_focus;
   gboolean enable_panel = FALSE;
+  MetaBackend *backend = backend_from_text_input (text_input);
+  ClutterBackend *clutter_backend =
+    meta_backend_get_clutter_backend (backend);
   ClutterInputMethod *input_method;
 
   increment_serial (text_input, resource);
@@ -605,7 +683,7 @@ text_input_commit_state (struct wl_client   *client,
   if (!client_matches_focus (text_input, client))
     return;
 
-  input_method = clutter_backend_get_input_method (clutter_get_default_backend ());
+  input_method = clutter_backend_get_input_method (clutter_backend);
 
   if (input_method &&
       text_input->pending_state & META_WAYLAND_PENDING_STATE_ENABLED)
@@ -643,17 +721,31 @@ text_input_commit_state (struct wl_client   *client,
 
   if (text_input->pending_state & META_WAYLAND_PENDING_STATE_SURROUNDING_TEXT)
     {
+      long cursor, anchor;
+
+      /* Save the surrounding text for `delete_surrounding_text`. */
+      g_free (text_input->surrounding.text);
+      text_input->surrounding.text = g_steal_pointer (&text_input->pending_surrounding.text);
+      text_input->surrounding.cursor = text_input->pending_surrounding.cursor;
+      text_input->surrounding.anchor = text_input->pending_surrounding.anchor;
+
+      /* Pass the surrounding text to Clutter to handle it with input method. */
+      /* Clutter uses char offsets but text-input-v3 uses byte offsets. */
+      cursor = g_utf8_strlen (text_input->surrounding.text,
+                              text_input->surrounding.cursor);
+      anchor = g_utf8_strlen (text_input->surrounding.text,
+                              text_input->surrounding.anchor);
       clutter_input_focus_set_surrounding (text_input->input_focus,
                                            text_input->surrounding.text,
-                                           text_input->surrounding.cursor,
-                                           text_input->surrounding.anchor);
+                                           cursor,
+                                           anchor);
     }
 
   if (text_input->pending_state & META_WAYLAND_PENDING_STATE_INPUT_RECT)
     {
       graphene_rect_t cursor_rect;
       float x1, y1, x2, y2;
-      cairo_rectangle_int_t rect;
+      MtkRectangle rect;
 
       rect = text_input->cursor_rect;
       meta_wayland_surface_get_absolute_coordinates (text_input->surface,
@@ -712,6 +804,7 @@ meta_wayland_text_input_destroy (MetaWaylandTextInput *text_input)
   g_object_unref (text_input->input_focus);
   g_hash_table_destroy (text_input->resource_serials);
   g_clear_pointer (&text_input->preedit.string, g_free);
+  g_clear_pointer (&text_input->pending_surrounding.text, g_free);
   g_clear_pointer (&text_input->surrounding.text, g_free);
   g_free (text_input);
 }
@@ -801,29 +894,59 @@ meta_wayland_text_input_init (MetaWaylandCompositor *compositor)
 }
 
 gboolean
+meta_wayland_text_input_update (MetaWaylandTextInput *text_input,
+                                const ClutterEvent   *event)
+{
+  ClutterEventType event_type;
+
+  if (!text_input->surface ||
+      !clutter_input_focus_is_focused (text_input->input_focus))
+    return FALSE;
+
+  event_type = clutter_event_type (event);
+
+  if (event_type == CLUTTER_KEY_PRESS ||
+      event_type == CLUTTER_KEY_RELEASE)
+    {
+      gboolean filtered = FALSE;
+
+      filtered = clutter_input_focus_filter_event (text_input->input_focus, event);
+      if (!filtered)
+        meta_wayland_text_input_focus_flush_done (text_input->input_focus);
+
+      return filtered;
+    }
+
+  return FALSE;
+}
+
+gboolean
 meta_wayland_text_input_handle_event (MetaWaylandTextInput *text_input,
                                       const ClutterEvent   *event)
 {
+  ClutterEventType event_type;
   gboolean retval;
 
   if (!text_input->surface ||
       !clutter_input_focus_is_focused (text_input->input_focus))
     return FALSE;
 
-  if ((event->type == CLUTTER_KEY_PRESS ||
-       event->type == CLUTTER_KEY_RELEASE) &&
-      clutter_event_get_flags (event) & CLUTTER_EVENT_FLAG_INPUT_METHOD)
-    meta_wayland_text_input_focus_flush_done (text_input->input_focus);
+  event_type = clutter_event_type (event);
 
-  retval = clutter_input_focus_filter_event (text_input->input_focus, event);
+  retval = clutter_input_focus_process_event (text_input->input_focus, event);
 
-  if (event->type == CLUTTER_BUTTON_PRESS ||
-      event->type == CLUTTER_TOUCH_BEGIN)
+  if (event_type == CLUTTER_BUTTON_PRESS ||
+      event_type == CLUTTER_TOUCH_BEGIN)
     {
       MetaWaylandSurface *surface = NULL;
+      MetaBackend *backend;
+      ClutterStage *stage;
       ClutterActor *actor;
 
-      actor = clutter_stage_get_device_actor (clutter_event_get_stage (event),
+      backend = backend_from_text_input (text_input);
+      stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
+
+      actor = clutter_stage_get_device_actor (stage,
                                               clutter_event_get_device (event),
                                               clutter_event_get_event_sequence (event));
 

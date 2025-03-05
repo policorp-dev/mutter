@@ -21,8 +21,7 @@
  * OF THIS SOFTWARE.
  */
 
-#ifndef META_WAYLAND_DATA_DEVICE_PRIMARY_H
-#define META_WAYLAND_DATA_DEVICE_PRIMARY_H
+#pragma once
 
 #include <glib-object.h>
 #include <wayland-server.h>
@@ -35,6 +34,8 @@
 
 struct _MetaWaylandDataDevicePrimary
 {
+  MetaWaylandSeat *seat;
+
   uint32_t serial;
   MetaWaylandDataSource *data_source;
   struct wl_list resource_list;
@@ -48,8 +49,8 @@ struct _MetaWaylandDataDevicePrimary
 
 void meta_wayland_data_device_primary_manager_init (MetaWaylandCompositor *compositor);
 
-void meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_device);
+void meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_device,
+                                            MetaWaylandSeat              *seat);
 
-void meta_wayland_data_device_primary_set_keyboard_focus (MetaWaylandDataDevicePrimary *data_device);
-
-#endif /* META_WAYLAND_DATA_DEVICE_PRIMARY_H */
+void meta_wayland_data_device_primary_set_focus (MetaWaylandDataDevicePrimary *data_device,
+                                                 MetaWaylandSurface           *surface);

@@ -14,18 +14,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_SCREEN_CAST_H
-#define META_SCREEN_CAST_H
+#pragma once
 
 #include <glib-object.h>
 
 #include "backends/meta-backend-private.h"
+#include "backends/meta-dbus-session-manager.h"
 #include "backends/meta-dbus-session-watcher.h"
 
 #include "meta-dbus-screen-cast.h"
@@ -47,23 +45,24 @@ typedef enum _MetaScreenCastFlag
 #define META_TYPE_SCREEN_CAST (meta_screen_cast_get_type ())
 G_DECLARE_FINAL_TYPE (MetaScreenCast, meta_screen_cast,
                       META, SCREEN_CAST,
-                      MetaDBusScreenCastSkeleton)
-
-void meta_screen_cast_inhibit (MetaScreenCast *screen_cast);
-
-void meta_screen_cast_uninhibit (MetaScreenCast *screen_cast);
-
-GDBusConnection * meta_screen_cast_get_connection (MetaScreenCast *screen_cast);
+                      MetaDbusSessionManager)
 
 MetaBackend * meta_screen_cast_get_backend (MetaScreenCast *screen_cast);
 
-void meta_screen_cast_disable_dma_bufs (MetaScreenCast *screen_cast);
+GArray * meta_screen_cast_query_modifiers (MetaScreenCast  *screen_cast,
+                                           CoglPixelFormat  format);
 
-CoglDmaBufHandle * meta_screen_cast_create_dma_buf_handle (MetaScreenCast *screen_cast,
-                                                           int             width,
-                                                           int             height);
+gboolean meta_screen_cast_get_preferred_modifier (MetaScreenCast  *screen_cast,
+                                                  CoglPixelFormat  format,
+                                                  GArray          *modifiers,
+                                                  int              width,
+                                                  int              height,
+                                                  uint64_t        *preferred_modifier);
 
-MetaScreenCast * meta_screen_cast_new (MetaBackend            *backend,
-                                       MetaDbusSessionWatcher *session_watcher);
+CoglDmaBufHandle * meta_screen_cast_create_dma_buf_handle (MetaScreenCast  *screen_cast,
+                                                           CoglPixelFormat  format,
+                                                           uint64_t         modifier,
+                                                           int              width,
+                                                           int              height);
 
-#endif /* META_SCREEN_CAST_H */
+MetaScreenCast * meta_screen_cast_new (MetaBackend *backend);

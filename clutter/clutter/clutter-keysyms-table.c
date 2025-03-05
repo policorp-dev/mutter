@@ -1,8 +1,8 @@
-#include "clutter-build-config.h"
+#include "config.h"
 
 #include <glib.h>
 
-#include "clutter-event.h"
+#include "clutter/clutter-event.h"
 
 /* Code below from GDK, which contains following comment:
  *

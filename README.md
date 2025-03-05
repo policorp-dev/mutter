@@ -26,41 +26,31 @@ debugging purposes.
 
 To contribute, open merge requests at https://gitlab.gnome.org/GNOME/mutter.
 
-It can be useful to look at the documentation available at the
-[Wiki](https://gitlab.gnome.org/GNOME/mutter/-/wikis/home).
+It can be useful to first look at the
+[GNOME Handbook](https://handbook.gnome.org/development.html) and the
+documentation and API references below first.
 
-The API documentation is available at:
-- Meta: <https://gnome.pages.gitlab.gnome.org/mutter/meta/>
-- Clutter: <https://gnome.pages.gitlab.gnome.org/mutter/clutter/>
-- Cally: <https://gnome.pages.gitlab.gnome.org/mutter/cally/>
-- Cogl: <https://gnome.pages.gitlab.gnome.org/mutter/cogl/>
-- CoglPango: <https://gnome.pages.gitlab.gnome.org/mutter/cogl-pango/>
+## Documentation
 
-## Coding style and conventions
+- [Coding style and conventions](doc/coding-style.md)
+- [Git conventions](doc/git-conventions.md)
+- [Code overview](doc/code-overview.md)
+- [Building and Running](doc/building-and-running.md)
+- [Debugging](doc/debugging.md)
+- [Monitor configuration](doc/monitor-configuration.md)
+- [Multi-GPU](doc/multi-gpu.md)
 
-See [HACKING.md](./HACKING.md).
+## API Reference
 
-## Git messages
+- Meta: <https://mutter.gnome.org/meta/>
+- Clutter: <https://mutter.gnome.org/clutter/>
+- Cogl: <https://mutter.gnome.org/cogl/>
+- Mtk: <https://mutter.gnome.org/mtk/>
 
-Commit messages should follow the [GNOME commit message
-guidelines](https://wiki.gnome.org/Git/CommitMessages). We require an URL
-to either an issue or a merge request in each commit. Try to always prefix
-commit subjects with a relevant topic, such as `compositor:` or
-`clutter/actor:`, and it's always better to write too much in the commit
-message body than too little.
+## Meetings
 
-## Default branch
-
-The default development branch is `main`. If you still have a local
-checkout under the old name, use:
-```sh
-git checkout master
-git branch -m master main
-git fetch
-git branch --unset-upstream
-git branch -u origin/main
-git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-```
+There are [recurring meetings](https://hedgedoc.gnome.org/s/ymP_L5MUs) to
+discuss development of GNOME Shell, mutter and related components.
 
 ## License
 

@@ -1,4 +1,3 @@
-#define CLUTTER_DISABLE_DEPRECATION_WARNINGS
 #include <clutter/clutter.h>
 
 #include "tests/clutter-test-utils.h"
@@ -41,11 +40,12 @@ foo_actor_paint (ClutterActor        *actor,
                  ClutterPaintContext *paint_context)
 {
   CoglContext *ctx =
-    clutter_backend_get_cogl_context (clutter_get_default_backend ());
+    clutter_backend_get_cogl_context (clutter_test_get_backend ());
   FooActor *foo_actor = (FooActor *) actor;
   ClutterActorBox allocation;
   CoglPipeline *pipeline;
   CoglFramebuffer *framebuffer;
+  CoglColor color;
 
   foo_actor->last_paint_opacity = clutter_actor_get_paint_opacity (actor);
   foo_actor->paint_count++;
@@ -54,9 +54,9 @@ foo_actor_paint (ClutterActor        *actor,
 
   /* Paint a red rectangle with the right opacity */
   pipeline = cogl_pipeline_new (ctx);
-  cogl_pipeline_set_color4ub (pipeline,
-                              255, 0, 0,
-                              foo_actor->last_paint_opacity);
+  cogl_color_init_from_4f (&color, 1.0f, 0.0f, 0.0f,
+                           foo_actor->last_paint_opacity / 255.0f);
+  cogl_pipeline_set_color (pipeline, &color);
 
   framebuffer = clutter_paint_context_get_framebuffer (paint_context);
   cogl_framebuffer_draw_rectangle (framebuffer,
@@ -65,7 +65,7 @@ foo_actor_paint (ClutterActor        *actor,
                                    allocation.y1,
                                    allocation.x2,
                                    allocation.y2);
-  cogl_object_unref (pipeline);
+  g_object_unref (pipeline);
 }
 
 static gboolean
@@ -415,7 +415,7 @@ actor_offscreen_redirect (void)
   data.stage = clutter_test_get_stage ();
   data.parent_container = clutter_actor_new ();
   clutter_actor_set_background_color (data.parent_container,
-                                      &(ClutterColor) { 255, 255, 255, 255 });
+                                      &(CoglColor) { 255, 255, 255, 255 });
 
   data.container = g_object_new (foo_group_get_type (), NULL);
   data.foo_actor = g_object_new (foo_actor_get_type (), NULL);
@@ -435,10 +435,10 @@ actor_offscreen_redirect (void)
 
   clutter_actor_show (data.stage);
 
-  clutter_threads_add_repaint_func_full (CLUTTER_REPAINT_FLAGS_POST_PAINT,
-                                         run_verify,
-                                         &data,
-                                         NULL);
+  clutter_threads_add_repaint_func (CLUTTER_REPAINT_FLAGS_POST_PAINT,
+                                    run_verify,
+                                    &data,
+                                    NULL);
 
   while (!data.was_painted)
     g_main_context_iteration (NULL, FALSE);

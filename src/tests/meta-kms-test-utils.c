@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -31,6 +29,8 @@
 #include "backends/native/meta-kms-crtc.h"
 #include "backends/native/meta-kms-device.h"
 #include "backends/native/meta-kms-mode.h"
+#include "backends/native/meta-kms-plane.h"
+#include "backends/native/meta-kms-types.h"
 #include "backends/native/meta-kms-update.h"
 #include "backends/native/meta-kms.h"
 
@@ -67,6 +67,41 @@ meta_get_test_kms_connector (MetaKmsDevice *device)
   g_assert_cmpuint (g_list_length (connectors), ==, 1);
 
   return META_KMS_CONNECTOR (connectors->data);
+}
+
+static MetaKmsPlane *
+get_plane_with_type_for (MetaKmsDevice    *device,
+                         MetaKmsCrtc      *crtc,
+                         MetaKmsPlaneType  type)
+{
+  GList *l;
+
+  for (l = meta_kms_device_get_planes (device); l; l = l->next)
+    {
+      MetaKmsPlane *plane = l->data;
+
+      if (meta_kms_plane_get_plane_type (plane) != type)
+        continue;
+
+      if (meta_kms_plane_is_usable_with (plane, crtc))
+        return plane;
+    }
+
+  return NULL;
+}
+
+MetaKmsPlane *
+meta_get_primary_test_plane_for (MetaKmsDevice *device,
+                                 MetaKmsCrtc   *crtc)
+{
+  return get_plane_with_type_for (device, crtc, META_KMS_PLANE_TYPE_PRIMARY);
+}
+
+MetaKmsPlane *
+meta_get_cursor_test_plane_for (MetaKmsDevice *device,
+                                MetaKmsCrtc   *crtc)
+{
+  return get_plane_with_type_for (device, crtc, META_KMS_PLANE_TYPE_CURSOR);
 }
 
 static MetaDeviceFile *
@@ -123,10 +158,35 @@ meta_get_mode_fixed_rect_16 (MetaKmsMode *mode)
                                            meta_kms_mode_get_height (mode));
 }
 
-MetaRectangle
+MtkRectangle
 meta_get_mode_rect (MetaKmsMode *mode)
 {
-  return META_RECTANGLE_INIT (0, 0,
-                              meta_kms_mode_get_width (mode),
-                              meta_kms_mode_get_height (mode));
+  return MTK_RECTANGLE_INIT (0, 0,
+                             meta_kms_mode_get_width (mode),
+                             meta_kms_mode_get_height (mode));
+}
+
+GUdevDevice *
+meta_get_test_udev_device (MetaUdev *udev)
+{
+  g_autolist (GObject) list = NULL;
+  g_autoptr (GError) error = NULL;
+  GUdevDevice *test_device = NULL;
+  GList *l;
+
+  list = meta_udev_list_drm_devices (udev, META_UDEV_DEVICE_TYPE_CARD, &error);
+
+  for (l = list; l; l = l->next)
+    {
+      GUdevDevice *udev_device = l->data;
+
+      if (meta_is_udev_test_device (udev_device))
+        {
+          g_assert_null (test_device);
+          g_set_object (&test_device, udev_device);
+        }
+    }
+
+  g_assert_nonnull (test_device);
+  return test_device;
 }

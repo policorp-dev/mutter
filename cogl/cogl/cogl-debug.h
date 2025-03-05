@@ -28,12 +28,11 @@
  *
  */
 
-#ifndef __COGL_DEBUG_H__
-#define __COGL_DEBUG_H__
+#pragma once
 
-#include "cogl-profile.h"
-#include "cogl-flags.h"
-#include "cogl-util.h"
+#include "cogl/cogl-profile.h"
+#include "cogl/cogl-flags.h"
+#include "cogl/cogl-util.h"
 
 #include <glib.h>
 
@@ -45,7 +44,6 @@ typedef enum
   COGL_DEBUG_FRAMEBUFFER,
   COGL_DEBUG_OFFSCREEN,
   COGL_DEBUG_DRAW,
-  COGL_DEBUG_PANGO,
   COGL_DEBUG_RECTANGLES,
   COGL_DEBUG_OBJECT,
   COGL_DEBUG_BLEND_STRINGS,
@@ -56,12 +54,12 @@ typedef enum
   COGL_DEBUG_DISABLE_SOFTWARE_TRANSFORM,
   COGL_DEBUG_MATRICES,
   COGL_DEBUG_ATLAS,
-  COGL_DEBUG_DUMP_ATLAS_IMAGE,
   COGL_DEBUG_DISABLE_ATLAS,
   COGL_DEBUG_DISABLE_SHARED_ATLAS,
   COGL_DEBUG_OPENGL,
   COGL_DEBUG_DISABLE_TEXTURING,
   COGL_DEBUG_SHOW_SOURCE,
+  COGL_DEBUG_SHOW_UNIFORMS,
   COGL_DEBUG_DISABLE_BLENDING,
   COGL_DEBUG_TEXTURE_PIXMAP,
   COGL_DEBUG_BITMAP,
@@ -117,10 +115,6 @@ _cogl_debug_check_environment (void);
 
 void
 _cogl_parse_debug_string (const char *value,
-                          gboolean enable,
-                          gboolean ignore_help);
+                          gboolean enable);
 
 G_END_DECLS
-
-#endif /* __COGL_DEBUG_H__ */
-

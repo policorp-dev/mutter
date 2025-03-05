@@ -12,18 +12,25 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_H
-#define META_KMS_H
+#pragma once
 
 #include <glib-object.h>
 
 #include "backends/meta-backend-private.h"
 #include "backends/native/meta-kms-types.h"
+#include "backends/native/meta-thread.h"
+
+enum
+{
+  META_KMS_ERROR_USER_INHIBITED,
+  META_KMS_ERROR_DENY_LISTED,
+  META_KMS_ERROR_NOT_SUPPORTED,
+  META_KMS_ERROR_EMPTY_UPDATE,
+  META_KMS_ERROR_DISCARDED,
+};
 
 typedef enum _MetaKmsFlags
 {
@@ -31,23 +38,11 @@ typedef enum _MetaKmsFlags
   META_KMS_FLAG_NO_MODE_SETTING = 1 << 0,
 } MetaKmsFlags;
 
+#define META_KMS_ERROR meta_kms_error_quark ()
+GQuark meta_kms_error_quark (void);
+
 #define META_TYPE_KMS (meta_kms_get_type ())
-G_DECLARE_FINAL_TYPE (MetaKms, meta_kms, META, KMS, GObject)
-
-void meta_kms_discard_pending_updates (MetaKms *kms);
-
-MetaKmsUpdate * meta_kms_ensure_pending_update (MetaKms       *kms,
-                                                MetaKmsDevice *device);
-
-MetaKmsUpdate * meta_kms_get_pending_update (MetaKms       *kms,
-                                             MetaKmsDevice *device);
-
-MetaKmsFeedback * meta_kms_post_pending_update_sync (MetaKms           *kms,
-                                                     MetaKmsDevice     *device,
-                                                     MetaKmsUpdateFlag  flags);
-
-MetaKmsFeedback * meta_kms_post_test_update_sync (MetaKms       *kms,
-                                                  MetaKmsUpdate *update);
+G_DECLARE_FINAL_TYPE (MetaKms, meta_kms, META, KMS, MetaThread)
 
 void meta_kms_discard_pending_page_flips (MetaKms *kms);
 
@@ -66,10 +61,19 @@ MetaKmsDevice * meta_kms_create_device (MetaKms            *kms,
                                         MetaKmsDeviceFlag   flags,
                                         GError            **error);
 
-void meta_kms_prepare_shutdown (MetaKms *kms);
+gboolean meta_kms_is_shutting_down (MetaKms *kms);
 
 MetaKms * meta_kms_new (MetaBackend   *backend,
                         MetaKmsFlags   flags,
                         GError       **error);
 
-#endif /* META_KMS_H */
+void meta_kms_notify_probed (MetaKms *kms);
+
+META_EXPORT_TEST
+void meta_kms_inhibit_kernel_thread (MetaKms *kms);
+
+META_EXPORT_TEST
+void meta_kms_uninhibit_kernel_thread (MetaKms *kms);
+
+META_EXPORT_TEST
+MetaKmsCursorManager * meta_kms_get_cursor_manager (MetaKms *kms);

@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -24,8 +22,15 @@
 
 #include "backends/native/meta-kms-device-private.h"
 #include "backends/native/meta-kms-impl-device.h"
+#include "backends/native/meta-kms-impl-device-atomic.h"
+#include "backends/native/meta-kms-impl-device-simple.h"
 #include "backends/native/meta-kms-mode.h"
 #include "backends/native/meta-kms-update-private.h"
+#include "backends/native/meta-kms-utils.h"
+
+#define DEADLINE_EVASION_CONSTANT_US 200
+
+#define MINIMUM_REFRESH_RATE 30.f
 
 typedef struct _MetaKmsCrtcPropTable
 {
@@ -44,6 +49,12 @@ struct _MetaKmsCrtc
   MetaKmsCrtcState current_state;
 
   MetaKmsCrtcPropTable prop_table;
+
+  gboolean is_leased;
+
+  int64_t shortterm_max_dispatch_duration_us;
+  int64_t deadline_evasion_us;
+  int64_t deadline_evasion_update_time_us;
 };
 
 G_DEFINE_TYPE (MetaKmsCrtc, meta_kms_crtc, G_TYPE_OBJECT)
@@ -101,11 +112,97 @@ meta_kms_crtc_is_active (MetaKmsCrtc *crtc)
   return crtc->current_state.is_active;
 }
 
-
 gboolean
-meta_kms_crtc_has_gamma (MetaKmsCrtc *crtc)
+meta_kms_crtc_is_leased (MetaKmsCrtc *crtc)
 {
-  return crtc->current_state.gamma.size > 0;
+  return crtc->is_leased;
+}
+
+void
+meta_kms_crtc_set_is_leased (MetaKmsCrtc *crtc,
+                             gboolean     leased)
+{
+  crtc->is_leased = leased;
+}
+
+static void
+read_crtc_gamma (MetaKmsCrtc       *crtc,
+                 MetaKmsCrtcState  *crtc_state,
+                 MetaKmsImplDevice *impl_device,
+                 drmModeCrtc       *drm_crtc)
+{
+  MetaKmsProp *prop_lut;
+  MetaKmsProp *prop_size;
+  uint64_t blob_id;
+  uint64_t lut_size;
+  int fd;
+  drmModePropertyBlobPtr blob;
+  int drm_lut_size;
+  struct drm_color_lut *drm_lut;
+  int i;
+
+  prop_lut = &crtc->prop_table.props[META_KMS_CRTC_PROP_GAMMA_LUT];
+  prop_size = &crtc->prop_table.props[META_KMS_CRTC_PROP_GAMMA_LUT_SIZE];
+
+  if (!prop_lut->prop_id || !prop_size->prop_id)
+    return;
+
+  lut_size = prop_size->value;
+  if (lut_size <= 0)
+    return;
+
+  crtc_state->gamma.size = lut_size;
+  crtc_state->gamma.supported = TRUE;
+
+  blob_id = prop_lut->value;
+  if (blob_id == 0)
+    return;
+
+  fd = meta_kms_impl_device_get_fd (impl_device);
+  blob = drmModeGetPropertyBlob (fd, blob_id);
+  if (!blob)
+    return;
+
+  drm_lut_size = blob->length / sizeof (struct drm_color_lut);
+  if (drm_lut_size == 0)
+    {
+      drmModeFreePropertyBlob (blob);
+      return;
+    }
+
+  drm_lut = blob->data;
+
+  crtc_state->gamma.value = meta_gamma_lut_new_sized (drm_lut_size);
+
+  for (i = 0; i < drm_lut_size; i++)
+    {
+      crtc_state->gamma.value->red[i] = drm_lut[i].red;
+      crtc_state->gamma.value->green[i] = drm_lut[i].green;
+      crtc_state->gamma.value->blue[i] = drm_lut[i].blue;
+    }
+
+  drmModeFreePropertyBlob (blob);
+}
+
+static void
+read_crtc_legacy_gamma (MetaKmsCrtc       *crtc,
+                        MetaKmsCrtcState  *crtc_state,
+                        MetaKmsImplDevice *impl_device,
+                        drmModeCrtc       *drm_crtc)
+{
+  crtc_state->gamma.size = drm_crtc->gamma_size;
+  crtc_state->gamma.supported = drm_crtc->gamma_size != 0;
+  crtc_state->gamma.value = meta_gamma_lut_new_sized (drm_crtc->gamma_size);
+
+  drmModeCrtcGetGamma (meta_kms_impl_device_get_fd (impl_device),
+                       crtc->id,
+                       crtc_state->gamma.value->size,
+                       crtc_state->gamma.value->red,
+                       crtc_state->gamma.value->green,
+                       crtc_state->gamma.value->blue);
+
+  if (meta_gamma_lut_is_identity (crtc_state->gamma.value))
+    g_clear_pointer (&crtc_state->gamma.value, meta_gamma_lut_free);
 }
 
 static void
@@ -114,21 +211,24 @@ read_gamma_state (MetaKmsCrtc       *crtc,
                   MetaKmsImplDevice *impl_device,
                   drmModeCrtc       *drm_crtc)
 {
-  g_assert (!crtc_state->gamma.red &&
-            !crtc_state->gamma.green &&
-            !crtc_state->gamma.blue);
+  g_assert_null (crtc_state->gamma.value);
 
-  crtc_state->gamma.size = drm_crtc->gamma_size;
-  crtc_state->gamma.red = g_new0 (uint16_t, drm_crtc->gamma_size);
-  crtc_state->gamma.green = g_new0 (uint16_t, drm_crtc->gamma_size);
-  crtc_state->gamma.blue = g_new0 (uint16_t, drm_crtc->gamma_size);
+  crtc_state->gamma.size = 0;
+  crtc_state->gamma.supported = FALSE;
 
-  drmModeCrtcGetGamma (meta_kms_impl_device_get_fd (impl_device),
-                       crtc->id,
-                       crtc_state->gamma.size,
-                       crtc_state->gamma.red,
-                       crtc_state->gamma.green,
-                       crtc_state->gamma.blue);
+  if (META_IS_KMS_IMPL_DEVICE_ATOMIC (impl_device))
+    read_crtc_gamma (crtc, crtc_state, impl_device, drm_crtc);
+  else if (META_IS_KMS_IMPL_DEVICE_SIMPLE (impl_device))
+    read_crtc_legacy_gamma (crtc, crtc_state, impl_device, drm_crtc);
+}
+
+static gboolean
+gamma_equal (MetaKmsCrtcState *state,
+             MetaKmsCrtcState *other_state)
+{
+  return state->gamma.size == other_state->gamma.size &&
+         state->gamma.supported == other_state->gamma.supported &&
+         meta_gamma_lut_equal (state->gamma.value, other_state->gamma.value);
 }
 
 static MetaKmsResourceChanges
@@ -138,7 +238,7 @@ meta_kms_crtc_state_changes (MetaKmsCrtcState *state,
   if (state->is_active != other_state->is_active)
     return META_KMS_RESOURCE_CHANGE_FULL;
 
-  if (!meta_rectangle_equal (&state->rect, &other_state->rect))
+  if (!mtk_rectangle_equal (&state->rect, &other_state->rect))
     return META_KMS_RESOURCE_CHANGE_FULL;
 
   if (state->is_drm_mode_valid != other_state->is_drm_mode_valid)
@@ -147,31 +247,13 @@ meta_kms_crtc_state_changes (MetaKmsCrtcState *state,
   if (!meta_drm_mode_equal (&state->drm_mode, &other_state->drm_mode))
     return META_KMS_RESOURCE_CHANGE_FULL;
 
-  if (state->gamma.size != other_state->gamma.size)
-    return META_KMS_RESOURCE_CHANGE_GAMMA;
+  if (state->vrr.enabled != other_state->vrr.enabled)
+    return META_KMS_RESOURCE_CHANGE_FULL;
 
-  if (memcmp (state->gamma.blue, other_state->gamma.blue,
-              state->gamma.size * sizeof (uint16_t)) != 0)
-    return META_KMS_RESOURCE_CHANGE_GAMMA;
-
-  if (memcmp (state->gamma.green, other_state->gamma.green,
-              state->gamma.size * sizeof (uint16_t)) != 0)
-    return META_KMS_RESOURCE_CHANGE_GAMMA;
-
-  if (memcmp (state->gamma.red, other_state->gamma.red,
-              state->gamma.size * sizeof (uint16_t)) != 0)
+  if (!gamma_equal (state, other_state))
     return META_KMS_RESOURCE_CHANGE_GAMMA;
 
   return META_KMS_RESOURCE_CHANGE_NONE;
-}
-
-static void
-clear_gamma_state (MetaKmsCrtcState *crtc_state)
-{
-  crtc_state->gamma.size = 0;
-  g_clear_pointer (&crtc_state->gamma.red, g_free);
-  g_clear_pointer (&crtc_state->gamma.green, g_free);
-  g_clear_pointer (&crtc_state->gamma.blue, g_free);
 }
 
 static MetaKmsResourceChanges
@@ -182,7 +264,7 @@ meta_kms_crtc_read_state (MetaKmsCrtc             *crtc,
 {
   MetaKmsCrtcState crtc_state = {0};
   MetaKmsResourceChanges changes = META_KMS_RESOURCE_CHANGE_NONE;
-  MetaKmsProp *active_prop;
+  MetaKmsProp *prop;
 
   meta_kms_impl_device_update_prop_table (impl_device,
                                           drm_props->props,
@@ -191,7 +273,7 @@ meta_kms_crtc_read_state (MetaKmsCrtc             *crtc,
                                           crtc->prop_table.props,
                                           META_KMS_CRTC_N_PROPS);
 
-  crtc_state.rect = (MetaRectangle) {
+  crtc_state.rect = (MtkRectangle) {
     .x = drm_crtc->x,
     .y = drm_crtc->y,
     .width = drm_crtc->width,
@@ -201,26 +283,47 @@ meta_kms_crtc_read_state (MetaKmsCrtc             *crtc,
   crtc_state.is_drm_mode_valid = drm_crtc->mode_valid;
   crtc_state.drm_mode = drm_crtc->mode;
 
-  active_prop = &crtc->prop_table.props[META_KMS_CRTC_PROP_ACTIVE];
+  prop = &crtc->prop_table.props[META_KMS_CRTC_PROP_ACTIVE];
 
-  if (active_prop->prop_id)
-    crtc_state.is_active = !!active_prop->value;
+  if (prop->prop_id)
+    crtc_state.is_active = !!prop->value;
   else
     crtc_state.is_active = drm_crtc->mode_valid;
+
+  prop = &crtc->prop_table.props[META_KMS_CRTC_PROP_VRR_ENABLED];
+  if (prop->prop_id)
+    {
+      crtc_state.vrr.supported = TRUE;
+      crtc_state.vrr.enabled = !!prop->value;
+    }
 
   read_gamma_state (crtc, &crtc_state, impl_device, drm_crtc);
 
   if (!crtc_state.is_active)
     {
       if (crtc->current_state.is_active)
-        changes |= META_KMS_RESOURCE_CHANGE_FULL;
+        {
+          meta_topic (META_DEBUG_KMS,
+                      "%s: CRTC is_active disabled",
+                      __func__);
+          changes |= META_KMS_RESOURCE_CHANGE_FULL;
+        }
     }
   else
     {
       changes = meta_kms_crtc_state_changes (&crtc->current_state, &crtc_state);
+
+      if (changes & META_KMS_RESOURCE_CHANGE_FULL)
+        {
+          meta_topic (META_DEBUG_KMS,
+                      "%s: meta_kms_crtc_state_changes returned "
+                      "META_KMS_RESOURCE_CHANGE_FULL",
+                      __func__);
+        }
     }
 
-  clear_gamma_state (&crtc->current_state);
+  g_clear_pointer (&crtc->current_state.gamma.value,
+                   meta_gamma_lut_free);
   crtc->current_state = crtc_state;
 
   meta_topic (META_DEBUG_KMS,
@@ -237,7 +340,7 @@ meta_kms_crtc_read_state (MetaKmsCrtc             *crtc,
 }
 
 MetaKmsResourceChanges
-meta_kms_crtc_update_state (MetaKmsCrtc *crtc)
+meta_kms_crtc_update_state_in_impl (MetaKmsCrtc *crtc)
 {
   MetaKmsImplDevice *impl_device;
   MetaKmsResourceChanges changes;
@@ -254,8 +357,11 @@ meta_kms_crtc_update_state (MetaKmsCrtc *crtc)
   if (!drm_crtc || !drm_props)
     {
       crtc->current_state.is_active = FALSE;
-      crtc->current_state.rect = (MetaRectangle) { };
+      crtc->current_state.rect = (MtkRectangle) { };
       crtc->current_state.is_drm_mode_valid = FALSE;
+      meta_topic (META_DEBUG_KMS,
+                  "%s: drm_crtc=%p drm_props=%p",
+                  __func__, drm_crtc, drm_props);
       changes = META_KMS_RESOURCE_CHANGE_FULL;
       goto out;
     }
@@ -270,20 +376,21 @@ out:
 }
 
 void
-meta_kms_crtc_disable (MetaKmsCrtc *crtc)
+meta_kms_crtc_disable_in_impl (MetaKmsCrtc *crtc)
 {
   crtc->current_state.is_active = FALSE;
-  crtc->current_state.rect = (MetaRectangle) { 0 };
+  crtc->current_state.rect = (MtkRectangle) { 0 };
   crtc->current_state.is_drm_mode_valid = FALSE;
   crtc->current_state.drm_mode = (drmModeModeInfo) { 0 };
 }
 
 void
-meta_kms_crtc_predict_state (MetaKmsCrtc   *crtc,
-                             MetaKmsUpdate *update)
+meta_kms_crtc_predict_state_in_impl (MetaKmsCrtc   *crtc,
+                                     MetaKmsUpdate *update)
 {
   GList *mode_sets;
-  GList *crtc_gammas;
+  GList *crtc_updates;
+  GList *crtc_color_updates;
   GList *l;
 
   mode_sets = meta_kms_update_get_mode_sets (update);
@@ -312,7 +419,7 @@ meta_kms_crtc_predict_state (MetaKmsCrtc   *crtc,
       else
         {
           crtc->current_state.is_active = FALSE;
-          crtc->current_state.rect = (MetaRectangle) { 0 };
+          crtc->current_state.rect = (MtkRectangle) { 0 };
           crtc->current_state.is_drm_mode_valid = FALSE;
           crtc->current_state.drm_mode = (drmModeModeInfo) { 0 };
         }
@@ -320,23 +427,37 @@ meta_kms_crtc_predict_state (MetaKmsCrtc   *crtc,
       break;
     }
 
-  crtc_gammas = meta_kms_update_get_crtc_gammas (update);
-  for (l = crtc_gammas; l; l = l->next)
+  crtc_updates = meta_kms_update_get_crtc_updates (update);
+  for (l = crtc_updates; l; l = l->next)
     {
-      MetaKmsCrtcGamma *gamma = l->data;
+      MetaKmsCrtcUpdate *crtc_update = l->data;
 
-      if (gamma->crtc != crtc)
+      if (crtc_update->crtc != crtc)
         continue;
 
-      clear_gamma_state (&crtc->current_state);
-      crtc->current_state.gamma.size = gamma->size;
-      crtc->current_state.gamma.red =
-        g_memdup2 (gamma->red, gamma->size * sizeof (uint16_t));
-      crtc->current_state.gamma.green =
-        g_memdup2 (gamma->green, gamma->size * sizeof (uint16_t));
-      crtc->current_state.gamma.blue =
-        g_memdup2 (gamma->blue, gamma->size * sizeof (uint16_t));
+      if (crtc_update->vrr.has_update)
+        crtc->current_state.vrr.enabled = !!crtc_update->vrr.is_enabled;
 
+      break;
+    }
+
+  crtc_color_updates = meta_kms_update_get_crtc_color_updates (update);
+  for (l = crtc_color_updates; l; l = l->next)
+    {
+      MetaKmsCrtcColorUpdate *color_update = l->data;
+      MetaGammaLut *gamma = color_update->gamma.state;
+
+      if (color_update->crtc != crtc)
+        continue;
+
+      if (color_update->gamma.has_update)
+        {
+          if (gamma)
+            gamma = meta_gamma_lut_copy (gamma);
+
+          g_clear_pointer (&crtc->current_state.gamma.value, meta_gamma_lut_free);
+          crtc->current_state.gamma.value = gamma;
+        }
       break;
     }
 }
@@ -364,6 +485,16 @@ init_properties (MetaKmsCrtc       *crtc,
         {
           .name = "GAMMA_LUT",
           .type = DRM_MODE_PROP_BLOB,
+        },
+      [META_KMS_CRTC_PROP_GAMMA_LUT_SIZE] =
+        {
+          .name = "GAMMA_LUT_SIZE",
+          .type = DRM_MODE_PROP_RANGE,
+        },
+      [META_KMS_CRTC_PROP_VRR_ENABLED] =
+        {
+          .name = "VRR_ENABLED",
+          .type = DRM_MODE_PROP_RANGE,
         },
     }
   };
@@ -394,6 +525,11 @@ meta_kms_crtc_new (MetaKmsImplDevice  *impl_device,
   crtc->id = drm_crtc->crtc_id;
   crtc->idx = idx;
 
+  meta_topic (META_DEBUG_KMS,
+              "Adding CRTC %u (%s)",
+              crtc->id,
+              meta_kms_impl_device_get_path (impl_device));
+
   init_properties (crtc, impl_device, drm_crtc);
 
   meta_kms_crtc_read_state (crtc, impl_device, drm_crtc, drm_props);
@@ -408,7 +544,7 @@ meta_kms_crtc_finalize (GObject *object)
 {
   MetaKmsCrtc *crtc = META_KMS_CRTC (object);
 
-  clear_gamma_state (&crtc->current_state);
+  g_clear_pointer (&crtc->current_state.gamma.value, meta_gamma_lut_free);
 
   G_OBJECT_CLASS (meta_kms_crtc_parent_class)->finalize (object);
 }
@@ -417,6 +553,7 @@ static void
 meta_kms_crtc_init (MetaKmsCrtc *crtc)
 {
   crtc->current_state.gamma.size = 0;
+  crtc->current_state.gamma.value = NULL;
 }
 
 static void
@@ -425,4 +562,186 @@ meta_kms_crtc_class_init (MetaKmsCrtcClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->finalize = meta_kms_crtc_finalize;
+}
+
+static drmVBlankSeqType
+get_crtc_type_bitmask (MetaKmsCrtc *crtc)
+{
+  if (crtc->idx > 1)
+    {
+      return ((crtc->idx << DRM_VBLANK_HIGH_CRTC_SHIFT) &
+              DRM_VBLANK_HIGH_CRTC_MASK);
+    }
+  else if (crtc->idx > 0)
+    {
+      return DRM_VBLANK_SECONDARY;
+    }
+  else
+    {
+      return 0;
+    }
+}
+
+static void
+maybe_update_deadline_evasion (MetaKmsCrtc *crtc,
+                               int64_t      next_presentation_time_us)
+{
+  /* Do not update long-term max if there has been no measurement */
+  if (!crtc->shortterm_max_dispatch_duration_us)
+    return;
+
+  if (next_presentation_time_us - crtc->deadline_evasion_update_time_us <
+      G_USEC_PER_SEC)
+    return;
+
+  if (crtc->deadline_evasion_us > crtc->shortterm_max_dispatch_duration_us)
+    {
+      /* Exponential drop-off toward the clamped short-term max */
+      crtc->deadline_evasion_us -=
+        (crtc->deadline_evasion_us - crtc->shortterm_max_dispatch_duration_us) / 2;
+    }
+  else
+    {
+      crtc->deadline_evasion_us = crtc->shortterm_max_dispatch_duration_us;
+    }
+
+  crtc->shortterm_max_dispatch_duration_us = 0;
+  crtc->deadline_evasion_update_time_us = next_presentation_time_us;
+}
+
+gboolean
+meta_kms_crtc_determine_deadline (MetaKmsCrtc  *crtc,
+                                  int64_t      *out_next_deadline_us,
+                                  int64_t      *out_next_presentation_us,
+                                  GError      **error)
+{
+  MetaKmsImplDevice *impl_device;
+  int fd;
+  drmVBlank vblank;
+  int ret;
+  int64_t next_presentation_us;
+  int64_t next_deadline_us;
+
+  if (!crtc->current_state.is_drm_mode_valid)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                   "Mode invalid");
+      return FALSE;
+    }
+
+  impl_device = meta_kms_device_get_impl_device (crtc->device);
+  fd = meta_kms_impl_device_get_fd (impl_device);
+
+  vblank = (drmVBlank) {
+    .request.type = DRM_VBLANK_RELATIVE | get_crtc_type_bitmask (crtc),
+    .request.sequence = 0,
+    .request.signal = 0,
+  };
+
+  ret = drmWaitVBlank (fd, &vblank);
+  if (ret != 0)
+    {
+      g_set_error (error, G_IO_ERROR, g_io_error_from_errno (-ret),
+                   "drmWaitVBlank failed: %s", g_strerror (-ret));
+      return FALSE;
+    }
+
+  if (crtc->current_state.vrr.enabled)
+    {
+      next_presentation_us = 0;
+      next_deadline_us =
+        (int64_t) (s2us (vblank.reply.tval_sec) + vblank.reply.tval_usec + 0.5 +
+                   G_USEC_PER_SEC / MINIMUM_REFRESH_RATE);
+    }
+  else
+    {
+      drmModeModeInfo *drm_mode;
+      int64_t refresh_interval_us;
+      int64_t vblank_duration_us;
+      int64_t deadline_evasion_us;
+      int64_t now_us;
+
+      drm_mode = &crtc->current_state.drm_mode;
+
+      refresh_interval_us =
+        (int64_t) (0.5 + G_USEC_PER_SEC /
+                   meta_calculate_drm_mode_refresh_rate (&crtc->current_state.drm_mode));
+      next_presentation_us =
+        s2us (vblank.reply.tval_sec) + vblank.reply.tval_usec + refresh_interval_us;
+
+      /*
+       *                         1
+       * time per pixel = -----------------
+       *                   Pixel clock (Hz)
+       *
+       * number of pixels = vdisplay * htotal
+       *
+       * time spent scanning out = time per pixel * number of pixels
+       *
+       */
+
+      deadline_evasion_us = meta_kms_crtc_get_deadline_evasion (crtc);
+      maybe_update_deadline_evasion (crtc, next_presentation_us);
+
+      vblank_duration_us = meta_calculate_drm_mode_vblank_duration_us (drm_mode);
+      next_deadline_us = next_presentation_us - (vblank_duration_us +
+                                                 deadline_evasion_us);
+
+      now_us = g_get_monotonic_time ();
+      if (now_us > next_deadline_us)
+        {
+          if (meta_is_topic_enabled (META_DEBUG_KMS_DEADLINE))
+            {
+              meta_topic (META_DEBUG_KMS_DEADLINE,
+                          "Missed deadline by %3"G_GINT64_FORMAT "µs, "
+                          "skipping by %"G_GINT64_FORMAT "µs",
+                          now_us - next_deadline_us,
+                          refresh_interval_us);
+            }
+
+          next_presentation_us += refresh_interval_us;
+          next_deadline_us += refresh_interval_us;
+        }
+    }
+
+  *out_next_presentation_us = next_presentation_us;
+  *out_next_deadline_us = next_deadline_us;
+
+  return TRUE;
+}
+
+void
+meta_kms_crtc_update_shortterm_max_dispatch_duration (MetaKmsCrtc *crtc,
+                                                      int64_t      duration_us)
+{
+  int64_t refresh_interval_us;
+
+  g_return_if_fail (crtc->current_state.is_drm_mode_valid);
+
+  /* meta_kms_crtc_determine_deadline doesn't use deadline evasion with VRR */
+  if (crtc->current_state.vrr.enabled)
+    return;
+
+  if (duration_us <= crtc->shortterm_max_dispatch_duration_us)
+    return;
+
+  refresh_interval_us =
+    (int64_t) (0.5 + G_USEC_PER_SEC /
+               meta_calculate_drm_mode_refresh_rate (&crtc->current_state.drm_mode));
+
+  crtc->shortterm_max_dispatch_duration_us = MIN (duration_us, refresh_interval_us);
+}
+
+int64_t
+meta_kms_crtc_get_deadline_evasion (MetaKmsCrtc *crtc)
+{
+  int64_t deadline_evasion_us;
+
+  deadline_evasion_us =
+    MAX (crtc->shortterm_max_dispatch_duration_us, crtc->deadline_evasion_us);
+
+  if (!deadline_evasion_us)
+    return 0;
+
+  return deadline_evasion_us + DEADLINE_EVASION_CONSTANT_US;
 }

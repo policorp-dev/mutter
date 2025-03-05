@@ -19,13 +19,10 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_INPUT_MAPPER_H
-#define META_INPUT_MAPPER_H
-
-#include <clutter/clutter.h>
+#pragma once
 
 #include "backends/meta-backend-types.h"
-
+#include "clutter/clutter-input-device.h"
 #include "meta-dbus-input-mapping.h"
 
 #define META_TYPE_INPUT_MAPPER (meta_input_mapper_get_type ())
@@ -34,7 +31,7 @@ G_DECLARE_FINAL_TYPE (MetaInputMapper, meta_input_mapper,
                       META, INPUT_MAPPER,
                       MetaDBusInputMappingSkeleton)
 
-MetaInputMapper * meta_input_mapper_new      (void);
+MetaInputMapper * meta_input_mapper_new (MetaBackend *backend);
 
 void meta_input_mapper_add_device    (MetaInputMapper    *mapper,
                                       ClutterInputDevice *device);
@@ -51,5 +48,3 @@ meta_input_mapper_get_device_logical_monitor (MetaInputMapper *mapper,
 
 GSettings * meta_input_mapper_get_tablet_settings (MetaInputMapper    *mapper,
                                                    ClutterInputDevice *device);
-
-#endif /* META_INPUT_MAPPER_H */

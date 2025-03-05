@@ -14,22 +14,19 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "config.h"
 
-#include "meta-wayland-presentation-time-private.h"
-
 #include <glib.h>
 
 #include "compositor/meta-surface-actor-wayland.h"
 #include "wayland/meta-wayland-cursor-surface.h"
+#include "wayland/meta-wayland-presentation-time-private.h"
 #include "wayland/meta-wayland-private.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
 #include "wayland/meta-wayland-outputs.h"
 #include "wayland/meta-wayland-versions.h"
 
@@ -42,6 +39,7 @@ wp_presentation_feedback_destructor (struct wl_resource *resource)
     wl_resource_get_user_data (resource);
 
   wl_list_remove (&feedback->link);
+  g_clear_object (&feedback->surface);
   g_free (feedback);
 }
 
@@ -83,7 +81,7 @@ wp_presentation_feedback (struct wl_client   *client,
   pending = meta_wayland_surface_get_pending_state (surface);
   wl_list_insert (&pending->presentation_feedback_list, &feedback->link);
 
-  feedback->surface = surface;
+  feedback->surface = g_object_ref (surface);
 }
 
 static const struct wp_presentation_interface
@@ -130,6 +128,7 @@ discard_non_cursor_feedbacks (struct wl_list *feedbacks)
 static void
 on_after_paint (ClutterStage          *stage,
                 ClutterStageView      *stage_view,
+                ClutterFrame          *frame,
                 MetaWaylandCompositor *compositor)
 {
   struct wl_list *feedbacks;
@@ -324,6 +323,8 @@ meta_wayland_presentation_feedback_present (MetaWaylandPresentationFeedback *fee
   uint32_t seq_hi, seq_lo;
   uint32_t flags;
   const GList *l;
+  MetaMonitorMode *mode;
+  gboolean is_vrr;
 
   if (output == NULL)
     {
@@ -338,7 +339,16 @@ meta_wayland_presentation_feedback_present (MetaWaylandPresentationFeedback *fee
   tv_sec_lo = time_s;
   tv_nsec = (uint32_t) us2ns (time_us - s2us (time_s));
 
-  refresh_interval_ns = (uint32_t) (0.5 + s2ns (1) / frame_info->refresh_rate);
+  mode = meta_wayland_output_get_monitor_mode (output);
+
+  is_vrr = meta_monitor_mode_get_refresh_rate_mode (mode) ==
+           META_CRTC_REFRESH_RATE_MODE_VARIABLE;
+
+  /* The refresh rate interval is required to be 0 for vrr in version 1.*/
+  if (is_vrr && wl_resource_get_version (feedback->resource) == 1)
+    refresh_interval_ns = 0;
+  else
+    refresh_interval_ns = (uint32_t) (0.5 + s2ns (1) / frame_info->refresh_rate);
 
   maybe_update_presentation_sequence (surface, frame_info, output);
 

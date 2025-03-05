@@ -22,23 +22,14 @@
  *
  *
  */
+#include "config.h"
 
-/**
- * SECTION:clutter-util
- * @short_description: Utility functions
- *
- * Various miscellaneous utilility functions.
- */
-
-#include "clutter-build-config.h"
-
-#include <fribidi.h>
 #include <math.h>
 
-#include "clutter-debug.h"
-#include "clutter-main.h"
-#include "clutter-interval.h"
-#include "clutter-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-main.h"
+#include "clutter/clutter-interval.h"
+#include "clutter/clutter-private.h"
 
 /* Help macros to scale from OpenGL <-1,1> coordinates system to
  * window coordinates ranging [0,window-size]
@@ -74,13 +65,12 @@ _clutter_util_fully_transform_vertices (const graphene_matrix_t  *modelview,
       /* XXX: we should find a way to cache this per actor */
       graphene_matrix_multiply (modelview, projection, &modelview_projection);
 
-      cogl_graphene_matrix_project_points (&modelview_projection,
-                                           3,
-                                           sizeof (graphene_point3d_t),
-                                           vertices_in,
-                                           sizeof (ClutterVertex4),
-                                           vertices_tmp,
-                                           n_vertices);
+      cogl_graphene_matrix_project_points_f3 (&modelview_projection,
+                                              sizeof (graphene_point3d_t),
+                                              vertices_in,
+                                              sizeof (ClutterVertex4),
+                                              vertices_tmp,
+                                              n_vertices);
     }
   else
     {
@@ -92,13 +82,12 @@ _clutter_util_fully_transform_vertices (const graphene_matrix_t  *modelview,
                                              vertices_tmp,
                                              n_vertices);
 
-      cogl_graphene_matrix_project_points (projection,
-                                           3,
-                                           sizeof (ClutterVertex4),
-                                           vertices_tmp,
-                                           sizeof (ClutterVertex4),
-                                           vertices_tmp,
-                                           n_vertices);
+      cogl_graphene_matrix_project_points_f3 (projection,
+                                              sizeof (ClutterVertex4),
+                                              vertices_tmp,
+                                              sizeof (ClutterVertex4),
+                                              vertices_tmp,
+                                              n_vertices);
     }
 
   for (i = 0; i < n_vertices; i++)
@@ -117,124 +106,6 @@ _clutter_util_fully_transform_vertices (const graphene_matrix_t  *modelview,
       clutter_round_to_256ths (&vertex_out->x);
       clutter_round_to_256ths (&vertex_out->y);
     }
-}
-
-void
-_clutter_util_rect_from_rectangle (const cairo_rectangle_int_t *src,
-                                   graphene_rect_t             *dest)
-{
-  *dest = (graphene_rect_t) {
-    .origin = {
-      .x = src->x,
-      .y = src->y
-    },
-    .size = {
-      .width = src->width,
-      .height = src->height
-    }
-  };
-}
-
-void
-_clutter_util_rectangle_int_extents (const graphene_rect_t *src,
-                                     cairo_rectangle_int_t *dest)
-{
-  graphene_rect_t tmp = *src;
-
-  graphene_rect_round_extents (&tmp, &tmp);
-
-  *dest = (cairo_rectangle_int_t) {
-    .x = tmp.origin.x,
-    .y = tmp.origin.y,
-    .width = tmp.size.width,
-    .height = tmp.size.height,
-  };
-}
-
-void
-_clutter_util_rectangle_offset (const cairo_rectangle_int_t *src,
-                                int                          x,
-                                int                          y,
-                                cairo_rectangle_int_t       *dest)
-{
-  *dest = *src;
-
-  dest->x += x;
-  dest->y += y;
-}
-
-/*< private >
- * _clutter_util_rectangle_union:
- * @src1: first rectangle to union
- * @src2: second rectangle to union
- * @dest: (out): return location for the unioned rectangle
- *
- * Calculates the union of two rectangles.
- *
- * The union of rectangles @src1 and @src2 is the smallest rectangle which
- * includes both @src1 and @src2 within it.
- *
- * It is allowed for @dest to be the same as either @src1 or @src2.
- *
- * This function should really be in Cairo.
- */
-void
-_clutter_util_rectangle_union (const cairo_rectangle_int_t *src1,
-                               const cairo_rectangle_int_t *src2,
-                               cairo_rectangle_int_t       *dest)
-{
-  int dest_x, dest_y;
-
-  dest_x = MIN (src1->x, src2->x);
-  dest_y = MIN (src1->y, src2->y);
-
-  dest->width = MAX (src1->x + src1->width, src2->x + src2->width) - dest_x;
-  dest->height = MAX (src1->y + src1->height, src2->y + src2->height) - dest_y;
-  dest->x = dest_x;
-  dest->y = dest_y;
-}
-
-gboolean
-_clutter_util_rectangle_intersection (const cairo_rectangle_int_t *src1,
-                                      const cairo_rectangle_int_t *src2,
-                                      cairo_rectangle_int_t       *dest)
-{
-  int x1, y1, x2, y2;
-
-  x1 = MAX (src1->x, src2->x);
-  y1 = MAX (src1->y, src2->y);
-
-  x2 = MIN (src1->x + (int) src1->width,  src2->x + (int) src2->width);
-  y2 = MIN (src1->y + (int) src1->height, src2->y + (int) src2->height);
-
-  if (x1 >= x2 || y1 >= y2)
-    {
-      dest->x = 0;
-      dest->y = 0;
-      dest->width  = 0;
-      dest->height = 0;
-
-      return FALSE;
-    }
-  else
-    {
-      dest->x = x1;
-      dest->y = y1;
-      dest->width  = x2 - x1;
-      dest->height = y2 - y1;
-
-      return TRUE;
-    }
-}
-
-gboolean
-clutter_util_rectangle_equal (const cairo_rectangle_int_t *src1,
-                              const cairo_rectangle_int_t *src2)
-{
-  return ((src1->x == src2->x) &&
-          (src1->y == src2->y) &&
-          (src1->width == src2->width) &&
-          (src1->height == src2->height));
 }
 
 typedef struct
@@ -380,46 +251,4 @@ clutter_interval_register_progress_func (GType               value_type,
     }
 
   G_UNLOCK (progress_funcs);
-}
-
-PangoDirection
-_clutter_pango_unichar_direction (gunichar ch)
-{
-  FriBidiCharType fribidi_ch_type;
-
-  G_STATIC_ASSERT (sizeof (FriBidiChar) == sizeof (gunichar));
-
-  fribidi_ch_type = fribidi_get_bidi_type (ch);
-
-  if (!FRIBIDI_IS_STRONG (fribidi_ch_type))
-    return PANGO_DIRECTION_NEUTRAL;
-  else if (FRIBIDI_IS_RTL (fribidi_ch_type))
-    return PANGO_DIRECTION_RTL;
-  else
-    return PANGO_DIRECTION_LTR;
-}
-
-PangoDirection
-_clutter_pango_find_base_dir (const gchar *text,
-                              gint         length)
-{
-  PangoDirection dir = PANGO_DIRECTION_NEUTRAL;
-  const gchar *p;
-
-  g_return_val_if_fail (text != NULL || length == 0, PANGO_DIRECTION_NEUTRAL);
-
-  p = text;
-  while ((length < 0 || p < text + length) && *p)
-    {
-      gunichar wc = g_utf8_get_char (p);
-
-      dir = _clutter_pango_unichar_direction (wc);
-
-      if (dir != PANGO_DIRECTION_NEUTRAL)
-        break;
-
-      p = g_utf8_next_char (p);
-    }
-
-  return dir;
 }

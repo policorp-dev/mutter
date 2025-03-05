@@ -1,4 +1,3 @@
-#define CLUTTER_DISABLE_DEPRECATION_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +64,7 @@ timeline_new_frame_cb (ClutterTimeline *timeline,
               data->timeline_num, frame_no,
               clutter_timeline_get_delta (timeline));
 
-  g_assert (frame_no >= 0 && frame_no <= FRAME_COUNT);
+  g_assert_true (frame_no >= 0 && frame_no <= FRAME_COUNT);
 
   data->frame_hit_count[frame_no]++;
 }
@@ -177,7 +176,7 @@ delay_cb (gpointer data)
 static gboolean
 add_timeout_idle (gpointer user_data)
 {
-  clutter_threads_add_timeout (2000, timeout_cb, NULL);
+  g_timeout_add (2000, timeout_cb, NULL);
 
   return G_SOURCE_REMOVE;
 }
@@ -211,17 +210,17 @@ timeline_base (void)
                                        10 * 1000 / FPS);
   markers = clutter_timeline_list_markers (timeline_1, 5 * 1000 / FPS,
                                            &n_markers);
-  g_assert (markers != NULL);
-  g_assert (n_markers == 3);
+  g_assert_nonnull (markers);
+  g_assert_true (n_markers == 3);
   g_strfreev (markers);
 
   timeline_data_init (&data_2, 2);
   timeline_2 = clutter_timeline_new_for_actor (stage, FRAME_COUNT * 1000 / FPS);
   clutter_timeline_add_marker_at_time (timeline_2, "bar", 2 * 1000 / FPS);
   markers = clutter_timeline_list_markers (timeline_2, -1, &n_markers);
-  g_assert (markers != NULL);
-  g_assert (n_markers == 1);
-  g_assert (strcmp (markers[0], "bar") == 0);
+  g_assert_nonnull (markers);
+  g_assert_true (n_markers == 1);
+  g_assert_cmpint (strcmp (markers[0], "bar"), ==, 0);
   g_strfreev (markers);
 
   timeline_data_init (&data_3, 3);
@@ -279,9 +278,9 @@ timeline_base (void)
 
   clutter_test_main ();
 
-  g_assert (check_timeline (timeline_1, &data_1, TRUE));
-  g_assert (check_timeline (timeline_2, &data_2, TRUE));
-  g_assert (check_timeline (timeline_3, &data_3, TRUE));
+  g_assert_true (check_timeline (timeline_1, &data_1, TRUE));
+  g_assert_true (check_timeline (timeline_2, &data_2, TRUE));
+  g_assert_true (check_timeline (timeline_3, &data_3, TRUE));
 
   g_printerr ("With delay...\n");
 
@@ -296,14 +295,14 @@ timeline_base (void)
   clutter_timeline_start (timeline_2);
   clutter_timeline_start (timeline_3);
 
-  clutter_threads_add_timeout (2000, timeout_cb, NULL);
-  delay_tag = clutter_threads_add_timeout (99, delay_cb, NULL);
+  g_timeout_add (2000, timeout_cb, NULL);
+  delay_tag = g_timeout_add (99, delay_cb, NULL);
 
   clutter_test_main ();
 
-  g_assert (check_timeline (timeline_1, &data_1, FALSE));
-  g_assert (check_timeline (timeline_2, &data_2, FALSE));
-  g_assert (check_timeline (timeline_3, &data_3, FALSE));
+  g_assert_true (check_timeline (timeline_1, &data_1, FALSE));
+  g_assert_true (check_timeline (timeline_2, &data_2, FALSE));
+  g_assert_true (check_timeline (timeline_3, &data_3, FALSE));
 
   g_object_unref (timeline_1);
   g_object_unref (timeline_2);
@@ -316,50 +315,6 @@ timeline_base (void)
   g_clear_handle_id (&delay_tag, g_source_remove);
 }
 
-static void
-timeline_markers_from_script (void)
-{
-  ClutterScript *script = clutter_script_new ();
-  ClutterTimeline *timeline;
-  GError *error = NULL;
-  gchar *test_file;
-  gchar **markers;
-  gsize n_markers;
-
-  test_file = g_test_build_filename (G_TEST_DIST,
-                                     "scripts",
-                                     "test-script-timeline-markers.json",
-                                     NULL);
-  if (!clutter_script_load_from_file (script, test_file, &error))
-    g_printerr ("Error: %s", error->message);
-
-  g_assert_no_error (error);
-
-  timeline = CLUTTER_TIMELINE (clutter_script_get_object (script, "timeline0"));
-
-  g_assert (clutter_timeline_has_marker (timeline, "marker0"));
-  g_assert (clutter_timeline_has_marker (timeline, "marker1"));
-  g_assert (!clutter_timeline_has_marker (timeline, "foo"));
-  g_assert (clutter_timeline_has_marker (timeline, "marker2"));
-  g_assert (clutter_timeline_has_marker (timeline, "marker3"));
-
-  markers = clutter_timeline_list_markers (timeline, -1, &n_markers);
-  g_assert_cmpint (n_markers, ==, 4);
-  g_strfreev (markers);
-
-  markers = clutter_timeline_list_markers (timeline, 500, &n_markers);
-  g_assert_cmpint (n_markers, ==, 2);
-  g_assert (markers != NULL);
-  g_assert (g_strv_contains ((const char * const *) markers, "marker1"));
-  g_assert (g_strv_contains ((const char * const *) markers, "marker3"));
-  g_strfreev (markers);
-
-  g_object_unref (script);
-
-  g_free (test_file);
-}
-
 CLUTTER_TEST_SUITE (
   CLUTTER_TEST_UNIT ("/timeline/base", timeline_base);
-  CLUTTER_TEST_UNIT ("/timeline/markers-from-script", timeline_markers_from_script)
 )

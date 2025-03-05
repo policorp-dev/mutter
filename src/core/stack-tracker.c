@@ -1,8 +1,9 @@
 /* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; -*- */
 
 /*
- * SECTION:stack-tracker
- * @short_description: Track stacking order for compositor
+ * stack-tracker:
+ *
+ * Track stacking order for compositor
  *
  * #MetaStackTracker maintains the most accurate view we have at a
  * given point of time of the ordering of the children of the root
@@ -38,12 +39,18 @@
 
 #include <string.h>
 
+#include "compositor/compositor-private.h"
 #include "core/display-private.h"
-#include "core/frame.h"
-#include "meta/compositor.h"
-#include "meta/meta-x11-errors.h"
+#include "core/stack.h"
+#include "core/window-private.h"
 #include "meta/util.h"
+
+#ifdef HAVE_X11_CLIENT
+#include "mtk/mtk-x11.h"
 #include "x11/meta-x11-display-private.h"
+#include "x11/meta-x11-frame.h"
+#include "x11/window-x11.h"
+#endif
 
 /* The complexity here comes from resolving two competing factors:
  *
@@ -144,6 +151,7 @@ union _MetaStackOp
 struct _MetaStackTracker
 {
   MetaDisplay *display;
+  MetaStack *stack;
 
   /* This is the serial of the last request we made that was reflected
    * in xserver_stack
@@ -371,7 +379,12 @@ meta_stack_op_apply (MetaStackTracker *tracker,
 
         if (META_STACK_ID_IS_X11 (op->add.window) &&
             (apply_flags & NO_RESTACK_X_WINDOWS) != 0)
-          return FALSE;
+          {
+            meta_topic (META_DEBUG_STACK, "STACK_OP_ADD: Ignoring addition "
+                        "of %s as per NO_RESTACK_X_WINDOWS",
+                        get_window_desc (tracker, op->remove.window));
+            return FALSE;
+          }
 
         old_pos = find_window (stack, op->add.window);
         if (old_pos >= 0)
@@ -391,7 +404,12 @@ meta_stack_op_apply (MetaStackTracker *tracker,
 
         if (META_STACK_ID_IS_X11 (op->remove.window) &&
             (apply_flags & NO_RESTACK_X_WINDOWS) != 0)
-          return FALSE;
+          {
+            meta_topic (META_DEBUG_STACK, "STACK_OP_REMOVE: Ignoring removal "
+                        "of %s as per NO_RESTACK_X_WINDOWS",
+                        get_window_desc (tracker, op->remove.window));
+            return FALSE;
+          }
 
         old_pos = find_window (stack, op->remove.window);
         if (old_pos < 0)
@@ -493,6 +511,7 @@ copy_stack (GArray *stack)
   return copy;
 }
 
+#ifdef HAVE_X11_CLIENT
 static void
 query_xserver_stack (MetaDisplay      *display,
                      MetaStackTracker *tracker)
@@ -554,25 +573,118 @@ drop_x11_windows (MetaDisplay      *display,
       l = next;
     }
 }
+#endif /* HAVE_X11_CLIENT */
+
+static void
+on_stack_changed (MetaStack        *stack,
+                  MetaStackTracker *tracker)
+{
+  GArray *all_root_children_stacked;
+  GList *l;
+  GArray *hidden_stack_ids;
+  GList *sorted;
+#ifdef HAVE_X11_CLIENT
+  MetaFrame *frame;
+#endif
+
+  COGL_TRACE_BEGIN_SCOPED (StackChanged, "Meta::StackTracker::on_stack_changed()");
+
+  meta_topic (META_DEBUG_STACK, "Syncing window stack to server");
+
+  all_root_children_stacked = g_array_new (FALSE, FALSE, sizeof (uint64_t));
+  hidden_stack_ids = g_array_new (FALSE, FALSE, sizeof (uint64_t));
+
+  meta_topic (META_DEBUG_STACK, "Bottom to top: ");
+
+  sorted = meta_stack_list_windows (stack, NULL);
+
+  for (l = sorted; l; l = l->next)
+    {
+      MetaWindow *w = l->data;
+      uint64_t stack_id = w->stamp;
+
+      if (w->unmanaging)
+        continue;
+
+      meta_topic (META_DEBUG_STACK, "  %u:%d - %s ",
+                  w->layer, w->stack_position, w->desc);
+
+#ifdef HAVE_X11_CLIENT
+      if (w->client_type == META_WINDOW_CLIENT_TYPE_X11)
+        {
+          frame = meta_window_x11_get_frame (w);
+          if (frame)
+            stack_id = frame->xwindow;
+          else
+            stack_id = meta_window_x11_get_xwindow (w);
+        }
+#endif
+
+      /* We don't restack hidden windows along with the rest, though they are
+       * reflected in the _NET hints. Hidden windows all get pushed below
+       * the screens fullscreen guard_window. */
+      if (w->hidden)
+        {
+          g_array_append_val (hidden_stack_ids, stack_id);
+          continue;
+        }
+
+      g_array_append_val (all_root_children_stacked, stack_id);
+    }
+
+#ifdef HAVE_X11_CLIENT
+  if (tracker->display->x11_display)
+    {
+      uint64_t guard_window_id;
+
+      /* The screen guard window sits above all hidden windows and acts as
+       * a barrier to input reaching these windows. */
+      guard_window_id = tracker->display->x11_display->guard_window;
+      g_array_append_val (hidden_stack_ids, guard_window_id);
+    }
+#endif
+
+  /* Sync to server */
+
+  meta_topic (META_DEBUG_STACK, "Restacking %u windows",
+              all_root_children_stacked->len);
+
+  meta_stack_tracker_restack_managed (tracker,
+                                      (uint64_t *)all_root_children_stacked->data,
+                                      all_root_children_stacked->len);
+  meta_stack_tracker_restack_at_bottom (tracker,
+                                        (uint64_t *)hidden_stack_ids->data,
+                                        hidden_stack_ids->len);
+
+  g_array_free (hidden_stack_ids, TRUE);
+  g_array_free (all_root_children_stacked, TRUE);
+  g_list_free (sorted);
+}
 
 MetaStackTracker *
-meta_stack_tracker_new (MetaDisplay *display)
+meta_stack_tracker_new (MetaStack *stack)
 {
   MetaStackTracker *tracker;
 
   tracker = g_new0 (MetaStackTracker, 1);
-  tracker->display = display;
+  tracker->display = stack->display;
+  tracker->stack = stack;
 
   tracker->verified_stack = g_array_new (FALSE, FALSE, sizeof (guint64));
   tracker->unverified_predictions = g_queue_new ();
 
-  g_signal_connect (display,
+#ifdef HAVE_X11_CLIENT
+  g_signal_connect (tracker->display,
                     "x11-display-setup",
                     G_CALLBACK (query_xserver_stack),
                     tracker);
-  g_signal_connect (display,
+  g_signal_connect (tracker->display,
                     "x11-display-closing",
                     G_CALLBACK (drop_x11_windows),
+                    tracker);
+#endif
+  g_signal_connect (tracker->stack, "changed",
+                    G_CALLBACK (on_stack_changed),
                     tracker);
 
   meta_stack_tracker_dump (tracker);
@@ -584,7 +696,13 @@ void
 meta_stack_tracker_free (MetaStackTracker *tracker)
 {
   if (tracker->sync_stack_later)
-    meta_later_remove (tracker->sync_stack_later);
+    {
+      MetaCompositor *compositor =
+        meta_display_get_compositor (tracker->display);
+      MetaLaters *laters = meta_compositor_get_laters (compositor);
+
+      meta_laters_remove (laters, tracker->sync_stack_later);
+    }
 
   g_array_free (tracker->verified_stack, TRUE);
   if (tracker->predicted_stack)
@@ -594,11 +712,16 @@ meta_stack_tracker_free (MetaStackTracker *tracker)
   g_queue_free (tracker->unverified_predictions);
   tracker->unverified_predictions = NULL;
 
+#ifdef HAVE_X11_CLIENT
   g_signal_handlers_disconnect_by_func (tracker->display,
                                         (gpointer)query_xserver_stack,
                                         tracker);
   g_signal_handlers_disconnect_by_func (tracker->display,
                                         drop_x11_windows,
+                                        tracker);
+#endif
+  g_signal_handlers_disconnect_by_func (tracker->stack,
+                                        on_stack_changed,
                                         tracker);
 
   g_free (tracker);
@@ -698,6 +821,7 @@ meta_stack_tracker_record_lower_below (MetaStackTracker *tracker,
   stack_tracker_apply_prediction (tracker, op);
 }
 
+#ifdef HAVE_X11_CLIENT
 static void
 stack_tracker_event_received (MetaStackTracker *tracker,
 			      MetaStackOp      *op)
@@ -838,17 +962,22 @@ meta_stack_tracker_configure_event (MetaStackTracker    *tracker,
 
   stack_tracker_event_received (tracker, &op);
 }
+#endif /* HAVE_X11_CLIENT */
 
 static gboolean
 meta_stack_tracker_is_guard_window (MetaStackTracker *tracker,
                                     uint64_t          stack_id)
 {
+#ifdef HAVE_X11_CLIENT
   MetaX11Display *x11_display = tracker->display->x11_display;
 
   if (!x11_display)
     return FALSE;
 
   return stack_id == x11_display->guard_window;
+#else
+  return FALSE;
+#endif
 }
 
 /**
@@ -916,10 +1045,16 @@ meta_stack_tracker_sync_stack (MetaStackTracker *tracker)
   GList *meta_windows;
   int n_windows;
   int i;
+#ifdef HAVE_X11_CLIENT
+  MetaFrame *frame;
+#endif
 
   if (tracker->sync_stack_later)
     {
-      meta_later_remove (tracker->sync_stack_later);
+      MetaLaters *laters;
+
+      laters = meta_compositor_get_laters (tracker->display->compositor);
+      meta_laters_remove (laters, tracker->sync_stack_later);
       tracker->sync_stack_later = 0;
     }
 
@@ -932,26 +1067,37 @@ meta_stack_tracker_sync_stack (MetaStackTracker *tracker)
     {
       guint64 window = windows[i];
 
+#ifdef HAVE_X11_CLIENT
       if (META_STACK_ID_IS_X11 (window))
         {
           MetaX11Display *x11_display = tracker->display->x11_display;
           MetaWindow *meta_window = NULL;
+          Window xwindow = (Window) window;
 
           if (x11_display)
-            meta_window = meta_x11_display_lookup_x_window (x11_display, (Window) window);
+            meta_window = meta_x11_display_lookup_x_window (x11_display, xwindow);
 
           /* When mapping back from xwindow to MetaWindow we have to be a bit careful;
            * children of the root could include unmapped windows created by toolkits
            * for internal purposes, including ones that we have registered in our
-           * XID => window table. (Wine uses a toplevel for _NET_WM_USER_TIME_WINDOW;
+           * XID => window table (such as user time or frame windows) and we
+           * don't want to duplicate them not to break the compositor assumption
+           * that the list we pass contains unique IDs (leading to crashes due
+           * to wrong removals on destruction).
+           * Only include the unframed windows whose XID matches the one we're
+           * handling or we'd end up including all the internal windows we've
+           * associated to the same meta window, such as the user time windows.
+           * (Wine uses a toplevel for _NET_WM_USER_TIME_WINDOW;
            * see window-prop.c:reload_net_wm_user_time_window() for registration.)
            */
+          frame = meta_window ? meta_window_x11_get_frame (meta_window) : NULL;
           if (meta_window &&
-              ((Window)window == meta_window->xwindow ||
-               (meta_window->frame && (Window)window == meta_window->frame->xwindow)))
+              (xwindow == meta_window_x11_get_xwindow (meta_window) ||
+               (frame && xwindow == frame->xwindow)))
             meta_windows = g_list_prepend (meta_windows, meta_window);
         }
       else
+#endif
         meta_windows = g_list_prepend (meta_windows,
                                        meta_display_lookup_stamp (tracker->display, window));
     }
@@ -987,12 +1133,15 @@ stack_tracker_sync_stack_later (gpointer data)
 void
 meta_stack_tracker_queue_sync_stack (MetaStackTracker *tracker)
 {
-  if (tracker->sync_stack_later == 0)
-    {
-      tracker->sync_stack_later = meta_later_add (META_LATER_SYNC_STACK,
-                                                  stack_tracker_sync_stack_later,
-                                                  tracker, NULL);
-    }
+  MetaLaters *laters;
+
+  if (tracker->sync_stack_later != 0)
+    return;
+
+  laters = meta_compositor_get_laters (tracker->display->compositor);
+  tracker->sync_stack_later = meta_laters_add (laters, META_LATER_SYNC_STACK,
+                                               stack_tracker_sync_stack_later,
+                                               tracker, NULL);
 }
 
 /* When moving an X window we sometimes need an X based sibling.
@@ -1001,6 +1150,7 @@ meta_stack_tracker_queue_sync_stack (MetaStackTracker *tracker)
  * otherwise it searches downwards looking for the nearest X window.
  *
  * If no X based sibling could be found return NULL. */
+#ifdef HAVE_X11_CLIENT
 static Window
 find_x11_sibling_downwards (MetaStackTracker *tracker,
                             guint64           sibling)
@@ -1058,6 +1208,7 @@ find_x11_sibling_upwards (MetaStackTracker *tracker,
 
   return None;
 }
+#endif
 
 static void
 meta_stack_tracker_lower_below (MetaStackTracker *tracker,
@@ -1065,6 +1216,7 @@ meta_stack_tracker_lower_below (MetaStackTracker *tracker,
                                 guint64           sibling)
 {
   gulong serial = 0;
+#ifdef HAVE_X11_CLIENT
   MetaX11Display *x11_display = tracker->display->x11_display;
 
   if (META_STACK_ID_IS_X11 (window))
@@ -1076,7 +1228,7 @@ meta_stack_tracker_lower_below (MetaStackTracker *tracker,
         {
           serial = XNextRequest (x11_display->xdisplay);
 
-          meta_x11_error_trap_push (x11_display);
+          mtk_x11_error_trap_push (x11_display->xdisplay);
 
           changes.stack_mode = changes.sibling ? Below : Above;
 
@@ -1085,9 +1237,10 @@ meta_stack_tracker_lower_below (MetaStackTracker *tracker,
                             (changes.sibling ? CWSibling : 0) | CWStackMode,
                             &changes);
 
-          meta_x11_error_trap_pop (x11_display);
+          mtk_x11_error_trap_pop (x11_display->xdisplay);
         }
     }
+#endif
 
   meta_stack_tracker_record_lower_below (tracker,
                                          window, sibling,
@@ -1100,6 +1253,7 @@ meta_stack_tracker_raise_above (MetaStackTracker *tracker,
                                 guint64           sibling)
 {
   gulong serial = 0;
+#ifdef HAVE_X11_CLIENT
   MetaX11Display *x11_display = tracker->display->x11_display;
 
   if (META_STACK_ID_IS_X11 (window))
@@ -1111,7 +1265,7 @@ meta_stack_tracker_raise_above (MetaStackTracker *tracker,
         {
           serial = XNextRequest (x11_display->xdisplay);
 
-          meta_x11_error_trap_push (x11_display);
+          mtk_x11_error_trap_push (x11_display->xdisplay);
 
           changes.stack_mode = changes.sibling ? Above : Below;
 
@@ -1120,9 +1274,10 @@ meta_stack_tracker_raise_above (MetaStackTracker *tracker,
                             (changes.sibling ? CWSibling : 0) | CWStackMode,
                             &changes);
 
-          meta_x11_error_trap_pop (x11_display);
+          mtk_x11_error_trap_pop (x11_display->xdisplay);
         }
     }
+#endif
 
   meta_stack_tracker_record_raise_above (tracker, window,
                                          sibling, serial);
@@ -1132,7 +1287,7 @@ void
 meta_stack_tracker_lower (MetaStackTracker *tracker,
                           guint64           window)
 {
-  meta_stack_tracker_raise_above (tracker, window, None);
+  meta_stack_tracker_raise_above (tracker, window, 0);
 }
 
 static void
@@ -1182,12 +1337,12 @@ meta_stack_tracker_restack_managed (MetaStackTracker *tracker,
   int old_pos, new_pos;
 
   COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackManaged,
-                           "StackTracker: Restack Managed");
+                           "Meta::StackTracker::restack_managed()");
   if (n_managed == 0)
     return;
 
-  COGL_TRACE_BEGIN (StackTrackerRestackManagedGet,
-                    "StackTracker: Restack Managed (get)");
+  COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackManagedGet,
+                           "Meta::StackTracker::restack_managed#get()");
   meta_stack_tracker_get_stack (tracker, &windows, &n_windows);
 
   /* If the top window has to be restacked, we don't want to move it to the very
@@ -1206,8 +1361,8 @@ meta_stack_tracker_restack_managed (MetaStackTracker *tracker,
   g_assert (old_pos >= 0);
   COGL_TRACE_END (StackTrackerRestackManagedGet);
 
-  COGL_TRACE_BEGIN (StackTrackerRestackManagedRaise,
-                    "StackTracker: Restack Managed (raise)");
+  COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackManagedRaise,
+                           "Meta::StackTracker::restack_managed#raise()");
   new_pos = n_managed - 1;
   if (managed[new_pos] != windows[old_pos])
     {
@@ -1221,8 +1376,8 @@ meta_stack_tracker_restack_managed (MetaStackTracker *tracker,
   old_pos--;
   new_pos--;
 
-  COGL_TRACE_BEGIN (StackTrackerRestackManagedRestack,
-                    "StackTracker: Restack Managed (restack)");
+  COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackManagedRestack,
+                           "Meta::StackTracker::restack_managed#restack()");
   while (old_pos >= 0 && new_pos >= 0)
     {
       if (meta_stack_tracker_is_guard_window (tracker, windows[old_pos]))
@@ -1251,8 +1406,8 @@ meta_stack_tracker_restack_managed (MetaStackTracker *tracker,
     }
   COGL_TRACE_END (StackTrackerRestackManagedRestack);
 
-  COGL_TRACE_BEGIN (StackTrackerRestackManagedLower,
-                    "StackTracker: Restack Managed (lower)");
+  COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackManagedLower,
+                           "Meta::StackTracker::restack_managed#lower()");
   while (new_pos > 0)
     {
       meta_stack_tracker_lower_below (tracker, managed[new_pos], managed[new_pos - 1]);
@@ -1271,7 +1426,7 @@ meta_stack_tracker_restack_at_bottom (MetaStackTracker *tracker,
   int pos;
 
   COGL_TRACE_BEGIN_SCOPED (StackTrackerRestackAtBottom,
-                           "Stack tracker: Restack at bottom");
+                           "Meta::StackTracker::restack_at_bottom()");
   meta_stack_tracker_get_stack (tracker, &windows, &n_windows);
 
   for (pos = 0; pos < n_new_order; pos++)

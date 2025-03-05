@@ -38,12 +38,12 @@
  * any kind of modification.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-actor-meta-private.h"
+#include "clutter/clutter-actor-meta-private.h"
 
-#include "clutter-debug.h"
-#include "clutter-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-private.h"
 
 struct _ClutterActorMetaPrivate
 {
@@ -206,11 +206,10 @@ clutter_actor_meta_class_init (ClutterActorMetaClass *klass)
    * The #ClutterActor attached to the #ClutterActorMeta instance
    */
   obj_props[PROP_ACTOR] =
-    g_param_spec_object ("actor",
-                         P_("Actor"),
-                         P_("The actor attached to the meta"),
+    g_param_spec_object ("actor", NULL, NULL,
                          CLUTTER_TYPE_ACTOR,
-                         CLUTTER_PARAM_READABLE |
+                         G_PARAM_READABLE |
+                         G_PARAM_STATIC_STRINGS |
                          G_PARAM_EXPLICIT_NOTIFY);
 
   /**
@@ -219,11 +218,10 @@ clutter_actor_meta_class_init (ClutterActorMetaClass *klass)
    * The unique name to access the #ClutterActorMeta
    */
   obj_props[PROP_NAME] =
-    g_param_spec_string ("name",
-                         P_("Name"),
-                         P_("The name of the meta"),
+    g_param_spec_string ("name", NULL, NULL,
                          NULL,
-                         CLUTTER_PARAM_READWRITE);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterActorMeta:enabled:
@@ -231,11 +229,10 @@ clutter_actor_meta_class_init (ClutterActorMetaClass *klass)
    * Whether or not the #ClutterActorMeta is enabled
    */
   obj_props[PROP_ENABLED] =
-    g_param_spec_boolean ("enabled",
-                          P_("Enabled"),
-                          P_("Whether the meta is enabled"),
+    g_param_spec_boolean ("enabled", NULL, NULL,
                           TRUE,
-                          CLUTTER_PARAM_READWRITE);
+                          G_PARAM_READWRITE |
+                          G_PARAM_STATIC_STRINGS);
 
   gobject_class->finalize = clutter_actor_meta_finalize;
   gobject_class->set_property = clutter_actor_meta_set_property;
@@ -358,7 +355,7 @@ clutter_actor_meta_get_enabled (ClutterActorMeta *meta)
  * Sets or unsets a back pointer to the #ClutterActor that owns
  * the @meta
  */
-void
+static void
 _clutter_actor_meta_set_actor (ClutterActorMeta *meta,
                                ClutterActor     *actor)
 {
@@ -409,7 +406,7 @@ _clutter_actor_meta_set_priority (ClutterActorMeta *meta,
   priv->priority = priority;
 }
 
-gint
+static gint
 _clutter_actor_meta_get_priority (ClutterActorMeta *meta)
 {
   ClutterActorMetaPrivate *priv;
@@ -421,7 +418,7 @@ _clutter_actor_meta_get_priority (ClutterActorMeta *meta)
   return priv->priority;
 }
 
-gboolean
+static gboolean
 _clutter_actor_meta_is_internal (ClutterActorMeta *meta)
 {
   ClutterActorMetaPrivate *priv =
@@ -436,7 +433,7 @@ _clutter_actor_meta_is_internal (ClutterActorMeta *meta)
  * ClutterMetaGroup: a collection of ClutterActorMeta instances
  */
 
-G_DEFINE_TYPE (ClutterMetaGroup, _clutter_meta_group, G_TYPE_OBJECT);
+G_DEFINE_FINAL_TYPE (ClutterMetaGroup, _clutter_meta_group, G_TYPE_OBJECT);
 
 static void
 _clutter_meta_group_dispose (GObject *gobject)

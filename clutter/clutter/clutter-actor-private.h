@@ -19,13 +19,44 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_ACTOR_PRIVATE_H__
-#define __CLUTTER_ACTOR_PRIVATE_H__
+#pragma once
 
-#include <clutter/clutter-actor.h>
-#include <clutter/clutter-grab.h>
+#include "clutter/clutter-actor.h"
+#include "clutter/clutter-grab.h"
 
 G_BEGIN_DECLS
+
+/*
+ * Auxiliary define, in order to get the clutter actor from the AtkObject using
+ * AtkGObject methods
+ *
+ */
+#define CLUTTER_ACTOR_FROM_ACCESSIBLE(accessible) \
+(CLUTTER_ACTOR (atk_gobject_accessible_get_object (ATK_GOBJECT_ACCESSIBLE (accessible))))
+
+/**
+ * ClutterActorFlags:
+ * @CLUTTER_ACTOR_MAPPED: the actor will be painted (is visible, and inside
+ *   a toplevel, and all parents visible)
+ * @CLUTTER_ACTOR_REALIZED: the resources associated to the actor have been
+ *   allocated
+ * @CLUTTER_ACTOR_REACTIVE: the actor 'reacts' to mouse events emitting event
+ *   signals
+ * @CLUTTER_ACTOR_VISIBLE: the actor has been shown by the application program
+ * @CLUTTER_ACTOR_NO_LAYOUT: the actor provides an explicit layout management
+ *   policy for its children; this flag will prevent Clutter from automatic
+ *   queueing of relayout and will defer all layouting to the actor itself
+ *
+ * Flags used to signal the state of an actor.
+ */
+typedef enum /*< prefix=CLUTTER_ACTOR >*/
+{
+  CLUTTER_ACTOR_MAPPED    = 1 << 1,
+  CLUTTER_ACTOR_REALIZED  = 1 << 2,
+  CLUTTER_ACTOR_REACTIVE  = 1 << 3,
+  CLUTTER_ACTOR_VISIBLE   = 1 << 4,
+  CLUTTER_ACTOR_NO_LAYOUT = 1 << 5
+} ClutterActorFlags;
 
 /*< private >
  * ClutterActorTraverseFlags:
@@ -84,9 +115,7 @@ typedef ClutterActorTraverseVisitFlags (*ClutterTraverseCallback) (ClutterActor 
  * @user_data: The private data specified when starting the iteration
  *
  * A generic callback for iterating over actor, such as with
- * _clutter_actor_foreach_child. The difference when compared to
- * #ClutterCallback is that it returns a boolean so it is possible to break
- * out of an iteration early.
+ * _clutter_actor_foreach_child.
  *
  * Return value: %TRUE to continue iterating or %FALSE to break iteration
  * early.
@@ -210,10 +239,6 @@ void                            _clutter_actor_apply_relative_transformation_mat
                                                                                          ClutterActor      *ancestor,
                                                                                          graphene_matrix_t *matrix);
 
-void                            _clutter_actor_rerealize                                (ClutterActor    *self,
-                                                                                         ClutterCallback  callback,
-                                                                                         gpointer         data);
-
 void                            _clutter_actor_set_in_clone_paint                       (ClutterActor *self,
                                                                                          gboolean      is_in_clone_paint);
 
@@ -233,8 +258,6 @@ void                            _clutter_actor_queue_redraw_full                
                                                                                          const ClutterPaintVolume *volume,
                                                                                          ClutterEffect            *effect);
 
-void                            _clutter_actor_finish_queue_redraw                      (ClutterActor *self);
-
 gboolean                        _clutter_actor_set_default_paint_volume                 (ClutterActor       *self,
                                                                                          GType               check_gtype,
                                                                                          ClutterPaintVolume *volume);
@@ -246,21 +269,15 @@ void                            _clutter_actor_pop_clone_paint                  
 
 ClutterActorAlign               _clutter_actor_get_effective_x_align                    (ClutterActor *self);
 
-void                            _clutter_actor_handle_event                             (ClutterActor       *actor,
-                                                                                         ClutterActor       *root,
-                                                                                         const ClutterEvent *event);
-
 void                            _clutter_actor_attach_clone                             (ClutterActor *actor,
                                                                                          ClutterActor *clone);
 void                            _clutter_actor_detach_clone                             (ClutterActor *actor,
                                                                                          ClutterActor *clone);
 void                            _clutter_actor_queue_only_relayout                      (ClutterActor *actor);
-void                            clutter_actor_clear_stage_views_recursive               (ClutterActor *actor);
+void                            clutter_actor_clear_stage_views_recursive               (ClutterActor *actor,
+                                                                                         gboolean      stop_transitions);
 
 float                           clutter_actor_get_real_resource_scale                   (ClutterActor *actor);
-
-ClutterPaintNode *              clutter_actor_create_texture_paint_node                 (ClutterActor *self,
-                                                                                         CoglTexture  *texture);
 
 void clutter_actor_finish_layout (ClutterActor *self,
                                   int           phase);
@@ -269,15 +286,20 @@ void clutter_actor_queue_immediate_relayout (ClutterActor *self);
 
 gboolean clutter_actor_is_painting_unmapped (ClutterActor *self);
 
-gboolean clutter_actor_get_redraw_clip (ClutterActor       *self,
-                                        ClutterPaintVolume *dst_old_pv,
-                                        ClutterPaintVolume *dst_new_pv);
-
 void clutter_actor_attach_grab (ClutterActor *actor,
                                 ClutterGrab  *grab);
 void clutter_actor_detach_grab (ClutterActor *actor,
                                 ClutterGrab  *grab);
 
-G_END_DECLS
+void clutter_actor_collect_event_actors (ClutterActor *self,
+                                         ClutterActor *deepmost,
+                                         GPtrArray    *actors);
 
-#endif /* __CLUTTER_ACTOR_PRIVATE_H__ */
+const GList * clutter_actor_peek_actions (ClutterActor *self);
+
+void clutter_actor_set_implicitly_grabbed (ClutterActor *actor,
+                                           gboolean      is_implicitly_grabbed);
+
+AtkStateSet * clutter_actor_get_accessible_state (ClutterActor *actor);
+
+G_END_DECLS

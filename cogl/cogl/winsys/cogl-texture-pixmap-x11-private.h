@@ -28,8 +28,7 @@
  *
  */
 
-#ifndef __COGL_TEXTURE_PIXMAP_X11_PRIVATE_H
-#define __COGL_TEXTURE_PIXMAP_X11_PRIVATE_H
+#pragma once
 
 #include <X11/Xlib.h>
 #include <X11/extensions/XShm.h>
@@ -37,23 +36,13 @@
 
 #include <sys/shm.h>
 
-#ifdef COGL_HAS_GLX_SUPPORT
+#ifdef HAVE_GLX
 #include <GL/glx.h>
 #endif
 
-#include "cogl-object-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-texture-pixmap-x11.h"
-
-typedef struct _CoglDamageRectangle CoglDamageRectangle;
-
-struct _CoglDamageRectangle
-{
-  unsigned int x1;
-  unsigned int y1;
-  unsigned int x2;
-  unsigned int y2;
-};
+#include "cogl/cogl-texture-private.h"
+#include "cogl/winsys/cogl-texture-pixmap-x11.h"
+#include "mtk/mtk-rectangle.h"
 
 /* For stereo, there are a pair of textures, but we want to share most
  * other state (the GLXPixmap, visual, etc.) The way we do this is that
@@ -71,7 +60,7 @@ typedef enum
 
 struct _CoglTexturePixmapX11
 {
-  CoglTexture _parent;
+  CoglTexture parent_instance;
 
   CoglTexturePixmapStereoMode stereo_mode;
   CoglTexturePixmapX11 *left; /* Set only if stereo_mode=RIGHT */
@@ -89,7 +78,7 @@ struct _CoglTexturePixmapX11
   Damage damage;
   CoglTexturePixmapX11ReportLevel damage_report_level;
   gboolean damage_owned;
-  CoglDamageRectangle damage_rect;
+  MtkRectangle damage_rect;
 
   void *winsys;
 
@@ -99,5 +88,7 @@ struct _CoglTexturePixmapX11
   gboolean use_winsys_texture;
 };
 
-
-#endif /* __COGL_TEXTURE_PIXMAP_X11_PRIVATE_H */
+struct _CoglTexturePixmapX11Class
+{
+  CoglTextureClass parent_class;
+};

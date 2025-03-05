@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_IMPL_DEVICE_H
-#define META_KMS_IMPL_DEVICE_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
@@ -67,6 +64,11 @@ struct _MetaKmsProp
   uint64_t range_min;
   uint64_t range_max;
 
+  int64_t range_min_signed;
+  int64_t range_max_signed;
+
+  uint64_t supported_variants;
+
   uint32_t prop_id;
   uint64_t value;
 };
@@ -97,19 +99,11 @@ struct _MetaKmsImplDeviceClass
 
 enum
 {
-  META_KMS_ERROR_USER_INHIBITED,
-  META_KMS_ERROR_DENY_LISTED,
-  META_KMS_ERROR_NOT_SUPPORTED,
-};
-
-enum
-{
   META_KMS_DEVICE_FILE_TAG_ATOMIC = 1 << 0,
   META_KMS_DEVICE_FILE_TAG_SIMPLE = 1 << 1,
 };
 
-#define META_KMS_ERROR meta_kms_error_quark ()
-GQuark meta_kms_error_quark (void);
+MetaKmsImpl * meta_kms_impl_device_get_impl (MetaKmsImplDevice *impl_device);
 
 MetaKmsDevice * meta_kms_impl_device_get_device (MetaKmsImplDevice *impl_device);
 
@@ -125,6 +119,9 @@ GList * meta_kms_impl_device_peek_crtcs (MetaKmsImplDevice *impl_device);
 
 GList * meta_kms_impl_device_peek_planes (MetaKmsImplDevice *impl_device);
 
+gboolean meta_kms_impl_device_has_cursor_plane_for (MetaKmsImplDevice *impl_device,
+                                                    MetaKmsCrtc       *crtc);
+
 const MetaKmsDeviceCaps * meta_kms_impl_device_get_caps (MetaKmsImplDevice *impl_device);
 
 GList * meta_kms_impl_device_copy_fallback_modes (MetaKmsImplDevice *impl_device);
@@ -134,6 +131,23 @@ const char * meta_kms_impl_device_get_driver_name (MetaKmsImplDevice *impl_devic
 const char * meta_kms_impl_device_get_driver_description (MetaKmsImplDevice *impl_device);
 
 const char * meta_kms_impl_device_get_path (MetaKmsImplDevice *impl_device);
+
+gboolean meta_kms_impl_device_lease_objects (MetaKmsImplDevice  *impl_device,
+                                             GList              *connectors,
+                                             GList              *crtcs,
+                                             GList              *planes,
+                                             int                *out_fd,
+                                             uint32_t           *out_lessee_id,
+                                             GError            **error);
+
+gboolean meta_kms_impl_device_revoke_lease (MetaKmsImplDevice  *impl_device,
+                                            uint32_t            lessee_id,
+                                            GError            **error);
+
+gboolean meta_kms_impl_device_list_lessees (MetaKmsImplDevice  *impl_device,
+                                            uint32_t          **out_lessee_ids,
+                                            int                *out_num_lessee_ids,
+                                            GError            **error);
 
 gboolean meta_kms_impl_device_dispatch (MetaKmsImplDevice  *impl_device,
                                         GError            **error);
@@ -150,6 +164,10 @@ int meta_kms_impl_device_get_fd (MetaKmsImplDevice *impl_device);
 void meta_kms_impl_device_hold_fd (MetaKmsImplDevice *impl_device);
 
 void meta_kms_impl_device_unhold_fd (MetaKmsImplDevice *impl_device);
+
+int meta_kms_impl_device_open_non_privileged_fd (MetaKmsImplDevice *impl_device);
+
+int meta_kms_impl_device_get_signaled_sync_file (MetaKmsImplDevice *impl_device);
 
 MetaKmsResourceChanges meta_kms_impl_device_update_states (MetaKmsImplDevice *impl_device,
                                                            uint32_t           crtc_id,
@@ -177,7 +195,19 @@ void meta_kms_impl_device_reload_prop_values (MetaKmsImplDevice *impl_device,
 
 MetaKmsFeedback * meta_kms_impl_device_process_update (MetaKmsImplDevice *impl_device,
                                                        MetaKmsUpdate     *update,
-                                                       MetaKmsUpdateFlag  flags);
+                                                       MetaKmsUpdateFlag  flags)
+  G_GNUC_WARN_UNUSED_RESULT;
+
+void meta_kms_impl_device_handle_update (MetaKmsImplDevice *impl_device,
+                                         MetaKmsUpdate     *update,
+                                         MetaKmsUpdateFlag  flags);
+
+void meta_kms_impl_device_await_flush (MetaKmsImplDevice *impl_device,
+                                       MetaKmsCrtc       *crtc);
+
+META_EXPORT_TEST
+void meta_kms_impl_device_schedule_process (MetaKmsImplDevice *impl_device,
+                                            MetaKmsCrtc       *crtc);
 
 void meta_kms_impl_device_handle_page_flip_callback (MetaKmsImplDevice   *impl_device,
                                                      MetaKmsPageFlipData *page_flip_data);
@@ -187,9 +217,9 @@ void meta_kms_impl_device_discard_pending_page_flips (MetaKmsImplDevice *impl_de
 gboolean meta_kms_impl_device_init_mode_setting (MetaKmsImplDevice  *impl_device,
                                                  GError            **error);
 
+void meta_kms_impl_device_resume (MetaKmsImplDevice *impl_device);
+
 void meta_kms_impl_device_prepare_shutdown (MetaKmsImplDevice *impl_device);
 
 uint64_t meta_kms_prop_convert_value (MetaKmsProp *prop,
                                       uint64_t     value);
-
-#endif /* META_KMS_IMPL_DEVICE_H */

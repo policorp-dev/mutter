@@ -15,8 +15,7 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_FRAME_H
-#define CLUTTER_FRAME_H
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
@@ -26,6 +25,28 @@
 
 typedef struct _ClutterFrame ClutterFrame;
 
+#define CLUTTER_TYPE_FRAME (clutter_frame_get_type ())
+
+CLUTTER_EXPORT
+GType clutter_frame_get_type (void);
+
+CLUTTER_EXPORT
+ClutterFrame * clutter_frame_ref (ClutterFrame *frame);
+
+CLUTTER_EXPORT
+void clutter_frame_unref (ClutterFrame *frame);
+
+CLUTTER_EXPORT
+int64_t clutter_frame_get_count (ClutterFrame *frame);
+
+CLUTTER_EXPORT
+gboolean clutter_frame_get_target_presentation_time (ClutterFrame *frame,
+                                                     int64_t      *target_presentation_time_us);
+
+CLUTTER_EXPORT
+gboolean clutter_frame_get_frame_deadline (ClutterFrame *frame,
+                                           int64_t      *frame_deadline_us);
+
 CLUTTER_EXPORT
 void clutter_frame_set_result (ClutterFrame       *frame,
                                ClutterFrameResult  result);
@@ -33,4 +54,4 @@ void clutter_frame_set_result (ClutterFrame       *frame,
 CLUTTER_EXPORT
 gboolean clutter_frame_has_result (ClutterFrame *frame);
 
-#endif /* CLUTTER_FRAME_H */
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterFrame, clutter_frame_unref)

@@ -13,15 +13,12 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Daniel van Vugt <daniel.van.vugt@canonical.com>
  */
 
-#ifndef META_DRM_BUFFER_H
-#define META_DRM_BUFFER_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
@@ -45,6 +42,10 @@ G_DECLARE_DERIVABLE_TYPE (MetaDrmBuffer,
 int meta_drm_buffer_export_fd (MetaDrmBuffer  *buffer,
                                GError        **error);
 
+int meta_drm_buffer_export_fd_for_plane (MetaDrmBuffer  *buffer,
+                                         int             plane,
+                                         GError        **error);
+
 gboolean meta_drm_buffer_ensure_fb_id (MetaDrmBuffer  *buffer,
                                        GError        **error);
 
@@ -57,21 +58,18 @@ int meta_drm_buffer_get_width (MetaDrmBuffer *buffer);
 
 int meta_drm_buffer_get_height (MetaDrmBuffer *buffer);
 
+int meta_drm_buffer_get_n_planes (MetaDrmBuffer *buffer);
+
 int meta_drm_buffer_get_stride (MetaDrmBuffer *buffer);
+
+int meta_drm_buffer_get_stride_for_plane (MetaDrmBuffer *buffer,
+                                          int            plane);
 
 int meta_drm_buffer_get_bpp (MetaDrmBuffer *buffer);
 
 uint32_t meta_drm_buffer_get_format (MetaDrmBuffer *buffer);
 
-int meta_drm_buffer_get_offset (MetaDrmBuffer *buffer,
-                                int            plane);
+int meta_drm_buffer_get_offset_for_plane (MetaDrmBuffer *buffer,
+                                          int            plane);
 
 uint64_t meta_drm_buffer_get_modifier (MetaDrmBuffer *buffer);
-
-gboolean meta_drm_buffer_supports_fill_timings (MetaDrmBuffer *buffer);
-
-gboolean meta_drm_buffer_fill_timings (MetaDrmBuffer  *buffer,
-                                       CoglFrameInfo  *info,
-                                       GError        **error);
-
-#endif /* META_DRM_BUFFER_H */

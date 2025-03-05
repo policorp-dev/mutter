@@ -2,9 +2,9 @@
 
 #include "test-conform-common.h"
 
-static const ClutterColor stage_color = { 0x00, 0x00, 0x00, 0xff };
+static const CoglColor stage_color = { 0x00, 0x00, 0x00, 0xff };
 
-#ifdef COGL_HAS_XLIB
+#ifdef HAVE_X11
 
 #include <clutter/x11/clutter-x11.h>
 #include <cogl/cogl-texture-pixmap-x11.h>
@@ -20,7 +20,7 @@ static const ClutterColor stage_color = { 0x00, 0x00, 0x00, 0xff };
 typedef struct _TestState
 {
   ClutterActor *stage;
-  CoglHandle tfp;
+  CoglTexture *tfp;
   Pixmap pixmap;
   unsigned int frame_count;
   Display *display;
@@ -111,8 +111,8 @@ check_paint (TestState *state, int x, int y, int scale)
             else
               g_assert_cmpint (p[0], ==, update_value);
 
-            g_assert (p[1] == update_value);
-            g_assert (p[2] == update_value);
+            g_assert_true (p[1] == update_value);
+            g_assert_true (p[2] == update_value);
             p += 4;
           }
         else
@@ -140,9 +140,10 @@ check_paint (TestState *state, int x, int y, int scale)
 #define FRAME_COUNT_UPDATED 8
 
 static void
-on_after_paint (ClutterActor        *actor,
-                ClutterPaintContext *paint_context,
-                TestState           *state)
+on_after_paint (ClutterActor     *actor,
+                ClutterStageView *view,
+                ClutterFrame     *frame,
+                TestState        *state)
 {
   CoglPipeline *pipeline;
 
@@ -151,7 +152,7 @@ on_after_paint (ClutterActor        *actor,
   if (state->frame_count == FRAME_COUNT_MIPMAP)
     {
       const CoglPipelineFilter min_filter =
-        COGL_PIPELINE_FILTER_NEAREST_MIPMAP_NEAREST;;
+        COGL_PIPELINE_FILTER_NEAREST_MIPMAP_NEAREST;
       cogl_pipeline_set_layer_filters (pipeline, 0,
                                        min_filter,
                                        COGL_PIPELINE_FILTER_NEAREST);
@@ -174,10 +175,10 @@ on_after_paint (ClutterActor        *actor,
       big_updated = check_paint (state, 0, 0, 1);
       small_updated = check_paint (state, 0, PIXMAP_HEIGHT, 4);
 
-      g_assert (big_updated == small_updated);
+      g_assert_true (big_updated == small_updated);
 
       if (state->frame_count < FRAME_COUNT_UPDATED)
-        g_assert (big_updated == FALSE);
+        g_assert_true (big_updated == FALSE);
       else if (state->frame_count == FRAME_COUNT_UPDATED)
         /* Change the pixmap and keep drawing until it updates */
         update_pixmap (state);
@@ -197,13 +198,13 @@ queue_redraw (void *stage)
   return TRUE;
 }
 
-#endif /* COGL_HAS_XLIB */
+#endif /* HAVE_X11 */
 
 void
 test_texture_pixmap_x11 (TestUtilsGTestFixture *fixture,
                               void *data)
 {
-#ifdef COGL_HAS_XLIB
+#ifdef HAVE_X11
 
   TestState state;
   unsigned int idle_handler;
@@ -237,11 +238,11 @@ test_texture_pixmap_x11 (TestUtilsGTestFixture *fixture,
   if (cogl_test_verbose ())
     g_print ("OK\n");
 
-#else /* COGL_HAS_XLIB */
+#else /* HAVE_X11 */
 
   if (cogl_test_verbose ())
    g_print ("Skipping\n");
 
-#endif /* COGL_HAS_XLIB */
+#endif /* HAVE_X11 */
 }
 

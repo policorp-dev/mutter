@@ -24,7 +24,7 @@
 
 /**
  * ClutterSnapConstraint:
- * 
+ *
  * A constraint snapping two actors together
  *
  * #ClutterSnapConstraint is a constraint the snaps the edges of two
@@ -33,21 +33,18 @@
  * An offset can be applied to the constraint, to provide spacing.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
 #include <math.h>
 
-#include "clutter-snap-constraint.h"
+#include "clutter/clutter-snap-constraint.h"
 
-#include "clutter-actor-private.h"
-#include "clutter-constraint.h"
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-private.h"
+#include "clutter/clutter-actor-private.h"
+#include "clutter/clutter-constraint.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-private.h"
 
-#define CLUTTER_SNAP_CONSTRAINT_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_SNAP_CONSTRAINT, ClutterSnapConstraintClass))
-#define CLUTTER_IS_SNAP_CONSTRAINT_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_SNAP_CONSTRAINT))
-#define CLUTTER_SNAP_CONSTRAINT_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_SNAP_CONSTRAINT, ClutterSnapConstraintClass))
 
 struct _ClutterSnapConstraint
 {
@@ -62,11 +59,6 @@ struct _ClutterSnapConstraint
   gfloat offset;
 };
 
-struct _ClutterSnapConstraintClass
-{
-  ClutterConstraintClass parent_class;
-};
-
 enum
 {
   PROP_0,
@@ -79,9 +71,9 @@ enum
   PROP_LAST
 };
 
-G_DEFINE_TYPE (ClutterSnapConstraint,
-               clutter_snap_constraint,
-               CLUTTER_TYPE_CONSTRAINT);
+G_DEFINE_FINAL_TYPE (ClutterSnapConstraint,
+                     clutter_snap_constraint,
+                     CLUTTER_TYPE_CONSTRAINT);
 
 static GParamSpec *obj_props[PROP_LAST] = { NULL, };
 
@@ -311,11 +303,11 @@ clutter_snap_constraint_class_init (ClutterSnapConstraintClass *klass)
    * The [class@Actor] used as the source for the constraint
    */
   obj_props[PROP_SOURCE] =
-    g_param_spec_object ("source",
-                         P_("Source"),
-                         P_("The source of the constraint"),
+    g_param_spec_object ("source", NULL, NULL,
                          CLUTTER_TYPE_ACTOR,
-                         CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT);
 
   /**
    * ClutterSnapConstraint:from-edge:
@@ -323,12 +315,12 @@ clutter_snap_constraint_class_init (ClutterSnapConstraintClass *klass)
    * The edge of the [class@Actor] that should be snapped
    */
   obj_props[PROP_FROM_EDGE] =
-    g_param_spec_enum ("from-edge",
-                       P_("From Edge"),
-                       P_("The edge of the actor that should be snapped"),
+    g_param_spec_enum ("from-edge", NULL, NULL,
                        CLUTTER_TYPE_SNAP_EDGE,
                        CLUTTER_SNAP_EDGE_RIGHT,
-                       CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS |
+                       G_PARAM_CONSTRUCT);
 
   /**
    * ClutterSnapConstraint:to-edge:
@@ -336,12 +328,12 @@ clutter_snap_constraint_class_init (ClutterSnapConstraintClass *klass)
    * The edge of the [property@SnapConstraint:source] that should be snapped
    */
   obj_props[PROP_TO_EDGE] =
-    g_param_spec_enum ("to-edge",
-                       P_("To Edge"),
-                       P_("The edge of the source that should be snapped"),
+    g_param_spec_enum ("to-edge", NULL, NULL,
                        CLUTTER_TYPE_SNAP_EDGE,
                        CLUTTER_SNAP_EDGE_RIGHT,
-                       CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS |
+                       G_PARAM_CONSTRUCT);
 
   /**
    * ClutterSnapConstraint:offset:
@@ -350,12 +342,12 @@ clutter_snap_constraint_class_init (ClutterSnapConstraintClass *klass)
    * and [property@SnapConstraint:to-edge]
    */
   obj_props[PROP_OFFSET] =
-    g_param_spec_float ("offset",
-                        P_("Offset"),
-                        P_("The offset in pixels to apply to the constraint"),
+    g_param_spec_float ("offset", NULL, NULL,
                         -G_MAXFLOAT, G_MAXFLOAT,
                         0.0f,
-                        CLUTTER_PARAM_READWRITE | G_PARAM_CONSTRUCT);
+                        G_PARAM_READWRITE |
+                        G_PARAM_STATIC_STRINGS |
+                        G_PARAM_CONSTRUCT);
 
   gobject_class->dispose = clutter_snap_constraint_dispose;
   gobject_class->set_property = clutter_snap_constraint_set_property;

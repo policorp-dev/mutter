@@ -1,5 +1,6 @@
 #include <glib.h>
 #include <clutter/clutter.h>
+#include <clutter/clutter-pango.h>
 #include <string.h>
 
 #include "tests/clutter-test-utils.h"
@@ -28,12 +29,12 @@ text_utf8_validation (void)
       char bytes[6];
       int nbytes;
 
-      g_assert (g_unichar_validate (t->unichar));
+      g_assert_true (g_unichar_validate (t->unichar));
 
       nbytes = g_unichar_to_utf8 (t->unichar, bytes);
       bytes[nbytes] = '\0';
       g_assert_cmpint (nbytes, ==, t->nbytes);
-      g_assert (memcmp (t->bytes, bytes, nbytes) == 0);
+      g_assert_cmpint (memcmp (t->bytes, bytes, nbytes), ==, 0);
 
       unichar = g_utf8_get_char_validated (bytes, nbytes);
       g_assert_cmpint (unichar, ==, t->unichar);
@@ -51,7 +52,7 @@ static int
 get_nchars (ClutterText *text)
 {
   const char *s = clutter_text_get_text (text);
-  g_assert (g_utf8_validate (s, -1, NULL));
+  g_assert_true (g_utf8_validate (s, -1, NULL));
   return g_utf8_strlen (s, -1);
 }
 
@@ -327,25 +328,20 @@ text_password_char (void)
   clutter_actor_destroy (CLUTTER_ACTOR (text));
 }
 
-static ClutterEvent *
-init_event (void)
-{
-  ClutterEvent *retval = clutter_event_new (CLUTTER_KEY_PRESS);
-
-  clutter_event_set_time (retval, CLUTTER_CURRENT_TIME);
-  clutter_event_set_flags (retval, CLUTTER_EVENT_FLAG_SYNTHETIC);
-
-  return retval;
-}
-
 static void
 send_keyval (ClutterText *text, int keyval)
 {
-  ClutterEvent *event = init_event ();
+  ClutterEvent *event;
+  ClutterSeat *seat;
 
   /* Unicode should be ignored for cursor keys etc. */
-  clutter_event_set_key_unicode (event, 0);
-  clutter_event_set_key_symbol (event, keyval);
+  seat = clutter_test_get_default_seat ();
+  event = clutter_event_key_new (CLUTTER_KEY_PRESS,
+                                 CLUTTER_EVENT_FLAG_SYNTHETIC,
+                                 CLUTTER_CURRENT_TIME,
+                                 clutter_seat_get_keyboard (seat),
+                                 (ClutterModifierSet) { 0, },
+                                 0, keyval, 0, 0, 0);
 
   clutter_actor_event (CLUTTER_ACTOR (text), event, FALSE);
 
@@ -355,11 +351,17 @@ send_keyval (ClutterText *text, int keyval)
 static void
 send_unichar (ClutterText *text, gunichar unichar)
 {
-  ClutterEvent *event = init_event ();
+  ClutterEvent *event;
+  ClutterSeat *seat;
 
   /* Key symbol should be ignored for printable characters */
-  clutter_event_set_key_symbol (event, 0);
-  clutter_event_set_key_unicode (event, unichar);
+  seat = clutter_test_get_default_seat ();
+  event = clutter_event_key_new (CLUTTER_KEY_PRESS,
+                                 CLUTTER_EVENT_FLAG_SYNTHETIC,
+                                 CLUTTER_CURRENT_TIME,
+                                 clutter_seat_get_keyboard (seat),
+                                 (ClutterModifierSet) { 0, },
+                                 0, 0, 0, 0, unichar);
 
   clutter_actor_event (CLUTTER_ACTOR (text), event, FALSE);
 
@@ -452,10 +454,10 @@ validate_markup_attributes (ClutterText   *text,
   PangoAttrIterator *iter;
 
   layout = clutter_text_get_layout (text);
-  g_assert (layout != NULL);
+  g_assert_nonnull (layout);
 
   attrs = pango_layout_get_attributes (layout);
-  g_assert (attrs != NULL);
+  g_assert_nonnull (attrs);
 
   iter = pango_attr_list_get_iterator (attrs);
   while (pango_attr_iterator_next (iter))
@@ -466,7 +468,7 @@ validate_markup_attributes (ClutterText   *text,
       if (attributes == NULL)
         break;
 
-      g_assert (attributes->data != NULL);
+      g_assert_nonnull (attributes->data);
 
       a = attributes->data;
 
@@ -482,7 +484,7 @@ validate_markup_attributes (ClutterText   *text,
           continue;
         }
 
-      g_assert (a->klass->type == attr_type);
+      g_assert_true (a->klass->type == attr_type);
       g_assert_cmpint (a->start_index, ==, start_index);
       g_assert_cmpint (a->end_index, ==, end_index);
 

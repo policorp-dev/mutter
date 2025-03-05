@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,8 +24,6 @@
 #include "meta-test/meta-context-test.h"
 #include "meta/meta-backend.h"
 #include "tests/meta-test-utils.h"
-#include "tests/native-screen-cast.h"
-#include "tests/native-virtual-monitor.h"
 
 static MetaContext *test_context;
 
@@ -107,7 +103,7 @@ meta_test_warp_on_hotplug (void)
   if (!test_client)
     g_error ("Failed to launch test client: %s", error->message);
 
-  run_test_client_command (test_client, "create", "1", NULL);;
+  run_test_client_command (test_client, "create", "1", NULL);
   run_test_client_command (test_client, "show", "1", NULL);
   run_test_client_command (test_client, "sync", NULL);
 
@@ -137,7 +133,7 @@ main (int    argc,
   context = meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
                                       META_CONTEXT_TEST_FLAG_NO_X11 |
                                       META_CONTEXT_TEST_FLAG_TEST_CLIENT);
-  g_assert (meta_context_configure (context, &argc, &argv, NULL));
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
 
   test_context = context;
 

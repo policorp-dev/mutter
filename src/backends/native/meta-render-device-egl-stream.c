@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -23,10 +21,14 @@
 #include "backends/native/meta-render-device-egl-stream.h"
 
 #include "backends/meta-backend-private.h"
+#include "backends/native/meta-backend-native.h"
+#include "backends/native/meta-kms.h"
 
 struct _MetaRenderDeviceEglStream
 {
   MetaRenderDevice parent;
+
+  gboolean inhibited_kms_kernel_thread;
 
   EGLDeviceEXT egl_device;
 };
@@ -62,16 +64,11 @@ get_egl_device_display (MetaRenderDevice  *render_device,
                                         error);
 }
 
-static int
-count_mode_setting_devices (MetaBackend *backend)
-{
-  return g_list_length (meta_backend_get_gpus (backend));
-}
-
-static const char *
-get_drm_device_file (MetaEgl     *egl,
-                     EGLDeviceEXT device,
-                     GError     **error)
+static gboolean
+get_drm_device_file (MetaEgl       *egl,
+                     EGLDeviceEXT   device,
+                     const char   **out_device_file_path,
+                     GError       **error)
 {
   if (!meta_egl_egl_device_has_extensions (egl, device,
                                            NULL,
@@ -81,12 +78,11 @@ get_drm_device_file (MetaEgl     *egl,
       g_set_error (error, G_IO_ERROR,
                    G_IO_ERROR_FAILED,
                    "Missing required EGLDevice extension EGL_EXT_device_drm");
-      return NULL;
+      return FALSE;
     }
 
-  return meta_egl_query_device_string (egl, device,
-                                       EGL_DRM_DEVICE_FILE_EXT,
-                                       error);
+  return meta_egl_query_device_string (egl, device, EGL_DRM_DEVICE_FILE_EXT,
+                                       out_device_file_path, error);
 }
 
 static EGLDeviceEXT
@@ -137,8 +133,8 @@ find_egl_device (MetaRenderDevice  *render_device,
 
       g_clear_error (error);
 
-      egl_device_drm_path = get_drm_device_file (egl, devices[i], error);
-      if (!egl_device_drm_path)
+      if (!get_drm_device_file (egl, devices[i], &egl_device_drm_path, error) ||
+          !egl_device_drm_path)
         continue;
 
       if (g_str_equal (egl_device_drm_path, device_file_path))
@@ -169,17 +165,9 @@ meta_render_device_egl_stream_initable_init (GInitable     *initable,
   MetaRenderDeviceEglStream *render_device_egl_stream =
     META_RENDER_DEVICE_EGL_STREAM (initable);
   MetaBackend *backend = meta_render_device_get_backend (render_device);
+  MetaKms *kms;
   EGLDeviceEXT egl_device;
   EGLDisplay egl_display;
-  g_autofree const char **missing_extensions = NULL;
-
-  if (count_mode_setting_devices (backend) != 1)
-    {
-      g_set_error (error, G_IO_ERROR,
-                   G_IO_ERROR_FAILED,
-                   "EGLDevice currently only works with single GPU systems");
-      return FALSE;
-    }
 
   egl_device = find_egl_device (render_device, error);
   if (egl_device == EGL_NO_DEVICE_EXT)
@@ -197,6 +185,10 @@ meta_render_device_egl_stream_initable_init (GInitable     *initable,
                    "EGLStream render device requires an EGL display");
       return FALSE;
     }
+
+  kms = meta_backend_native_get_kms (META_BACKEND_NATIVE (backend));
+  meta_kms_inhibit_kernel_thread (kms);
+  render_device_egl_stream->inhibited_kms_kernel_thread = TRUE;
 
   return TRUE;
 }
@@ -260,9 +252,30 @@ meta_render_device_egl_stream_create_egl_display (MetaRenderDevice  *render_devi
 }
 
 static void
+meta_render_device_egl_stream_finalize (GObject *object)
+{
+  MetaRenderDevice *render_device = META_RENDER_DEVICE (object);
+  MetaRenderDeviceEglStream *render_device_egl_stream =
+    META_RENDER_DEVICE_EGL_STREAM (render_device);
+
+  if (render_device_egl_stream->inhibited_kms_kernel_thread)
+    {
+      MetaBackend *backend = meta_render_device_get_backend (render_device);
+      MetaKms *kms = meta_backend_native_get_kms (META_BACKEND_NATIVE (backend));
+
+      meta_kms_uninhibit_kernel_thread (kms);
+    }
+
+  G_OBJECT_CLASS (meta_render_device_egl_stream_parent_class)->finalize (object);
+}
+
+static void
 meta_render_device_egl_stream_class_init (MetaRenderDeviceEglStreamClass *klass)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
   MetaRenderDeviceClass *render_device_class = META_RENDER_DEVICE_CLASS (klass);
+
+  object_class->finalize = meta_render_device_egl_stream_finalize;
 
   render_device_class->create_egl_display =
     meta_render_device_egl_stream_create_egl_display;

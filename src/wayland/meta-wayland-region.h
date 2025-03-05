@@ -14,18 +14,14 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_WAYLAND_REGION_H
-#define META_WAYLAND_REGION_H
+#pragma once
 
-#include <cairo.h>
 #include <glib.h>
 #include <wayland-server.h>
 
@@ -36,6 +32,4 @@ MetaWaylandRegion * meta_wayland_region_create (MetaWaylandCompositor *composito
                                                 struct wl_resource    *compositor_resource,
                                                 guint32                id);
 
-cairo_region_t * meta_wayland_region_peek_cairo_region (MetaWaylandRegion *region);
-
-#endif /* META_WAYLAND_REGION_H */
+MtkRegion * meta_wayland_region_peek_region (MetaWaylandRegion *region);

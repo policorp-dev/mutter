@@ -19,8 +19,7 @@
  *
  */
 
-#ifndef META_STAGE_X11_H
-#define META_STAGE_X11_H
+#pragma once
 
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -52,16 +51,12 @@ struct _MetaStageX11
 {
   MetaStageImpl parent_instance;
 
-  MetaBackend *backend;
-
   CoglOnscreen *onscreen;
   Window xwin;
   gint xwin_width;
   gint xwin_height; /* FIXME target_width / height */
 
   CoglFrameClosure *frame_closure;
-
-  gchar *title;
 
   guint clipped_redraws_cool_off;
 
@@ -82,9 +77,8 @@ GType meta_stage_x11_get_type (void) G_GNUC_CONST;
 void            meta_stage_x11_set_user_time                (MetaStageX11 *stage_x11,
 							     guint32       user_time);
 
-gboolean meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
-					 XEvent       *xevent,
-					 ClutterEvent *event);
+void meta_stage_x11_handle_event (MetaStageX11 *stage_x11,
+                                  XEvent       *xevent);
 
 ClutterStage *meta_x11_get_stage_from_window (Window win);
 
@@ -92,5 +86,3 @@ Window       meta_x11_get_stage_window  (ClutterStage *stage);
 
 
 G_END_DECLS
-
-#endif /* META_STAGE_H */

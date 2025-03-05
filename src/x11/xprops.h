@@ -19,13 +19,12 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_XPROPS_H
-#define META_XPROPS_H
+#pragma once
 
 #include <X11/Xutil.h>
 #include <X11/extensions/sync.h>
 
-#include "meta/display.h"
+#include "meta/meta-x11-display.h"
 
 /* Copied from Lesstif by way of GTK. Rudimentary docs can be
  * found in some Motif reference guides online.
@@ -69,10 +68,6 @@ typedef struct {
 /* These all return the memory from Xlib, so require an XFree()
  * when they return TRUE. They return TRUE on success.
  */
-gboolean meta_prop_get_motif_hints   (MetaX11Display *x11_display,
-                                      Window          xwindow,
-                                      Atom            xatom,
-                                      MotifWmHints  **hints_p);
 gboolean meta_prop_get_cardinal_list (MetaX11Display *x11_display,
                                       Window          xwindow,
                                       Atom            xatom,
@@ -132,6 +127,7 @@ typedef struct
   MetaPropValueType type;
   Atom atom;
   Atom required_type; /* autofilled if None */
+  Window source_xwindow;
 
   union
   {
@@ -188,9 +184,3 @@ void meta_prop_get_values (MetaX11Display *x11_display,
 
 void meta_prop_free_values (MetaPropValue *values,
                             int            n_values);
-
-#endif
-
-
-
-

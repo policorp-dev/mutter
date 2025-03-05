@@ -15,20 +15,22 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_RENDERER_VIEW_H
-#define META_RENDERER_VIEW_H
+#pragma once
 
 #include "backends/meta-monitor-manager-private.h"
 #include "backends/meta-stage-impl-private.h"
 #include "backends/meta-stage-view-private.h"
 
 #define META_TYPE_RENDERER_VIEW (meta_renderer_view_get_type ())
-G_DECLARE_FINAL_TYPE (MetaRendererView, meta_renderer_view,
-                      META, RENDERER_VIEW,
-                      MetaStageView)
+META_EXPORT_TEST
+G_DECLARE_DERIVABLE_TYPE (MetaRendererView, meta_renderer_view,
+                          META, RENDERER_VIEW,
+                          MetaStageView)
 
-MetaMonitorTransform meta_renderer_view_get_transform (MetaRendererView *view);
+struct _MetaRendererViewClass
+{
+  MetaStageViewClass parent_class;
+};
 
+META_EXPORT_TEST
 MetaCrtc *meta_renderer_view_get_crtc (MetaRendererView *view);
-
-#endif /* META_RENDERER_VIEW_H */

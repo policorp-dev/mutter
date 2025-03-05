@@ -28,8 +28,7 @@
  *
  */
 
-#ifndef __COGL_TEXTURE_PIXMAP_X11_H
-#define __COGL_TEXTURE_PIXMAP_X11_H
+#pragma once
 
 /* NB: this is a top-level header that can be included directly but we
  * want to be careful not to define __COGL_H_INSIDE__ when this is
@@ -48,33 +47,37 @@
 
 #endif /* COGL_COMPILATION */
 
-#include <cogl/cogl-context.h>
+#include "cogl/cogl-context.h"
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-texture-pixmap-x11
- * @short_description: Functions for creating and manipulating 2D meta
- *                     textures derived from X11 pixmaps.
+ * CoglTexturePixmapX11:
  *
- * These functions allow high-level meta textures (See the
- * #CoglMetaTexture interface) that derive their contents from an X11
+ * Functions for creating and manipulating 2D meta
+ * textures derived from X11 pixmaps.
+ *
+ * These functions allow high-level textures that
+ * derive their contents from an X11
  * pixmap.
  */
+#define COGL_TYPE_TEXTURE_PIXMAP_X11            (cogl_texture_pixmap_x11_get_type ())
+#define COGL_TEXTURE_PIXMAP_X11(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), COGL_TYPE_TEXTURE_PIXMAP_X11, CoglTexturePixmapX11))
+#define COGL_TEXTURE_PIXMAP_X11_CONST(obj)      (G_TYPE_CHECK_INSTANCE_CAST ((obj), COGL_TYPE_TEXTURE_PIXMAP_X11, CoglTexturePixmapX11 const))
+#define COGL_TEXTURE_PIXMAP_X11_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass),  COGL_TYPE_TEXTURE_PIXMAP_X11, CoglTexturePixmapX11Class))
+#define COGL_IS_TEXTURE_PIXMAP_X11(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), COGL_TYPE_TEXTURE_PIXMAP_X11))
+#define COGL_IS_TEXTURE_PIXMAP_X11_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass),  COGL_TYPE_TEXTURE_PIXMAP_X11))
+#define COGL_TEXTURE_PIXMAP_X11_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj),  COGL_TYPE_TEXTURE_PIXMAP_X11, CoglTexturePixmapX11Class))
 
+typedef struct _CoglTexturePixmapX11Class CoglTexturePixmapX11Class;
 typedef struct _CoglTexturePixmapX11 CoglTexturePixmapX11;
 
-#define COGL_TEXTURE_PIXMAP_X11(X) ((CoglTexturePixmapX11 *)X)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (CoglTexturePixmapX11, g_object_unref)
 
-/**
- * cogl_texture_pixmap_x11_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
 COGL_EXPORT
-GType cogl_texture_pixmap_x11_get_gtype (void);
+GType               cogl_texture_pixmap_x11_get_type       (void) G_GNUC_CONST;
 
 typedef enum
 {
@@ -88,8 +91,6 @@ typedef enum
  * COGL_TEXTURE_PIXMAP_X11_ERROR:
  *
  * #GError domain for texture-pixmap-x11 errors.
- *
- * Since: 1.10
  */
 #define COGL_TEXTURE_PIXMAP_X11_ERROR (cogl_texture_pixmap_x11_error_quark ())
 
@@ -99,8 +100,6 @@ typedef enum
  *
  * Error codes that can be thrown when performing texture-pixmap-x11
  * operations.
- *
- * Since: 1.10
  */
 typedef enum
 {
@@ -124,11 +123,8 @@ uint32_t cogl_texture_pixmap_x11_error_quark (void);
  * when it changes.
  *
  * Return value: a new #CoglTexturePixmapX11 instance
- *
- * Since: 1.10
- * Stability: Unstable
  */
-COGL_EXPORT CoglTexturePixmapX11 *
+COGL_EXPORT CoglTexture *
 cogl_texture_pixmap_x11_new (CoglContext *context,
                              uint32_t pixmap,
                              gboolean automatic_updates,
@@ -163,11 +159,8 @@ cogl_texture_pixmap_x11_new (CoglContext *context,
  * pixmap is not necessary, but may save resources.)
  *
  * Return value: a new #CoglTexturePixmapX11 instance
- *
- * Since: 1.20
- * Stability: Unstable
  */
-COGL_EXPORT CoglTexturePixmapX11 *
+COGL_EXPORT CoglTexture *
 cogl_texture_pixmap_x11_new_left (CoglContext *context,
                                   uint32_t pixmap,
                                   gboolean automatic_updates,
@@ -183,34 +176,22 @@ cogl_texture_pixmap_x11_new_left (CoglContext *context,
  * created using cogl_texture_pixmap_x11_new_left().
  *
  * Return value: a new #CoglTexturePixmapX11 instance
- *
- * Since: 1.20
- * Stability: Unstable
  */
-COGL_EXPORT CoglTexturePixmapX11 *
+COGL_EXPORT CoglTexture *
 cogl_texture_pixmap_x11_new_right (CoglTexturePixmapX11 *left_texture);
 
 /**
  * cogl_texture_pixmap_x11_update_area:
  * @texture: A #CoglTexturePixmapX11 instance
- * @x: x coordinate of the area to update
- * @y: y coordinate of the area to update
- * @width: width of the area to update
- * @height: height of the area to update
+ * @area: The area to update
  *
  * Forces an update of the given @texture so that it is refreshed with
  * the contents of the pixmap that was given to
  * cogl_texture_pixmap_x11_new().
- *
- * Since: 1.4
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_texture_pixmap_x11_update_area (CoglTexturePixmapX11 *texture,
-                                     int x,
-                                     int y,
-                                     int width,
-                                     int height);
+                                     const MtkRectangle   *area);
 
 /**
  * cogl_texture_pixmap_x11_is_using_tfp_extension:
@@ -224,27 +205,9 @@ cogl_texture_pixmap_x11_update_area (CoglTexturePixmapX11 *texture,
  *
  * Return value: %TRUE if the texture is using an efficient extension
  *   and %FALSE otherwise
- *
- * Since: 1.4
- * Stability: Unstable
  */
 COGL_EXPORT gboolean
 cogl_texture_pixmap_x11_is_using_tfp_extension (CoglTexturePixmapX11 *texture);
-
-/**
- * cogl_is_texture_pixmap_x11:
- * @object: A pointer to a #CoglObject
- *
- * Checks whether @object points to a #CoglTexturePixmapX11 instance.
- *
- * Return value: %TRUE if the object is a #CoglTexturePixmapX11, and
- *   %FALSE otherwise
- *
- * Since: 1.4
- * Stability: Unstable
- */
-COGL_EXPORT gboolean
-cogl_is_texture_pixmap_x11 (void *object);
 
 G_END_DECLS
 
@@ -260,5 +223,3 @@ G_END_DECLS
 #undef __COGL_H_INSIDE__
 #undef __COGL_MUST_UNDEF_COGL_H_INSIDE_COGL_TEXTURE_PIXMAP_X11_
 #endif
-
-#endif /* __COGL_TEXTURE_PIXMAP_X11_H */

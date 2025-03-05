@@ -12,19 +12,17 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_WAYLAND_WINDOW_CONFIGURATION_H
-#define META_WAYLAND_WINDOW_CONFIGURATION_H
+#pragma once
 
 #include <glib.h>
 #include <stdint.h>
 
 #include "core/window-private.h"
+#include "meta/meta-window-config.h"
 #include "wayland/meta-wayland-types.h"
 
 struct _MetaWaylandWindowConfiguration
@@ -52,10 +50,11 @@ struct _MetaWaylandWindowConfiguration
   int bounds_height;
 
   gboolean is_fullscreen;
+  gboolean is_suspended;
 };
 
 MetaWaylandWindowConfiguration * meta_wayland_window_configuration_new (MetaWindow          *window,
-                                                                        MetaRectangle        rect,
+                                                                        MtkRectangle         rect,
                                                                         int                  max_width,
                                                                         int                  max_height,
                                                                         int                  scale,
@@ -70,8 +69,14 @@ MetaWaylandWindowConfiguration * meta_wayland_window_configuration_new_relative 
                                                                                  int         scale);
 
 MetaWaylandWindowConfiguration * meta_wayland_window_configuration_new_empty (int bounds_width,
-                                                                              int bounds_height);
+                                                                              int bounds_height,
+                                                                              int scale);
 
 void meta_wayland_window_configuration_free (MetaWaylandWindowConfiguration *configuration);
 
-#endif /* META_WAYLAND_WINDOW_CONFIGURATION_H */
+MetaWindowConfig * meta_window_config_new_from_wayland_window_configuration (MetaWindow                     *window,
+                                                                             MetaWaylandWindowConfiguration *configuration);
+
+MetaWaylandWindowConfiguration * meta_wayland_window_configuration_apply_window_config (MetaWindow                     *window,
+                                                                                        MetaWaylandWindowConfiguration *configuration,
+                                                                                        MetaWindowConfig               *window_config);

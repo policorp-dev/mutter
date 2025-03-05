@@ -1,9 +1,6 @@
 clutter_tests_performance_c_args = [
   '-DTESTS_DATA_DIR="@0@"'.format(clutter_tests_interactive_srcdir),
   '-DG_DISABLE_SINGLE_INCLUDES',
-  '-DGLIB_DISABLE_DEPRECATION_WARNINGS',
-  '-DCOGL_DISABLE_DEPRECATION_WARNINGS',
-  '-DCLUTTER_DISABLE_DEPRECATION_WARNINGS',
   '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
 ]
 
@@ -11,8 +8,13 @@ clutter_tests_performance_c_args += clutter_debug_c_args
 
 clutter_tests_performance_tests = [
   'test-picking',
-  'test-text-perf',
 ]
+
+if have_fonts
+  clutter_tests_performance_tests += [
+    'test-text-perf',
+  ]
+endif
 
 foreach test : clutter_tests_performance_tests
   executable(test,

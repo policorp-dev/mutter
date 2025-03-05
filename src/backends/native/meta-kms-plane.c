@@ -13,9 +13,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -25,15 +23,19 @@
 #include <drm_fourcc.h>
 #include <stdio.h>
 
-#include "backends/meta-monitor-transform.h"
 #include "backends/native/meta-kms-crtc.h"
 #include "backends/native/meta-kms-impl-device.h"
+#include "backends/native/meta-kms-impl-device-atomic.h"
+#include "backends/native/meta-kms-device-private.h"
 #include "backends/native/meta-kms-update-private.h"
+#include "common/meta-drm-format-helpers.h"
 
 typedef struct _MetaKmsPlanePropTable
 {
   MetaKmsProp props[META_KMS_PLANE_N_PROPS];
   MetaKmsEnum rotation_bitmask[META_KMS_PLANE_ROTATION_BIT_N_PROPS];
+  MetaKmsEnum color_encodings[META_KMS_PLANE_YCBCR_COLOR_ENCODING_N_PROPS];
+  MetaKmsEnum color_ranges[META_KMS_PLANE_YCBCR_COLOR_RANGE_N_PROPS];
 } MetaKmsPlanePropTable;
 
 struct _MetaKmsPlane
@@ -56,10 +58,22 @@ struct _MetaKmsPlane
    */
   GHashTable *formats_modifiers;
 
+  MetaKmsPlaneCursorSizeHints size_hints;
+
   MetaKmsPlanePropTable prop_table;
 
   MetaKmsDevice *device;
 };
+
+#ifndef HAVE_DRM_PLANE_SIZE_HINT
+
+/* Shall be removed once available on libdrm.*/
+struct drm_plane_size_hint {
+  __u16 width;
+  __u16 height;
+};
+
+#endif
 
 G_DEFINE_TYPE (MetaKmsPlane, meta_kms_plane, G_TYPE_OBJECT)
 
@@ -81,6 +95,12 @@ MetaKmsPlaneType
 meta_kms_plane_get_plane_type (MetaKmsPlane *plane)
 {
   return plane->type;
+}
+
+const MetaKmsPlaneCursorSizeHints *
+meta_kms_plane_get_cursor_size_hints (MetaKmsPlane *plane)
+{
+  return &plane->size_hints;
 }
 
 uint32_t
@@ -116,7 +136,7 @@ meta_kms_plane_get_prop_drm_value (MetaKmsPlane     *plane,
 void
 meta_kms_plane_update_set_rotation (MetaKmsPlane           *plane,
                                     MetaKmsPlaneAssignment *plane_assignment,
-                                    MetaMonitorTransform    transform)
+                                    MtkMonitorTransform     transform)
 {
   MetaKmsPlaneRotation kms_rotation = 0;
 
@@ -124,31 +144,31 @@ meta_kms_plane_update_set_rotation (MetaKmsPlane           *plane,
 
   switch (transform)
     {
-    case META_MONITOR_TRANSFORM_NORMAL:
+    case MTK_MONITOR_TRANSFORM_NORMAL:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_0;
       break;
-    case META_MONITOR_TRANSFORM_90:
+    case MTK_MONITOR_TRANSFORM_90:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_90;
       break;
-    case META_MONITOR_TRANSFORM_180:
+    case MTK_MONITOR_TRANSFORM_180:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_180;
       break;
-    case META_MONITOR_TRANSFORM_270:
+    case MTK_MONITOR_TRANSFORM_270:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_270;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED:
+    case MTK_MONITOR_TRANSFORM_FLIPPED:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_0 |
                      META_KMS_PLANE_ROTATION_REFLECT_X;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_90:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_90:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_90 |
                      META_KMS_PLANE_ROTATION_REFLECT_X;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_180:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_180:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_0 |
                      META_KMS_PLANE_ROTATION_REFLECT_Y;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_270:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_270:
       kms_rotation = META_KMS_PLANE_ROTATION_ROTATE_270 |
                      META_KMS_PLANE_ROTATION_REFLECT_X;
       break;
@@ -159,20 +179,48 @@ meta_kms_plane_update_set_rotation (MetaKmsPlane           *plane,
   meta_kms_plane_assignment_set_rotation (plane_assignment, kms_rotation);
 }
 
+void
+meta_kms_plane_update_set_color_encoding (MetaKmsPlane                   *plane,
+                                          MetaKmsPlaneAssignment         *plane_assignment,
+                                          MetaKmsPlaneYCbCrColorEncoding  encoding)
+{
+  MetaKmsProp *prop =
+    &plane->prop_table.props[META_KMS_PLANE_PROP_YCBCR_COLOR_ENCODING];
+
+  g_return_if_fail (meta_kms_plane_is_color_encoding_handled (plane, encoding));
+
+  if (prop->value != encoding)
+    meta_kms_plane_assignment_set_color_encoding (plane_assignment, encoding);
+}
+
+void
+meta_kms_plane_update_set_color_range (MetaKmsPlane                *plane,
+                                       MetaKmsPlaneAssignment      *plane_assignment,
+                                       MetaKmsPlaneYCbCrColorRange  range)
+{
+  MetaKmsProp *prop =
+    &plane->prop_table.props[META_KMS_PLANE_YCBCR_COLOR_RANGE_LIMITED];
+
+  g_return_if_fail (meta_kms_plane_is_color_range_handled (plane, range));
+
+  if (prop->value != range)
+    meta_kms_plane_assignment_set_color_range (plane_assignment, range);
+}
+
 gboolean
-meta_kms_plane_is_transform_handled (MetaKmsPlane         *plane,
-                                     MetaMonitorTransform  transform)
+meta_kms_plane_is_transform_handled (MetaKmsPlane        *plane,
+                                     MtkMonitorTransform  transform)
 {
   switch (transform)
     {
-    case META_MONITOR_TRANSFORM_NORMAL:
+    case MTK_MONITOR_TRANSFORM_NORMAL:
       return plane->rotations & META_KMS_PLANE_ROTATION_ROTATE_0;
-    case META_MONITOR_TRANSFORM_180:
+    case MTK_MONITOR_TRANSFORM_180:
       return plane->rotations & META_KMS_PLANE_ROTATION_ROTATE_180;
-    case META_MONITOR_TRANSFORM_FLIPPED:
+    case MTK_MONITOR_TRANSFORM_FLIPPED:
       return (plane->rotations & META_KMS_PLANE_ROTATION_ROTATE_0) &&
              (plane->rotations & META_KMS_PLANE_ROTATION_REFLECT_X);
-    case META_MONITOR_TRANSFORM_FLIPPED_180:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_180:
       return (plane->rotations & META_KMS_PLANE_ROTATION_ROTATE_0) &&
              (plane->rotations & META_KMS_PLANE_ROTATION_REFLECT_Y);
     /*
@@ -181,14 +229,51 @@ meta_kms_plane_is_transform_handled (MetaKmsPlane         *plane,
      * less optimal due to the complexity dealing with rotation at scan-out,
      * potentially resulting in higher power consumption.
      */
-    case META_MONITOR_TRANSFORM_90:
-    case META_MONITOR_TRANSFORM_270:
-    case META_MONITOR_TRANSFORM_FLIPPED_90:
-    case META_MONITOR_TRANSFORM_FLIPPED_270:
+    case MTK_MONITOR_TRANSFORM_90:
+    case MTK_MONITOR_TRANSFORM_270:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_90:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_270:
       return FALSE;
     }
 
   return FALSE;
+}
+
+gboolean
+meta_kms_plane_is_color_encoding_handled (MetaKmsPlane                   *plane,
+                                          MetaKmsPlaneYCbCrColorEncoding  encoding)
+{
+  MetaKmsProp *prop =
+    &plane->prop_table.props[META_KMS_PLANE_PROP_YCBCR_COLOR_ENCODING];
+
+  return prop->supported_variants & (1 << encoding);
+}
+
+gboolean
+meta_kms_plane_is_color_range_handled (MetaKmsPlane                *plane,
+                                       MetaKmsPlaneYCbCrColorRange  range)
+{
+  MetaKmsProp *prop =
+    &plane->prop_table.props[META_KMS_PLANE_PROP_YCBCR_COLOR_RANGE];
+
+  return prop->supported_variants & (1 << range);
+}
+
+gboolean
+meta_kms_plane_supports_cursor_hotspot (MetaKmsPlane *plane)
+{
+  MetaKmsImplDevice *impl_device =
+    meta_kms_device_get_impl_device (plane->device);
+
+  if (META_IS_KMS_IMPL_DEVICE_ATOMIC (impl_device))
+    {
+      return (meta_kms_plane_get_prop_id (plane, META_KMS_PLANE_PROP_HOTSPOT_X) &&
+              meta_kms_plane_get_prop_id (plane, META_KMS_PLANE_PROP_HOTSPOT_Y));
+    }
+  else
+    {
+      return TRUE;
+    }
 }
 
 GArray *
@@ -278,15 +363,23 @@ update_formats (MetaKmsPlane      *plane,
   in_formats = &plane->prop_table.props[META_KMS_PLANE_PROP_IN_FORMATS];
   blob_id = in_formats->value;
   if (blob_id == 0)
-    return;
+    {
+      meta_topic (META_DEBUG_KMS, "  Plane has no advertised formats");
+      return;
+    }
 
   fd = meta_kms_impl_device_get_fd (impl_device);
   blob = drmModeGetPropertyBlob (fd, blob_id);
   if (!blob)
-    return;
+    {
+      g_warning ("Failed to rertieve IN_FORMATS property blob: %s",
+                 g_strerror (errno));
+      return;
+    }
 
   if (blob->length < sizeof (struct drm_format_modifier_blob))
     {
+      g_warning ("IN_FORMATS property blob size invalid");
       drmModeFreePropertyBlob (blob);
       return;
     }
@@ -299,6 +392,16 @@ update_formats (MetaKmsPlane      *plane,
   for (fmt_i = 0; fmt_i < blob_fmt->count_formats; fmt_i++)
     {
       GArray *modifiers = g_array_new (FALSE, FALSE, sizeof (uint64_t));
+
+      if (meta_is_topic_enabled (META_DEBUG_KMS))
+        {
+          MetaDrmFormatBuf tmp;
+
+          meta_topic (META_DEBUG_KMS,
+                      "  Adding format %s (0x%x)",
+                      meta_drm_format_to_string (&tmp, formats[fmt_i]),
+                      formats[fmt_i]);
+        }
 
       for (mod_i = 0; mod_i < blob_fmt->count_modifiers; mod_i++)
         {
@@ -329,6 +432,48 @@ update_formats (MetaKmsPlane      *plane,
     }
 
   drmModeFreePropertyBlob (blob);
+}
+
+static void
+update_cursor_size_hints (MetaKmsPlane      *plane,
+                          MetaKmsImplDevice *impl_device)
+
+{
+  MetaKmsProp *prop;
+  drmModePropertyBlobPtr size_hints_blob = NULL;
+  struct drm_plane_size_hint *size_hints_ptr;
+  uint32_t blob_id, i, num_of_size_hints;
+  int fd;
+  MetaKmsPlaneType type = meta_kms_plane_get_plane_type (plane);
+
+  if (type != META_KMS_PLANE_TYPE_CURSOR)
+    return;
+  prop = &plane->prop_table.props[META_KMS_PLANE_PROP_SIZE_HINTS];
+  if(!prop)
+    return;
+
+  blob_id = prop->value;
+  if (blob_id == 0)
+    return;
+
+  fd = meta_kms_impl_device_get_fd (impl_device);
+  size_hints_blob = drmModeGetPropertyBlob (fd, blob_id);
+  if (!size_hints_blob)
+    return;
+
+  plane->size_hints.has_size_hints = TRUE;
+  size_hints_ptr = size_hints_blob->data;
+
+  num_of_size_hints = size_hints_blob->length / sizeof (struct drm_plane_size_hint);
+  plane->size_hints.cursor_width = g_new0 (uint64_t, num_of_size_hints);
+  plane->size_hints.cursor_height = g_new0 (uint64_t, num_of_size_hints);
+  plane->size_hints.num_of_size_hints = num_of_size_hints;
+
+  for (i = 0; i < num_of_size_hints; i++)
+    {
+      plane->size_hints.cursor_width [i] = size_hints_ptr[i].width;
+      plane->size_hints.cursor_height [i] = size_hints_ptr[i].height;
+    }
 }
 
 static void
@@ -409,6 +554,7 @@ meta_kms_plane_read_state (MetaKmsPlane            *plane,
                                           META_KMS_PLANE_N_PROPS);
 
   update_formats (plane, impl_device);
+  update_cursor_size_hints (plane, impl_device);
   update_rotations (plane);
   update_legacy_formats (plane, drm_plane);
 
@@ -502,6 +648,42 @@ init_properties (MetaKmsPlane            *plane,
           .name = "FB_DAMAGE_CLIPS",
           .type = DRM_MODE_PROP_BLOB,
         },
+      [META_KMS_PLANE_PROP_IN_FENCE_FD] =
+        {
+          .name = "IN_FENCE_FD",
+          .type = DRM_MODE_PROP_SIGNED_RANGE,
+        },
+      [META_KMS_PLANE_PROP_HOTSPOT_X] =
+        {
+          .name = "HOTSPOT_X",
+          .type = DRM_MODE_PROP_SIGNED_RANGE,
+        },
+      [META_KMS_PLANE_PROP_HOTSPOT_Y] =
+        {
+          .name = "HOTSPOT_Y",
+          .type = DRM_MODE_PROP_SIGNED_RANGE,
+        },
+      [META_KMS_PLANE_PROP_SIZE_HINTS] =
+        {
+          .name = "SIZE_HINTS",
+          .type = DRM_MODE_PROP_BLOB,
+        },
+      [META_KMS_PLANE_PROP_YCBCR_COLOR_ENCODING] =
+        {
+          .name = "COLOR_ENCODING",
+          .type = DRM_MODE_PROP_ENUM,
+          .enum_values = prop_table->color_encodings,
+          .num_enum_values = META_KMS_PLANE_YCBCR_COLOR_ENCODING_N_PROPS,
+          .default_value = META_KMS_PLANE_YCBCR_COLOR_ENCODING_BT709,
+        },
+      [META_KMS_PLANE_PROP_YCBCR_COLOR_RANGE] =
+        {
+          .name = "COLOR_RANGE",
+          .type = DRM_MODE_PROP_ENUM,
+          .enum_values = prop_table->color_ranges,
+          .num_enum_values = META_KMS_PLANE_YCBCR_COLOR_RANGE_N_PROPS,
+          .default_value = META_KMS_PLANE_YCBCR_COLOR_RANGE_LIMITED,
+        },
     },
     .rotation_bitmask = {
       [META_KMS_PLANE_ROTATION_BIT_ROTATE_0] =
@@ -535,6 +717,30 @@ init_properties (MetaKmsPlane            *plane,
           .bitmask = META_KMS_PLANE_ROTATION_REFLECT_Y,
         },
     },
+    .color_encodings = {
+      [META_KMS_PLANE_YCBCR_COLOR_ENCODING_BT601] =
+        {
+          .name = "ITU-R BT.601 YCbCr",
+        },
+      [META_KMS_PLANE_YCBCR_COLOR_ENCODING_BT709] =
+        {
+          .name = "ITU-R BT.709 YCbCr",
+        },
+      [META_KMS_PLANE_YCBCR_COLOR_ENCODING_BT2020] =
+        {
+          .name = "ITU-R BT.2020 YCbCr",
+        },
+    },
+    .color_ranges = {
+      [META_KMS_PLANE_YCBCR_COLOR_RANGE_LIMITED] =
+        {
+          .name = "YCbCr limited range",
+        },
+      [META_KMS_PLANE_YCBCR_COLOR_RANGE_FULL] =
+        {
+          .name = "YCbCr full range",
+        },
+    },
   };
 }
 
@@ -552,6 +758,11 @@ meta_kms_plane_new (MetaKmsPlaneType         type,
   plane->possible_crtcs = drm_plane->possible_crtcs;
   plane->device = meta_kms_impl_device_get_device (impl_device);
 
+  meta_topic (META_DEBUG_KMS,
+              "Adding %s plane %u (%s)",
+              meta_kms_plane_type_to_string (type),
+              plane->id,
+              meta_kms_impl_device_get_path (impl_device));
   init_properties (plane, impl_device, drm_plane, drm_plane_props);
 
   meta_kms_plane_read_state (plane, impl_device, drm_plane, drm_plane_props);
@@ -595,6 +806,8 @@ meta_kms_plane_finalize (GObject *object)
   MetaKmsPlane *plane = META_KMS_PLANE (object);
 
   g_hash_table_destroy (plane->formats_modifiers);
+  g_clear_pointer (&plane->size_hints.cursor_width, g_free);
+  g_clear_pointer (&plane->size_hints.cursor_height, g_free);
 
   G_OBJECT_CLASS (meta_kms_plane_parent_class)->finalize (object);
 }
@@ -615,4 +828,20 @@ meta_kms_plane_class_init (MetaKmsPlaneClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->finalize = meta_kms_plane_finalize;
+}
+
+const char *
+meta_kms_plane_type_to_string (MetaKmsPlaneType plane_type)
+{
+  switch (plane_type)
+    {
+    case META_KMS_PLANE_TYPE_PRIMARY:
+      return "primary";
+    case META_KMS_PLANE_TYPE_CURSOR:
+      return "cursor";
+    case META_KMS_PLANE_TYPE_OVERLAY:
+      return "overlay";
+    }
+
+  g_assert_not_reached ();
 }

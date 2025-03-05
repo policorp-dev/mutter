@@ -54,10 +54,10 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-memory-stack-private.h"
-#include "cogl-list.h"
+#include "cogl/cogl-memory-stack-private.h"
+#include "cogl/cogl-list.h"
 
 #include <stdint.h>
 
@@ -160,35 +160,4 @@ _cogl_memory_stack_alloc (CoglMemoryStack *stack, size_t bytes)
   stack->sub_stack_offset += bytes;
 
   return sub_stack->data;
-}
-
-void
-_cogl_memory_stack_rewind (CoglMemoryStack *stack)
-{
-  stack->sub_stack = _cogl_container_of (stack->sub_stacks.next,
-                                         CoglMemorySubStack,
-                                         link);
-  stack->sub_stack_offset = 0;
-}
-
-static void
-_cogl_memory_sub_stack_free (CoglMemorySubStack *sub_stack)
-{
-  g_free (sub_stack->data);
-  g_free (sub_stack);
-}
-
-void
-_cogl_memory_stack_free (CoglMemoryStack *stack)
-{
-
-  while (!_cogl_list_empty (&stack->sub_stacks))
-    {
-      CoglMemorySubStack *sub_stack =
-        _cogl_container_of (stack->sub_stacks.next, CoglMemorySubStack, link);
-      _cogl_list_remove (&sub_stack->link);
-      _cogl_memory_sub_stack_free (sub_stack);
-    }
-
-  g_free (stack);
 }

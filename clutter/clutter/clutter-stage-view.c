@@ -15,18 +15,19 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
+
+#define COGL_DISABLE_DEPRECATION_WARNINGS
 
 #include "clutter/clutter-stage-view.h"
 #include "clutter/clutter-stage-view-private.h"
 
-#include <cairo-gobject.h>
 #include <math.h>
 
+#include "clutter/clutter-context-private.h"
 #include "clutter/clutter-damage-history.h"
 #include "clutter/clutter-frame-clock.h"
 #include "clutter/clutter-frame-private.h"
-#include "clutter/clutter-private.h"
 #include "clutter/clutter-mutter.h"
 #include "clutter/clutter-stage-private.h"
 #include "cogl/cogl.h"
@@ -39,16 +40,26 @@ enum
   PROP_STAGE,
   PROP_LAYOUT,
   PROP_FRAMEBUFFER,
-  PROP_OFFSCREEN,
   PROP_USE_SHADOWFB,
+  PROP_COLOR_STATE,
+  PROP_OUTPUT_COLOR_STATE,
   PROP_SCALE,
   PROP_REFRESH_RATE,
   PROP_VBLANK_DURATION_US,
+  PROP_TRANSFORM,
 
   PROP_LAST
 };
 
 static GParamSpec *obj_props[PROP_LAST];
+
+enum
+{
+  DESTROY,
+  N_SIGNALS
+};
+
+guint stage_view_signals[N_SIGNALS] = { 0 };
 
 typedef struct _ClutterStageViewPrivate
 {
@@ -56,30 +67,28 @@ typedef struct _ClutterStageViewPrivate
 
   ClutterStage *stage;
 
-  cairo_rectangle_int_t layout;
+  MtkRectangle layout;
   float scale;
+  MtkMonitorTransform transform;
   CoglFramebuffer *framebuffer;
+  ClutterColorState *color_state;
+  ClutterColorState *output_color_state;
 
+  guint ensure_offscreen_idle_id;
   CoglOffscreen *offscreen;
   CoglPipeline *offscreen_pipeline;
 
   gboolean use_shadowfb;
   struct {
-    struct {
-      CoglDmaBufHandle *handles[2];
-      int current_idx;
-      ClutterDamageHistory *damage_history;
-    } dma_buf;
-
     CoglOffscreen *framebuffer;
   } shadow;
 
   CoglScanout *next_scanout;
 
   gboolean has_redraw_clip;
-  cairo_region_t *redraw_clip;
+  MtkRegion *redraw_clip;
   gboolean has_accumulated_redraw_clip;
-  cairo_region_t *accumulated_redraw_clip;
+  MtkRegion *accumulated_redraw_clip;
 
   float refresh_rate;
   int64_t vblank_duration_us;
@@ -108,8 +117,8 @@ clutter_stage_view_destroy (ClutterStageView *view)
 }
 
 void
-clutter_stage_view_get_layout (ClutterStageView      *view,
-                               cairo_rectangle_int_t *rect)
+clutter_stage_view_get_layout (ClutterStageView *view,
+                               MtkRectangle     *rect)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
@@ -130,6 +139,8 @@ clutter_stage_view_get_framebuffer (ClutterStageView *view)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
+
+  g_warn_if_fail (priv->ensure_offscreen_idle_id == 0);
 
   if (priv->offscreen)
     return COGL_FRAMEBUFFER (priv->offscreen);
@@ -156,131 +167,323 @@ clutter_stage_view_get_onscreen (ClutterStageView *view)
   return priv->framebuffer;
 }
 
-static CoglPipeline *
-clutter_stage_view_create_offscreen_pipeline (CoglOffscreen *offscreen)
+static CoglOffscreen *
+create_offscreen (ClutterStageView  *view,
+                  CoglPixelFormat    format,
+                  int                width,
+                  int                height,
+                  GError           **error)
 {
-  CoglFramebuffer *framebuffer = COGL_FRAMEBUFFER (offscreen);
-  CoglPipeline *pipeline;
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+  CoglContext *cogl_context;
+  g_autoptr (CoglOffscreen) framebuffer = NULL;
+  g_autoptr (CoglTexture) texture = NULL;
+
+  cogl_context = cogl_framebuffer_get_context (priv->framebuffer);
+
+  if (format == COGL_PIXEL_FORMAT_ANY)
+    {
+      texture = cogl_texture_2d_new_with_size (cogl_context, width, height);
+    }
+  else
+    {
+      texture = cogl_texture_2d_new_with_format (cogl_context,
+                                                 width, height, format);
+    }
+
+  cogl_texture_2d_set_auto_mipmap (COGL_TEXTURE_2D (texture), FALSE);
+
+  if (!cogl_texture_allocate (texture, error))
+    return FALSE;
+
+  framebuffer = cogl_offscreen_new_with_texture (texture);
+
+  if (!cogl_framebuffer_allocate (COGL_FRAMEBUFFER (framebuffer), error))
+    return FALSE;
+
+  return g_steal_pointer (&framebuffer);
+}
+
+static CoglOffscreen *
+create_offscreen_with_formats (ClutterStageView  *view,
+                               CoglPixelFormat   *formats,
+                               size_t             n_formats,
+                               int                width,
+                               int                height,
+                               GError           **error)
+{
+  g_autoptr (GError) local_error = NULL;
+  size_t i;
+
+  for (i = 0; i < n_formats; i++)
+    {
+      CoglOffscreen *offscreen;
+
+      g_clear_error (&local_error);
+
+      offscreen = create_offscreen (view, formats[i], width, height, &local_error);
+      if (offscreen)
+        return offscreen;
+    }
+
+  g_propagate_error (error, g_steal_pointer (&local_error));
+  return NULL;
+}
+
+static void
+ensure_stage_view_offscreen (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+  ClutterEncodingRequiredFormat required_format;
+  CoglPixelFormat formats[10];
+  size_t n_formats = 0;
+  int offscreen_width, offscreen_height;
+  int onscreen_width, onscreen_height;
+  g_autoptr (CoglOffscreen) offscreen = NULL;
+  g_autoptr (GError) local_error = NULL;
+
+  if (priv->offscreen)
+    return;
+
+  required_format = clutter_color_state_required_format (priv->color_state);
+
+  if (required_format <= CLUTTER_ENCODING_REQUIRED_FORMAT_UINT8)
+    {
+      formats[n_formats++] =
+        cogl_framebuffer_get_internal_format (priv->framebuffer);
+    }
+  else
+    {
+      formats[n_formats++] = COGL_PIXEL_FORMAT_XRGB_FP_16161616;
+      formats[n_formats++] = COGL_PIXEL_FORMAT_XBGR_FP_16161616;
+      formats[n_formats++] = COGL_PIXEL_FORMAT_RGBA_FP_16161616_PRE;
+      formats[n_formats++] = COGL_PIXEL_FORMAT_BGRA_FP_16161616_PRE;
+      formats[n_formats++] = COGL_PIXEL_FORMAT_ARGB_FP_16161616_PRE;
+      formats[n_formats++] = COGL_PIXEL_FORMAT_ABGR_FP_16161616_PRE;
+    }
+
+  onscreen_width = cogl_framebuffer_get_width (priv->framebuffer);
+  onscreen_height = cogl_framebuffer_get_height (priv->framebuffer);
+
+  if (mtk_monitor_transform_is_rotated (priv->transform))
+    {
+      offscreen_width = onscreen_height;
+      offscreen_height = onscreen_width;
+    }
+  else
+    {
+      offscreen_width = onscreen_width;
+      offscreen_height = onscreen_height;
+    }
+
+  offscreen = create_offscreen_with_formats (view,
+                                             formats,
+                                             n_formats,
+                                             offscreen_width,
+                                             offscreen_height,
+                                             &local_error);
+  if (!offscreen)
+    g_error ("Failed to allocate back buffer texture: %s", local_error->message);
+
+  g_set_object (&priv->offscreen, g_steal_pointer (&offscreen));
+}
+
+static void
+ensure_stage_view_offscreen_pipeline (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+  CoglFramebuffer *framebuffer = COGL_FRAMEBUFFER (priv->offscreen);
+  g_autoptr (CoglPipeline) pipeline = NULL;
+
+  if (priv->offscreen_pipeline)
+    return;
 
   pipeline = cogl_pipeline_new (cogl_framebuffer_get_context (framebuffer));
+  cogl_pipeline_set_static_name (pipeline, "ClutterStageView (offscreen)");
 
   cogl_pipeline_set_layer_filters (pipeline, 0,
                                    COGL_PIPELINE_FILTER_NEAREST,
                                    COGL_PIPELINE_FILTER_NEAREST);
   cogl_pipeline_set_layer_texture (pipeline, 0,
-                                   cogl_offscreen_get_texture (offscreen));
+                                   cogl_offscreen_get_texture (priv->offscreen));
   cogl_pipeline_set_layer_wrap_mode (pipeline, 0,
                                      COGL_PIPELINE_WRAP_MODE_CLAMP_TO_EDGE);
 
-  return pipeline;
+  if (priv->transform != MTK_MONITOR_TRANSFORM_NORMAL)
+    {
+      graphene_matrix_t matrix;
+
+      clutter_stage_view_get_offscreen_transformation_matrix (view, &matrix);
+      cogl_pipeline_set_layer_matrix (pipeline, 0, &matrix);
+    }
+
+  clutter_color_state_add_pipeline_transform (priv->color_state,
+                                              priv->output_color_state,
+                                              pipeline);
+
+  g_set_object (&priv->offscreen_pipeline, g_steal_pointer (&pipeline));
+}
+
+static gboolean
+on_ensure_offscreen_idle (gpointer data)
+{
+  ClutterStageView *view = CLUTTER_STAGE_VIEW (data);
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  ensure_stage_view_offscreen (view);
+  ensure_stage_view_offscreen_pipeline (view);
+
+  priv->ensure_offscreen_idle_id = 0;
+  return G_SOURCE_REMOVE;
 }
 
 static void
-clutter_stage_view_ensure_offscreen_blit_pipeline (ClutterStageView *view)
+clutter_stage_view_invalidate_offscreen (ClutterStageView *view)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
-  ClutterStageViewClass *view_class =
-    CLUTTER_STAGE_VIEW_GET_CLASS (view);
 
-  g_assert (priv->offscreen != NULL);
+  if (priv->frame_clock)
+    {
+      clutter_stage_view_add_redraw_clip (view, NULL);
+      clutter_stage_view_schedule_update (view);
+    }
 
-  if (priv->offscreen_pipeline)
+  if (priv->transform == MTK_MONITOR_TRANSFORM_NORMAL &&
+      clutter_color_state_equals (priv->color_state, priv->output_color_state))
+    {
+      g_clear_object (&priv->offscreen_pipeline);
+      g_clear_object (&priv->offscreen);
+      g_clear_handle_id (&priv->ensure_offscreen_idle_id, g_source_remove);
+      return;
+    }
+
+  g_clear_object (&priv->offscreen_pipeline);
+
+  if (priv->ensure_offscreen_idle_id != 0)
     return;
 
-  priv->offscreen_pipeline =
-    clutter_stage_view_create_offscreen_pipeline (priv->offscreen);
+  priv->ensure_offscreen_idle_id = g_idle_add_full (CLUTTER_PRIORITY_REDRAW - 1,
+                                                    on_ensure_offscreen_idle,
+                                                    view, NULL);
+}
 
-  if (view_class->setup_offscreen_blit_pipeline)
-    view_class->setup_offscreen_blit_pipeline (view, priv->offscreen_pipeline);
+static void
+set_color_state (ClutterStageView   *view,
+                 ClutterColorState **dest_color_state,
+                 ClutterColorState  *color_state)
+{
+  if (*dest_color_state == color_state)
+    return;
+
+  g_set_object (dest_color_state, color_state);
+
+  clutter_stage_view_invalidate_offscreen (view);
 }
 
 void
-clutter_stage_view_invalidate_offscreen_blit_pipeline (ClutterStageView *view)
+clutter_stage_view_set_color_state (ClutterStageView  *view,
+                                    ClutterColorState *color_state)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
 
-  g_clear_pointer (&priv->offscreen_pipeline, cogl_object_unref);
+  set_color_state (view, &priv->color_state, color_state);
 }
 
 void
-clutter_stage_view_transform_rect_to_onscreen (ClutterStageView            *view,
-                                               const cairo_rectangle_int_t *src_rect,
-                                               int                          dst_width,
-                                               int                          dst_height,
-                                               cairo_rectangle_int_t       *dst_rect)
+clutter_stage_view_set_output_color_state (ClutterStageView  *view,
+                                           ClutterColorState *color_state)
 {
-  ClutterStageViewClass *view_class = CLUTTER_STAGE_VIEW_GET_CLASS (view);
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
 
-  return view_class->transform_rect_to_onscreen (view,
-                                                 src_rect,
-                                                 dst_width,
-                                                 dst_height,
-                                                 dst_rect);
+  set_color_state (view, &priv->output_color_state, color_state);
 }
 
 static void
-paint_transformed_framebuffer (ClutterStageView     *view,
-                               CoglPipeline         *pipeline,
-                               CoglOffscreen        *src_framebuffer,
-                               CoglFramebuffer      *dst_framebuffer,
-                               const cairo_region_t *redraw_clip)
+clutter_stage_view_ensure_color_states (ClutterStageView *view)
 {
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+  ClutterContext *context =
+    clutter_actor_get_context (CLUTTER_ACTOR (priv->stage));
+  ClutterColorManager *color_manager =
+    clutter_context_get_color_manager (context);
+  ClutterColorState *color_state =
+    clutter_color_manager_get_default_color_state (color_manager);
+
+  if (!priv->color_state)
+    set_color_state (view, &priv->color_state, color_state);
+
+  if (!priv->output_color_state)
+    set_color_state (view, &priv->output_color_state, color_state);
+}
+
+static void
+paint_transformed_framebuffer (ClutterStageView *view,
+                               CoglPipeline     *pipeline,
+                               CoglOffscreen    *src_framebuffer,
+                               CoglFramebuffer  *dst_framebuffer,
+                               const MtkRegion  *redraw_clip)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
   graphene_matrix_t matrix;
   unsigned int n_rectangles, i;
   int dst_width, dst_height;
-  cairo_rectangle_int_t view_layout;
-  cairo_rectangle_int_t onscreen_layout;
+  MtkRectangle view_layout;
+  MtkRectangle onscreen_layout;
   float view_scale;
   float *coordinates;
 
   dst_width = cogl_framebuffer_get_width (dst_framebuffer);
   dst_height = cogl_framebuffer_get_height (dst_framebuffer);
   clutter_stage_view_get_layout (view, &view_layout);
-  clutter_stage_view_transform_rect_to_onscreen (view,
-                                                 &(cairo_rectangle_int_t) {
-                                                   .width = view_layout.width,
-                                                   .height = view_layout.height,
-                                                 },
-                                                 view_layout.width,
-                                                 view_layout.height,
-                                                 &onscreen_layout);
+
+  mtk_rectangle_transform (&MTK_RECTANGLE_INIT (0, 0,
+                                                view_layout.width, view_layout.height),
+                           priv->transform,
+                           view_layout.width,
+                           view_layout.height,
+                           &onscreen_layout);
   view_scale = clutter_stage_view_get_scale (view);
 
   cogl_framebuffer_push_matrix (dst_framebuffer);
 
   graphene_matrix_init_translate (&matrix,
-                                  &GRAPHENE_POINT3D_INIT (-dst_width / 2.0,
-                                                          -dst_height / 2.0,
+                                  &GRAPHENE_POINT3D_INIT (-dst_width / 2.0f,
+                                                          -dst_height / 2.0f,
                                                           0.f));
   graphene_matrix_scale (&matrix,
-                         1.0 / (dst_width / 2.0),
-                         -1.0 / (dst_height / 2.0),
+                         1.0f / (dst_width / 2.0f),
+                         -1.0f / (dst_height / 2.0f),
                          0.f);
   cogl_framebuffer_set_projection_matrix (dst_framebuffer, &matrix);
   cogl_framebuffer_set_viewport (dst_framebuffer,
                                  0, 0, dst_width, dst_height);
 
-  n_rectangles = cairo_region_num_rectangles (redraw_clip);
+  n_rectangles = mtk_region_num_rectangles (redraw_clip);
   coordinates = g_newa (float, 2 * 4 * n_rectangles);
 
   for (i = 0; i < n_rectangles; i++)
     {
-      cairo_rectangle_int_t src_rect;
-      cairo_rectangle_int_t dst_rect;
+      MtkRectangle src_rect;
+      MtkRectangle dst_rect;
 
-      cairo_region_get_rectangle (redraw_clip, i, &src_rect);
-      _clutter_util_rectangle_offset (&src_rect,
-                                      -view_layout.x,
-                                      -view_layout.y,
-                                      &src_rect);
+      src_rect = mtk_region_get_rectangle (redraw_clip, i);
+      src_rect.x -= view_layout.x;
+      src_rect.y -= view_layout.y;
 
-      clutter_stage_view_transform_rect_to_onscreen (view,
-                                                     &src_rect,
-                                                     onscreen_layout.width,
-                                                     onscreen_layout.height,
-                                                     &dst_rect);
+      mtk_rectangle_transform (&src_rect,
+                               priv->transform,
+                               onscreen_layout.width,
+                               onscreen_layout.height,
+                               &dst_rect);
 
       coordinates[i * 8 + 0] = (float) dst_rect.x * view_scale;
       coordinates[i * 8 + 1] = (float) dst_rect.y * view_scale;
@@ -307,165 +510,43 @@ paint_transformed_framebuffer (ClutterStageView     *view,
   cogl_framebuffer_pop_matrix (dst_framebuffer);
 }
 
-static gboolean
-is_shadowfb_double_buffered (ClutterStageView *view)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-
-  return priv->shadow.dma_buf.handles[0] && priv->shadow.dma_buf.handles[1];
-}
-
-static gboolean
-init_dma_buf_shadowfbs (ClutterStageView  *view,
-                        CoglContext       *cogl_context,
-                        int                width,
-                        int                height,
-                        GError           **error)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-  CoglRenderer *cogl_renderer = cogl_context_get_renderer (cogl_context);
-  CoglFramebuffer *initial_shadowfb;
-
-  if (!cogl_clutter_winsys_has_feature (COGL_WINSYS_FEATURE_BUFFER_AGE))
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-                   "Buffer age not supported");
-      return FALSE;
-    }
-
-  if (!COGL_IS_ONSCREEN (priv->framebuffer))
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-                   "Tried to use shadow buffer without onscreen");
-      return FALSE;
-    }
-
-  priv->shadow.dma_buf.handles[0] = cogl_renderer_create_dma_buf (cogl_renderer,
-                                                                  width, height,
-                                                                  error);
-  if (!priv->shadow.dma_buf.handles[0])
-    return FALSE;
-
-  priv->shadow.dma_buf.handles[1] = cogl_renderer_create_dma_buf (cogl_renderer,
-                                                                  width, height,
-                                                                  error);
-  if (!priv->shadow.dma_buf.handles[1])
-    {
-      g_clear_pointer (&priv->shadow.dma_buf.handles[0],
-                       cogl_dma_buf_handle_free);
-      return FALSE;
-    }
-
-  priv->shadow.dma_buf.damage_history = clutter_damage_history_new ();
-
-  initial_shadowfb =
-    cogl_dma_buf_handle_get_framebuffer (priv->shadow.dma_buf.handles[0]);
-  priv->shadow.framebuffer = COGL_OFFSCREEN (g_object_ref (initial_shadowfb));
-
-  return TRUE;
-}
-
-static CoglOffscreen *
-create_offscreen_framebuffer (CoglContext  *context,
-                              int           width,
-                              int           height,
-                              GError      **error)
-{
-  CoglOffscreen *framebuffer;
-  CoglTexture2D *texture;
-
-  texture = cogl_texture_2d_new_with_size (context, width, height);
-  cogl_primitive_texture_set_auto_mipmap (COGL_PRIMITIVE_TEXTURE (texture),
-                                          FALSE);
-
-  if (!cogl_texture_allocate (COGL_TEXTURE (texture), error))
-    {
-      cogl_object_unref (texture);
-      return FALSE;
-    }
-
-  framebuffer = cogl_offscreen_new_with_texture (COGL_TEXTURE (texture));
-  cogl_object_unref (texture);
-  if (!cogl_framebuffer_allocate (COGL_FRAMEBUFFER (framebuffer), error))
-    {
-      g_object_unref (framebuffer);
-      return FALSE;
-    }
-
-  return framebuffer;
-}
-
-static gboolean
-init_fallback_shadowfb (ClutterStageView  *view,
-                        CoglContext       *cogl_context,
-                        int                width,
-                        int                height,
-                        GError           **error)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-  CoglOffscreen *offscreen;
-
-  offscreen = create_offscreen_framebuffer (cogl_context, width, height, error);
-  if (!offscreen)
-    return FALSE;
-
-  priv->shadow.framebuffer = offscreen;
-  return TRUE;
-}
-
 static void
 init_shadowfb (ClutterStageView *view)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
   g_autoptr (GError) error = NULL;
+  CoglPixelFormat format;
   int width;
   int height;
-  CoglContext *cogl_context;
+  CoglOffscreen *offscreen;
 
+  format = cogl_framebuffer_get_internal_format (priv->framebuffer);
   width = cogl_framebuffer_get_width (priv->framebuffer);
   height = cogl_framebuffer_get_height (priv->framebuffer);
-  cogl_context = cogl_framebuffer_get_context (priv->framebuffer);
 
-  if (g_strcmp0 (g_getenv ("MUTTER_DEBUG_ENABLE_DOUBLE_SHADOWFB"), "1") == 0)
+  offscreen = create_offscreen (view, format, width, height, &error);
+  if (!offscreen)
     {
-      if (init_dma_buf_shadowfbs (view, cogl_context, width, height, &error))
-        {
-          g_message ("Initialized double buffered shadow fb for %s",
-                     priv->name);
-          return;
-        }
-
-      g_warning ("Failed to initialize double buffered shadow fb for %s: %s",
-                 priv->name, error->message);
-      g_clear_error (&error);
+      g_warning ("Failed to create shadow framebuffer: %s", error->message);
+      return;
     }
 
-  if (!init_fallback_shadowfb (view, cogl_context, width, height, &error))
-    {
-      g_warning ("Failed to initialize single buffered shadow fb for %s: %s",
-                 priv->name, error->message);
-    }
-  else
-    {
-      g_message ("Initialized single buffered shadow fb for %s", priv->name);
-    }
+  priv->shadow.framebuffer = offscreen;
+  return;
 }
 
 void
 clutter_stage_view_after_paint (ClutterStageView *view,
-                                cairo_region_t   *redraw_clip)
+                                MtkRegion        *redraw_clip)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
 
+  g_warn_if_fail (priv->ensure_offscreen_idle_id == 0);
+
   if (priv->offscreen)
     {
-      clutter_stage_view_ensure_offscreen_blit_pipeline (view);
-
       if (priv->shadow.framebuffer)
         {
           CoglFramebuffer *shadowfb =
@@ -488,261 +569,37 @@ clutter_stage_view_after_paint (ClutterStageView *view,
     }
 }
 
-static gboolean
-is_tile_dirty (cairo_rectangle_int_t *tile,
-               uint8_t               *current_data,
-               uint8_t               *prev_data,
-               int                    bpp,
-               int                    stride)
-{
-  int y;
-
-  for (y = tile->y; y < tile->y + tile->height; y++)
-    {
-      if (memcmp (prev_data + y * stride + tile->x * bpp,
-                  current_data + y * stride + tile->x * bpp,
-                  tile->width * bpp) != 0)
-        return TRUE;
-    }
-
-  return FALSE;
-}
-
-static int
-flip_dma_buf_idx (int idx)
-{
-  return (idx + 1) % 2;
-}
-
-static cairo_region_t *
-find_damaged_tiles (ClutterStageView      *view,
-                    const cairo_region_t  *damage_region,
-                    GError               **error)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-  cairo_region_t *tile_damage_region;
-  cairo_rectangle_int_t damage_extents;
-  cairo_rectangle_int_t fb_rect;
-  int prev_dma_buf_idx;
-  CoglDmaBufHandle *prev_dma_buf_handle;
-  uint8_t *prev_data;
-  int current_dma_buf_idx;
-  CoglDmaBufHandle *current_dma_buf_handle;
-  uint8_t *current_data;
-  int width, height, stride, bpp;
-  int tile_x_min, tile_x_max;
-  int tile_y_min, tile_y_max;
-  int tile_x, tile_y;
-  const int tile_size = 16;
-
-  prev_dma_buf_idx = flip_dma_buf_idx (priv->shadow.dma_buf.current_idx);
-  prev_dma_buf_handle = priv->shadow.dma_buf.handles[prev_dma_buf_idx];
-
-  current_dma_buf_idx = priv->shadow.dma_buf.current_idx;
-  current_dma_buf_handle = priv->shadow.dma_buf.handles[current_dma_buf_idx];
-
-  width = cogl_dma_buf_handle_get_width (current_dma_buf_handle);
-  height = cogl_dma_buf_handle_get_height (current_dma_buf_handle);
-  stride = cogl_dma_buf_handle_get_stride (current_dma_buf_handle);
-  bpp = cogl_dma_buf_handle_get_bpp (current_dma_buf_handle);
-
-  cogl_framebuffer_finish (COGL_FRAMEBUFFER (priv->shadow.framebuffer));
-
-  if (!cogl_dma_buf_handle_sync_read_start (prev_dma_buf_handle, error))
-    return NULL;
-
-  if (!cogl_dma_buf_handle_sync_read_start (current_dma_buf_handle, error))
-    goto err_sync_read_current;
-
-  prev_data = cogl_dma_buf_handle_mmap (prev_dma_buf_handle, error);
-  if (!prev_data)
-    goto err_mmap_prev;
-  current_data = cogl_dma_buf_handle_mmap (current_dma_buf_handle, error);
-  if (!current_data)
-    goto err_mmap_current;
-
-  fb_rect = (cairo_rectangle_int_t) {
-    .width = width,
-    .height = height,
-  };
-
-  cairo_region_get_extents (damage_region, &damage_extents);
-
-  tile_x_min = damage_extents.x / tile_size;
-  tile_x_max = ((damage_extents.x + damage_extents.width + tile_size - 1) /
-                tile_size);
-  tile_y_min = damage_extents.y / tile_size;
-  tile_y_max = ((damage_extents.y + damage_extents.height + tile_size - 1) /
-                tile_size);
-
-  tile_damage_region = cairo_region_create ();
-
-  for (tile_y = tile_y_min; tile_y <= tile_y_max; tile_y++)
-    {
-      for (tile_x = tile_x_min; tile_x <= tile_x_max; tile_x++)
-        {
-          cairo_rectangle_int_t tile = {
-            .x = tile_x * tile_size,
-            .y = tile_y * tile_size,
-            .width = tile_size,
-            .height = tile_size,
-          };
-
-          if (cairo_region_contains_rectangle (damage_region, &tile) ==
-              CAIRO_REGION_OVERLAP_OUT)
-            continue;
-
-          _clutter_util_rectangle_intersection (&tile, &fb_rect, &tile);
-
-          if (is_tile_dirty (&tile, current_data, prev_data, bpp, stride))
-            cairo_region_union_rectangle (tile_damage_region, &tile);
-        }
-    }
-
-  if (!cogl_dma_buf_handle_sync_read_end (prev_dma_buf_handle, error))
-    {
-      g_warning ("Failed to end DMA buffer read synchronization: %s",
-                 (*error)->message);
-      g_clear_error (error);
-    }
-
-  if (!cogl_dma_buf_handle_sync_read_end (current_dma_buf_handle, error))
-    {
-      g_warning ("Failed to end DMA buffer read synchronization: %s",
-                 (*error)->message);
-      g_clear_error (error);
-    }
-
-  cogl_dma_buf_handle_munmap (prev_dma_buf_handle, prev_data, NULL);
-  cogl_dma_buf_handle_munmap (current_dma_buf_handle, current_data, NULL);
-
-  cairo_region_intersect (tile_damage_region, damage_region);
-
-  return tile_damage_region;
-
-err_mmap_current:
-  cogl_dma_buf_handle_munmap (prev_dma_buf_handle, prev_data, NULL);
-
-err_mmap_prev:
-  cogl_dma_buf_handle_sync_read_end (current_dma_buf_handle, NULL);
-
-err_sync_read_current:
-  cogl_dma_buf_handle_sync_read_end (prev_dma_buf_handle, NULL);
-
-  return NULL;
-}
-
 static void
-swap_dma_buf_framebuffer (ClutterStageView *view)
+copy_shadowfb_to_onscreen (ClutterStageView *view,
+                           const MtkRegion  *swap_region)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
-  int next_idx;
-  CoglDmaBufHandle *next_dma_buf_handle;
-  CoglFramebuffer *next_framebuffer;
-
-  next_idx = ((priv->shadow.dma_buf.current_idx + 1) %
-              G_N_ELEMENTS (priv->shadow.dma_buf.handles));
-  priv->shadow.dma_buf.current_idx = next_idx;
-
-  next_dma_buf_handle = priv->shadow.dma_buf.handles[next_idx];
-  next_framebuffer =
-    cogl_dma_buf_handle_get_framebuffer (next_dma_buf_handle);
-  g_clear_object (&priv->shadow.framebuffer);
-  priv->shadow.framebuffer = COGL_OFFSCREEN (g_object_ref (next_framebuffer));
-}
-
-static void
-copy_shadowfb_to_onscreen (ClutterStageView     *view,
-                           const cairo_region_t *swap_region)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-  ClutterDamageHistory *damage_history = priv->shadow.dma_buf.damage_history;
-  cairo_region_t *damage_region;
-  int age;
+  g_autoptr (MtkRegion) damage_region = NULL;
   int i;
 
-  if (cairo_region_is_empty (swap_region))
+  if (mtk_region_is_empty (swap_region))
     {
-      cairo_rectangle_int_t full_damage = {
+      MtkRectangle full_damage = {
         .width = cogl_framebuffer_get_width (priv->framebuffer),
         .height = cogl_framebuffer_get_height (priv->framebuffer),
       };
-      damage_region = cairo_region_create_rectangle (&full_damage);
+      damage_region = mtk_region_create_rectangle (&full_damage);
     }
   else
     {
-      damage_region = cairo_region_copy (swap_region);
+      damage_region = mtk_region_copy (swap_region);
     }
 
-  if (is_shadowfb_double_buffered (view))
-    {
-      CoglOnscreen *onscreen = COGL_ONSCREEN (priv->framebuffer);
-      cairo_region_t *changed_region;
-
-      if (cogl_onscreen_get_frame_counter (onscreen) >= 1)
-        {
-          g_autoptr (GError) error = NULL;
-
-          changed_region = find_damaged_tiles (view, damage_region, &error);
-          if (!changed_region)
-            {
-              int other_dma_buf_idx;
-
-              g_warning ("Disabling actual damage detection: %s",
-                         error->message);
-
-              other_dma_buf_idx =
-                flip_dma_buf_idx (priv->shadow.dma_buf.current_idx);
-              g_clear_pointer (&priv->shadow.dma_buf.handles[other_dma_buf_idx],
-                               cogl_dma_buf_handle_free);
-            }
-        }
-      else
-        {
-          changed_region = cairo_region_copy (damage_region);
-        }
-
-      if (changed_region)
-        {
-          int buffer_age;
-
-          clutter_damage_history_record (damage_history, changed_region);
-
-          buffer_age = cogl_onscreen_get_buffer_age (onscreen);
-          if (clutter_damage_history_is_age_valid (damage_history, buffer_age))
-            {
-              for (age = 1; age <= buffer_age; age++)
-                {
-                  const cairo_region_t *old_damage;
-
-                  old_damage = clutter_damage_history_lookup (damage_history, age);
-                  cairo_region_union (changed_region, old_damage);
-                }
-
-              cairo_region_destroy (damage_region);
-              damage_region = g_steal_pointer (&changed_region);
-            }
-          else
-            {
-              cairo_region_destroy (changed_region);
-            }
-
-          clutter_damage_history_step (damage_history);
-        }
-    }
-
-  for (i = 0; i < cairo_region_num_rectangles (damage_region); i++)
+  for (i = 0; i < mtk_region_num_rectangles (damage_region); i++)
     {
       CoglFramebuffer *shadowfb = COGL_FRAMEBUFFER (priv->shadow.framebuffer);
       g_autoptr (GError) error = NULL;
-      cairo_rectangle_int_t rect;
+      MtkRectangle rect;
 
-      cairo_region_get_rectangle (damage_region, i, &rect);
+      rect = mtk_region_get_rectangle (damage_region, i);
 
-      if (!cogl_blit_framebuffer (shadowfb,
+      if (!cogl_framebuffer_blit (shadowfb,
                                   priv->framebuffer,
                                   rect.x, rect.y,
                                   rect.x, rect.y,
@@ -750,23 +607,20 @@ copy_shadowfb_to_onscreen (ClutterStageView     *view,
                                   &error))
         {
           g_warning ("Failed to blit shadow buffer: %s", error->message);
-          cairo_region_destroy (damage_region);
           return;
         }
     }
-
-  cairo_region_destroy (damage_region);
-
-  if (is_shadowfb_double_buffered (view))
-    swap_dma_buf_framebuffer (view);
 }
 
 void
-clutter_stage_view_before_swap_buffer (ClutterStageView     *view,
-                                       const cairo_region_t *swap_region)
+clutter_stage_view_before_swap_buffer (ClutterStageView *view,
+                                       const MtkRegion  *swap_region)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
+
+  COGL_TRACE_BEGIN_SCOPED (BeforeSwap,
+                           "Clutter::StageView::before_swap_buffer()");
 
   if (priv->shadow.framebuffer)
     copy_shadowfb_to_onscreen (view, swap_region);
@@ -792,29 +646,15 @@ clutter_stage_view_foreach_front_buffer (ClutterStageView    *view,
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
 
+  g_warn_if_fail (priv->ensure_offscreen_idle_id == 0);
+
   if (priv->offscreen)
     {
       callback (COGL_FRAMEBUFFER (priv->offscreen), user_data);
     }
   else if (priv->shadow.framebuffer)
     {
-      if (is_shadowfb_double_buffered (view))
-        {
-          int i;
-
-          for (i = 0; i < G_N_ELEMENTS (priv->shadow.dma_buf.handles); i++)
-            {
-              CoglDmaBufHandle *handle = priv->shadow.dma_buf.handles[i];
-              CoglFramebuffer *framebuffer =
-                cogl_dma_buf_handle_get_framebuffer (handle);
-
-              callback (framebuffer, user_data);
-            }
-        }
-      else
-        {
-          callback (COGL_FRAMEBUFFER (priv->shadow.framebuffer), user_data);
-        }
+      callback (COGL_FRAMEBUFFER (priv->shadow.framebuffer), user_data);
     }
   else
     {
@@ -917,31 +757,35 @@ void
 clutter_stage_view_get_offscreen_transformation_matrix (ClutterStageView  *view,
                                                         graphene_matrix_t *matrix)
 {
-  ClutterStageViewClass *view_class = CLUTTER_STAGE_VIEW_GET_CLASS (view);
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
 
-  view_class->get_offscreen_transformation_matrix (view, matrix);
+  graphene_matrix_init_identity (matrix);
+
+  mtk_monitor_transform_transform_matrix (
+    mtk_monitor_transform_invert (priv->transform), matrix);
 }
 
 static void
 maybe_mark_full_redraw (ClutterStageView  *view,
-                        cairo_region_t   **region)
+                        MtkRegion        **region)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
 
-  if (cairo_region_num_rectangles (*region) == 1)
+  if (mtk_region_num_rectangles (*region) == 1)
     {
-      cairo_rectangle_int_t region_extents;
+      MtkRectangle region_extents;
 
-      cairo_region_get_extents (*region, &region_extents);
-      if (clutter_util_rectangle_equal (&priv->layout, &region_extents))
-        g_clear_pointer (region, cairo_region_destroy);
+      region_extents = mtk_region_get_extents (*region);
+      if (mtk_rectangle_equal (&priv->layout, &region_extents))
+        g_clear_pointer (region, mtk_region_unref);
     }
 }
 
 void
-clutter_stage_view_add_redraw_clip (ClutterStageView            *view,
-                                    const cairo_rectangle_int_t *clip)
+clutter_stage_view_add_redraw_clip (ClutterStageView   *view,
+                                    const MtkRectangle *clip)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
@@ -951,7 +795,7 @@ clutter_stage_view_add_redraw_clip (ClutterStageView            *view,
 
   if (!clip)
     {
-      g_clear_pointer (&priv->redraw_clip, cairo_region_destroy);
+      g_clear_pointer (&priv->redraw_clip, mtk_region_unref);
       priv->has_redraw_clip = TRUE;
       return;
     }
@@ -961,12 +805,12 @@ clutter_stage_view_add_redraw_clip (ClutterStageView            *view,
 
   if (!priv->redraw_clip)
     {
-      if (!clutter_util_rectangle_equal (&priv->layout, clip))
-        priv->redraw_clip = cairo_region_create_rectangle (clip);
+      if (!mtk_rectangle_equal (&priv->layout, clip))
+        priv->redraw_clip = mtk_region_create_rectangle (clip);
     }
   else
     {
-      cairo_region_union_rectangle (priv->redraw_clip, clip);
+      mtk_region_union_rectangle (priv->redraw_clip, clip);
       maybe_mark_full_redraw (view, &priv->redraw_clip);
     }
 
@@ -991,27 +835,7 @@ clutter_stage_view_has_full_redraw_clip (ClutterStageView *view)
   return priv->has_redraw_clip && !priv->redraw_clip;
 }
 
-const cairo_region_t *
-clutter_stage_view_peek_redraw_clip (ClutterStageView *view)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-
-  return priv->redraw_clip;
-}
-
-cairo_region_t *
-clutter_stage_view_take_redraw_clip (ClutterStageView *view)
-{
-  ClutterStageViewPrivate *priv =
-    clutter_stage_view_get_instance_private (view);
-
-  priv->has_redraw_clip = FALSE;
-
-  return g_steal_pointer (&priv->redraw_clip);
-}
-
-cairo_region_t *
+MtkRegion *
 clutter_stage_view_take_accumulated_redraw_clip (ClutterStageView *view)
 {
   ClutterStageViewPrivate *priv =
@@ -1035,7 +859,7 @@ clutter_stage_view_accumulate_redraw_clip (ClutterStageView *view)
 
   if (priv->redraw_clip && priv->accumulated_redraw_clip)
     {
-      cairo_region_union (priv->accumulated_redraw_clip, priv->redraw_clip);
+      mtk_region_union (priv->accumulated_redraw_clip, priv->redraw_clip);
       maybe_mark_full_redraw (view, &priv->accumulated_redraw_clip);
     }
   else if (priv->redraw_clip && !priv->has_accumulated_redraw_clip)
@@ -1044,19 +868,12 @@ clutter_stage_view_accumulate_redraw_clip (ClutterStageView *view)
     }
   else
     {
-      g_clear_pointer (&priv->accumulated_redraw_clip, cairo_region_destroy);
+      g_clear_pointer (&priv->accumulated_redraw_clip, mtk_region_unref);
     }
 
-  g_clear_pointer (&priv->redraw_clip, cairo_region_destroy);
+  g_clear_pointer (&priv->redraw_clip, mtk_region_unref);
   priv->has_accumulated_redraw_clip = TRUE;
   priv->has_redraw_clip = FALSE;
-}
-
-static void
-clutter_stage_default_get_offscreen_transformation_matrix (ClutterStageView  *view,
-                                                           graphene_matrix_t *matrix)
-{
-  graphene_matrix_init_identity (matrix);
 }
 
 void
@@ -1095,8 +912,21 @@ clutter_stage_view_schedule_update (ClutterStageView *view)
 {
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
+  ClutterStageViewClass *view_class = CLUTTER_STAGE_VIEW_GET_CLASS (view);
+
+  if (view_class->schedule_update)
+    view_class->schedule_update (view);
 
   clutter_frame_clock_schedule_update (priv->frame_clock);
+}
+
+void
+clutter_stage_view_schedule_update_now (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  clutter_frame_clock_schedule_update_now (priv->frame_clock);
 }
 
 float
@@ -1131,7 +961,7 @@ clutter_stage_view_has_shadowfb (ClutterStageView *view)
 
 static void
 handle_frame_clock_before_frame (ClutterFrameClock *frame_clock,
-                                 int64_t            frame_count,
+                                 ClutterFrame      *frame,
                                  gpointer           user_data)
 {
   ClutterStageView *view = user_data;
@@ -1173,17 +1003,17 @@ end_frame_timing_measurement (ClutterStageView *view)
         (now_us - priv->frame_timings.last_print_time_us) /
         (float) G_USEC_PER_SEC;
 
-      if (time_since_last_print_s >= 1.0)
+      if (time_since_last_print_s >= 1.0f)
         {
           float avg_fps, avg_draw_time_ms, worst_draw_time_ms;
 
           avg_fps = priv->frame_timings.frame_count / time_since_last_print_s;
 
           avg_draw_time_ms =
-            (priv->frame_timings.cumulative_draw_time_us / 1000.0) /
+            (priv->frame_timings.cumulative_draw_time_us / 1000.0f) /
             priv->frame_timings.frame_count;
 
-          worst_draw_time_ms = priv->frame_timings.worst_draw_time_us / 1000.0;
+          worst_draw_time_ms = priv->frame_timings.worst_draw_time_us / 1000.0f;
 
           g_print ("*** %s frame timings over %.01fs: "
                    "%.02f FPS, average: %.01fms, peak: %.01fms\n",
@@ -1207,7 +1037,7 @@ end_frame_timing_measurement (ClutterStageView *view)
 
 static ClutterFrameResult
 handle_frame_clock_frame (ClutterFrameClock *frame_clock,
-                          int64_t            frame_count,
+                          ClutterFrame      *frame,
                           gpointer           user_data)
 {
   ClutterStageView *view = user_data;
@@ -1215,66 +1045,81 @@ handle_frame_clock_frame (ClutterFrameClock *frame_clock,
     clutter_stage_view_get_instance_private (view);
   ClutterStage *stage = priv->stage;
   ClutterStageWindow *stage_window = _clutter_stage_get_window (stage);
-  g_autoptr (GSList) devices = NULL;
-  ClutterFrame frame;
+  ClutterContext *context = clutter_actor_get_context (CLUTTER_ACTOR (stage));
 
   if (CLUTTER_ACTOR_IN_DESTRUCTION (stage))
     return CLUTTER_FRAME_RESULT_IDLE;
 
-  if (!clutter_actor_is_realized (CLUTTER_ACTOR (stage)))
-    return CLUTTER_FRAME_RESULT_IDLE;
+  if (!clutter_actor_is_realized (CLUTTER_ACTOR (stage)) ||
+      !clutter_actor_is_mapped (CLUTTER_ACTOR (stage)))
+    {
+      clutter_stage_frame_discarded (stage, view, frame);
+      return CLUTTER_FRAME_RESULT_IDLE;
+    }
 
-  if (!clutter_actor_is_mapped (CLUTTER_ACTOR (stage)))
-    return CLUTTER_FRAME_RESULT_IDLE;
-
-  if (_clutter_context_get_show_fps ())
+  if (clutter_context_get_show_fps (context))
     begin_frame_timing_measurement (view);
 
   _clutter_run_repaint_functions (CLUTTER_REPAINT_FLAGS_PRE_PAINT);
-  clutter_stage_emit_before_update (stage, view);
+  clutter_stage_emit_before_update (stage, view, frame);
 
   clutter_stage_maybe_relayout (CLUTTER_ACTOR (stage));
-  clutter_stage_maybe_finish_queue_redraws (stage);
 
   clutter_stage_finish_layout (stage);
 
-  if (priv->needs_update_devices)
-    devices = clutter_stage_find_updated_devices (stage, view);
-
-  frame = CLUTTER_FRAME_INIT;
-
-  _clutter_stage_window_prepare_frame (stage_window, view, &frame);
-  clutter_stage_emit_prepare_frame (stage, view);
+  _clutter_stage_window_prepare_frame (stage_window, view, frame);
+  clutter_stage_emit_prepare_frame (stage, view, frame);
 
   if (clutter_stage_view_has_redraw_clip (view))
     {
-      clutter_stage_emit_before_paint (stage, view);
+      clutter_stage_emit_before_paint (stage, view, frame);
 
-      _clutter_stage_window_redraw_view (stage_window, view, &frame);
+      _clutter_stage_window_redraw_view (stage_window, view, frame);
 
       clutter_frame_clock_record_flip_time (frame_clock,
                                             g_get_monotonic_time ());
 
-      clutter_stage_emit_after_paint (stage, view);
+      clutter_stage_emit_after_paint (stage, view, frame);
 
-      if (_clutter_context_get_show_fps ())
+      if (clutter_context_get_show_fps (context))
         end_frame_timing_measurement (view);
     }
+  else
+    {
+      clutter_stage_emit_skipped_paint (stage, view, frame);
+    }
 
-  _clutter_stage_window_finish_frame (stage_window, view, &frame);
+  _clutter_stage_window_finish_frame (stage_window, view, frame);
 
-  clutter_stage_update_devices (stage, devices);
-  priv->needs_update_devices = FALSE;
+  if (priv->needs_update_devices)
+    {
+      clutter_stage_update_devices_in_view (stage, view);
+      priv->needs_update_devices = FALSE;
+    }
 
   _clutter_run_repaint_functions (CLUTTER_REPAINT_FLAGS_POST_PAINT);
-  clutter_stage_emit_after_update (stage, view);
+  clutter_stage_after_update (stage, view, frame);
 
-  return clutter_frame_get_result (&frame);
+  return clutter_frame_get_result (frame);
+}
+
+static ClutterFrame *
+handle_frame_clock_new_frame (ClutterFrameClock *frame_clock,
+                              gpointer           user_data)
+{
+  ClutterStageView *view = CLUTTER_STAGE_VIEW (user_data);
+  ClutterStageViewClass *view_class = CLUTTER_STAGE_VIEW_GET_CLASS (view);
+
+  if (view_class->new_frame)
+    return view_class->new_frame (view);
+  else
+    return NULL;
 }
 
 static const ClutterFrameListenerIface frame_clock_listener_iface = {
   .before_frame = handle_frame_clock_before_frame,
   .frame = handle_frame_clock_frame,
+  .new_frame = handle_frame_clock_new_frame,
 };
 
 void
@@ -1329,6 +1174,30 @@ clutter_stage_view_set_framebuffer (ClutterStageView *view,
 }
 
 static void
+clutter_stage_view_set_transform (ClutterStageView    *view,
+                                  MtkMonitorTransform  transform)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  if (priv->transform == transform)
+    return;
+
+  priv->transform = transform;
+
+  clutter_stage_view_invalidate_offscreen (CLUTTER_STAGE_VIEW (view));
+}
+
+MtkMonitorTransform
+clutter_stage_view_get_transform (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  return priv->transform;
+}
+
+static void
 clutter_stage_view_get_property (GObject    *object,
                                  guint       prop_id,
                                  GValue     *value,
@@ -1352,11 +1221,14 @@ clutter_stage_view_get_property (GObject    *object,
     case PROP_FRAMEBUFFER:
       g_value_set_object (value, priv->framebuffer);
       break;
-    case PROP_OFFSCREEN:
-      g_value_set_object (value, priv->offscreen);
-      break;
     case PROP_USE_SHADOWFB:
       g_value_set_boolean (value, priv->use_shadowfb);
+      break;
+    case PROP_COLOR_STATE:
+      g_value_set_object (value, priv->color_state);
+      break;
+    case PROP_OUTPUT_COLOR_STATE:
+      g_value_set_object (value, priv->output_color_state);
       break;
     case PROP_SCALE:
       g_value_set_float (value, priv->scale);
@@ -1366,6 +1238,9 @@ clutter_stage_view_get_property (GObject    *object,
       break;
     case PROP_VBLANK_DURATION_US:
       g_value_set_int64 (value, priv->vblank_duration_us);
+      break;
+    case PROP_TRANSFORM:
+      g_value_set_uint (value, priv->transform);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1381,8 +1256,7 @@ clutter_stage_view_set_property (GObject      *object,
   ClutterStageView *view = CLUTTER_STAGE_VIEW (object);
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
-  cairo_rectangle_int_t *layout;
-
+  MtkRectangle *layout;
   switch (prop_id)
     {
     case PROP_NAME:
@@ -1398,11 +1272,15 @@ clutter_stage_view_set_property (GObject      *object,
     case PROP_FRAMEBUFFER:
       clutter_stage_view_set_framebuffer (view, g_value_get_object (value));
       break;
-    case PROP_OFFSCREEN:
-      priv->offscreen = g_value_dup_object (value);
-      break;
     case PROP_USE_SHADOWFB:
       priv->use_shadowfb = g_value_get_boolean (value);
+      break;
+    case PROP_COLOR_STATE:
+      set_color_state (view, &priv->color_state, g_value_get_object (value));
+      break;
+    case PROP_OUTPUT_COLOR_STATE:
+      set_color_state (view,
+                       &priv->output_color_state, g_value_get_object (value));
       break;
     case PROP_SCALE:
       priv->scale = g_value_get_float (value);
@@ -1412,6 +1290,9 @@ clutter_stage_view_set_property (GObject      *object,
       break;
     case PROP_VBLANK_DURATION_US:
       priv->vblank_duration_us = g_value_get_int64 (value);
+      break;
+    case PROP_TRANSFORM:
+      clutter_stage_view_set_transform (view, g_value_get_uint (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1430,8 +1311,11 @@ clutter_stage_view_constructed (GObject *object)
 
   priv->frame_clock = clutter_frame_clock_new (priv->refresh_rate,
                                                priv->vblank_duration_us,
+                                               priv->name,
                                                &frame_clock_listener_iface,
                                                view);
+
+  clutter_stage_view_ensure_color_states (view);
 
   clutter_stage_view_add_redraw_clip (view, NULL);
   clutter_stage_view_schedule_update (view);
@@ -1445,24 +1329,21 @@ clutter_stage_view_dispose (GObject *object)
   ClutterStageView *view = CLUTTER_STAGE_VIEW (object);
   ClutterStageViewPrivate *priv =
     clutter_stage_view_get_instance_private (view);
-  int i;
+
+  g_signal_emit (view, stage_view_signals[DESTROY], 0);
 
   g_clear_pointer (&priv->name, g_free);
 
   g_clear_object (&priv->shadow.framebuffer);
-  for (i = 0; i < G_N_ELEMENTS (priv->shadow.dma_buf.handles); i++)
-    {
-      g_clear_pointer (&priv->shadow.dma_buf.handles[i],
-                       cogl_dma_buf_handle_free);
-    }
-  g_clear_pointer (&priv->shadow.dma_buf.damage_history,
-                   clutter_damage_history_free);
 
+  g_clear_object (&priv->color_state);
   g_clear_object (&priv->offscreen);
-  g_clear_pointer (&priv->offscreen_pipeline, cogl_object_unref);
-  g_clear_pointer (&priv->redraw_clip, cairo_region_destroy);
-  g_clear_pointer (&priv->accumulated_redraw_clip, cairo_region_destroy);
+  g_clear_object (&priv->offscreen_pipeline);
+  g_clear_object (&priv->output_color_state);
+  g_clear_pointer (&priv->redraw_clip, mtk_region_unref);
+  g_clear_pointer (&priv->accumulated_redraw_clip, mtk_region_unref);
   g_clear_pointer (&priv->frame_clock, clutter_frame_clock_destroy);
+  g_clear_handle_id (&priv->ensure_offscreen_idle_id, g_source_remove);
 
   G_OBJECT_CLASS (clutter_stage_view_parent_class)->dispose (object);
 }
@@ -1496,9 +1377,6 @@ clutter_stage_view_class_init (ClutterStageViewClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-  klass->get_offscreen_transformation_matrix =
-    clutter_stage_default_get_offscreen_transformation_matrix;
-
   object_class->get_property = clutter_stage_view_get_property;
   object_class->set_property = clutter_stage_view_set_property;
   object_class->constructed = clutter_stage_view_constructed;
@@ -1506,87 +1384,93 @@ clutter_stage_view_class_init (ClutterStageViewClass *klass)
   object_class->finalize = clutter_stage_view_finalize;
 
   obj_props[PROP_NAME] =
-    g_param_spec_string ("name",
-                         "Name",
-                         "Name of view",
+    g_param_spec_string ("name", NULL, NULL,
                          NULL,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_STAGE] =
-    g_param_spec_object ("stage",
-                         "The stage",
-                         "The ClutterStage",
+    g_param_spec_object ("stage", NULL, NULL,
                          CLUTTER_TYPE_STAGE,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_LAYOUT] =
-    g_param_spec_boxed ("layout",
-                        "View layout",
-                        "The view layout on the screen",
-                        CAIRO_GOBJECT_TYPE_RECTANGLE_INT,
+    g_param_spec_boxed ("layout", NULL, NULL,
+                        MTK_TYPE_RECTANGLE,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT |
                         G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_FRAMEBUFFER] =
-    g_param_spec_object ("framebuffer",
-                         "View framebuffer",
-                         "The front buffer of the view",
+    g_param_spec_object ("framebuffer", NULL, NULL,
                          COGL_TYPE_FRAMEBUFFER,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT |
                          G_PARAM_STATIC_STRINGS);
 
-  obj_props[PROP_OFFSCREEN] =
-    g_param_spec_object ("offscreen",
-                         "Offscreen buffer",
-                         "Framebuffer used as intermediate buffer",
-                         COGL_TYPE_OFFSCREEN,
-                         G_PARAM_READWRITE |
-                         G_PARAM_CONSTRUCT_ONLY |
-                         G_PARAM_STATIC_STRINGS);
-
   obj_props[PROP_USE_SHADOWFB] =
-    g_param_spec_boolean ("use-shadowfb",
-                          "Use shadowfb",
-                          "Whether to use one or more shadow framebuffers",
+    g_param_spec_boolean ("use-shadowfb", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE |
                           G_PARAM_CONSTRUCT_ONLY |
                           G_PARAM_STATIC_STRINGS);
 
+  obj_props[PROP_COLOR_STATE] =
+    g_param_spec_object ("color-state", NULL, NULL,
+                         CLUTTER_TYPE_COLOR_STATE,
+                         G_PARAM_READWRITE |
+                         G_PARAM_CONSTRUCT |
+                         G_PARAM_STATIC_STRINGS);
+
+  obj_props[PROP_OUTPUT_COLOR_STATE] =
+    g_param_spec_object ("output-color-state", NULL, NULL,
+                         CLUTTER_TYPE_COLOR_STATE,
+                         G_PARAM_READWRITE |
+                         G_PARAM_CONSTRUCT |
+                         G_PARAM_STATIC_STRINGS);
+
   obj_props[PROP_SCALE] =
-    g_param_spec_float ("scale",
-                        "View scale",
-                        "The view scale",
+    g_param_spec_float ("scale", NULL, NULL,
                         0.5, G_MAXFLOAT, 1.0,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT |
                         G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_REFRESH_RATE] =
-    g_param_spec_float ("refresh-rate",
-                        "Refresh rate",
-                        "Update refresh rate",
+    g_param_spec_float ("refresh-rate", NULL, NULL,
                         1.0, G_MAXFLOAT, 60.0,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT |
                         G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_VBLANK_DURATION_US] =
-    g_param_spec_int64 ("vblank-duration-us",
-                        "Vblank duration (µs)",
-                        "The vblank duration",
+    g_param_spec_int64 ("vblank-duration-us", NULL, NULL,
                         0, G_MAXINT64, 0,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT_ONLY |
                         G_PARAM_STATIC_STRINGS);
 
+  obj_props[PROP_TRANSFORM] =
+    g_param_spec_uint ("transform", NULL, NULL,
+                       MTK_MONITOR_TRANSFORM_NORMAL,
+                       MTK_MONITOR_TRANSFORM_FLIPPED_270,
+                       MTK_MONITOR_TRANSFORM_NORMAL,
+                       G_PARAM_READWRITE |
+                       G_PARAM_CONSTRUCT_ONLY |
+                       G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (object_class, PROP_LAST, obj_props);
+
+  stage_view_signals[DESTROY] =
+    g_signal_new ("destroy",
+                  G_TYPE_FROM_CLASS (object_class),
+                  G_SIGNAL_RUN_LAST,
+                  0, NULL, NULL,
+                  g_cclosure_marshal_VOID__VOID,
+                  G_TYPE_NONE, 0);
 }
 
 void
@@ -1596,4 +1480,49 @@ clutter_stage_view_invalidate_input_devices (ClutterStageView *view)
     clutter_stage_view_get_instance_private (view);
 
   priv->needs_update_devices = TRUE;
+}
+
+ClutterPaintFlag
+clutter_stage_view_get_default_paint_flags (ClutterStageView *view)
+{
+  ClutterStageViewClass *view_class =
+    CLUTTER_STAGE_VIEW_GET_CLASS (view);
+
+  if (view_class->get_default_paint_flags)
+    return view_class->get_default_paint_flags (view);
+  else
+    return CLUTTER_PAINT_FLAG_NONE;
+}
+
+/**
+ * clutter_stage_view_get_color_state: (skip)
+ */
+ClutterColorState *
+clutter_stage_view_get_color_state (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  return priv->color_state;
+}
+
+/**
+ * clutter_stage_view_get_output_color_state: (skip)
+ */
+ClutterColorState *
+clutter_stage_view_get_output_color_state (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  return priv->output_color_state;
+}
+
+const char *
+clutter_stage_view_get_name (ClutterStageView *view)
+{
+  ClutterStageViewPrivate *priv =
+    clutter_stage_view_get_instance_private (view);
+
+  return priv->name;
 }

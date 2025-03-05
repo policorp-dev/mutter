@@ -14,13 +14,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_MONITOR_H
-#define META_MONITOR_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -41,6 +38,7 @@ typedef struct _MetaMonitorModeSpec
   int width;
   int height;
   float refresh_rate;
+  MetaCrtcRefreshRateMode refresh_rate_mode;
   MetaCrtcModeFlag flags;
 } MetaMonitorModeSpec;
 
@@ -73,14 +71,14 @@ struct _MetaMonitorClass
   GObjectClass parent_class;
 
   MetaOutput * (* get_main_output) (MetaMonitor *monitor);
-  void (* derive_layout) (MetaMonitor   *monitor,
-                          MetaRectangle *layout);
-  void (* calculate_crtc_pos) (MetaMonitor          *monitor,
-                               MetaMonitorMode      *monitor_mode,
-                               MetaOutput           *output,
-                               MetaMonitorTransform  crtc_transform,
-                               int                  *out_x,
-                               int                  *out_y);
+  void (* derive_layout) (MetaMonitor  *monitor,
+                          MtkRectangle *layout);
+  void (* calculate_crtc_pos) (MetaMonitor         *monitor,
+                               MetaMonitorMode     *monitor_mode,
+                               MetaOutput          *output,
+                               MtkMonitorTransform  crtc_transform,
+                               int                 *out_x,
+                               int                 *out_y);
   gboolean (* get_suggested_position) (MetaMonitor *monitor,
                                        int         *width,
                                        int         *height);
@@ -112,6 +110,7 @@ gboolean meta_monitor_is_active (MetaMonitor *monitor);
 META_EXPORT_TEST
 MetaOutput * meta_monitor_get_main_output (MetaMonitor *monitor);
 
+META_EXPORT_TEST
 gboolean meta_monitor_is_primary (MetaMonitor *monitor);
 
 gboolean meta_monitor_supports_underscanning (MetaMonitor *monitor);
@@ -123,6 +122,9 @@ gboolean meta_monitor_is_underscanning (MetaMonitor *monitor);
 gboolean meta_monitor_get_max_bpc (MetaMonitor  *monitor,
                                    unsigned int *max_bpc);
 
+MetaOutputRGBRange meta_monitor_get_rgb_range (MetaMonitor *monitor);
+
+META_EXPORT_TEST
 gboolean meta_monitor_is_laptop_panel (MetaMonitor *monitor);
 
 gboolean meta_monitor_is_virtual (MetaMonitor *monitor);
@@ -137,15 +139,15 @@ void meta_monitor_get_current_resolution (MetaMonitor *monitor,
                                           int           *width,
                                           int           *height);
 
-void meta_monitor_derive_layout (MetaMonitor   *monitor,
-                                 MetaRectangle *layout);
+void meta_monitor_derive_layout (MetaMonitor  *monitor,
+                                 MtkRectangle *layout);
 
 META_EXPORT_TEST
 void meta_monitor_get_physical_dimensions (MetaMonitor *monitor,
                                            int         *width_mm,
                                            int         *height_mm);
 
-CoglSubpixelOrder meta_monitor_get_subpixel_order (MetaMonitor *monitor);
+MetaSubpixelOrder meta_monitor_get_subpixel_order (MetaMonitor *monitor);
 
 META_EXPORT_TEST
 const char * meta_monitor_get_connector (MetaMonitor *monitor);
@@ -170,15 +172,15 @@ MetaConnectorType meta_monitor_get_connector_type (MetaMonitor *monitor);
 
 /* This function returns the transform corrected for the panel orientation */
 META_EXPORT_TEST
-MetaMonitorTransform meta_monitor_logical_to_crtc_transform (MetaMonitor          *monitor,
-                                                             MetaMonitorTransform  transform);
+MtkMonitorTransform meta_monitor_logical_to_crtc_transform (MetaMonitor         *monitor,
+                                                            MtkMonitorTransform  transform);
 /*
  * This function converts a transform corrected for the panel orientation
  * to its logical (user-visible) transform.
  */
 META_EXPORT_TEST
-MetaMonitorTransform meta_monitor_crtc_to_logical_transform (MetaMonitor          *monitor,
-                                                             MetaMonitorTransform  transform);
+MtkMonitorTransform meta_monitor_crtc_to_logical_transform (MetaMonitor         *monitor,
+                                                            MtkMonitorTransform  transform);
 
 META_EXPORT_TEST
 uint32_t meta_monitor_tiled_get_tile_group_id (MetaMonitorTiled *monitor_tiled);
@@ -220,17 +222,22 @@ META_EXPORT_TEST
 GList * meta_monitor_get_modes (MetaMonitor *monitor);
 
 META_EXPORT_TEST
-void meta_monitor_calculate_crtc_pos (MetaMonitor          *monitor,
-                                      MetaMonitorMode      *monitor_mode,
-                                      MetaOutput           *output,
-                                      MetaMonitorTransform  crtc_transform,
-                                      int                  *out_x,
-                                      int                  *out_y);
+void meta_monitor_calculate_crtc_pos (MetaMonitor         *monitor,
+                                      MetaMonitorMode     *monitor_mode,
+                                      MetaOutput          *output,
+                                      MtkMonitorTransform  crtc_transform,
+                                      int                 *out_x,
+                                      int                 *out_y);
 
 META_EXPORT_TEST
 float meta_monitor_calculate_mode_scale (MetaMonitor                 *monitor,
                                          MetaMonitorMode             *monitor_mode,
                                          MetaMonitorScalesConstraint  constraints);
+
+float meta_get_closest_monitor_scale_factor_for_resolution (float width,
+                                                            float height,
+                                                            float scale,
+                                                            float threshold);
 
 META_EXPORT_TEST
 float * meta_monitor_calculate_supported_scales (MetaMonitor                 *monitor,
@@ -253,6 +260,9 @@ META_EXPORT_TEST
 float meta_monitor_mode_get_refresh_rate (MetaMonitorMode *monitor_mode);
 
 META_EXPORT_TEST
+MetaCrtcRefreshRateMode meta_monitor_mode_get_refresh_rate_mode (MetaMonitorMode *monitor_mode);
+
+META_EXPORT_TEST
 MetaCrtcModeFlag meta_monitor_mode_get_flags (MetaMonitorMode *monitor_mode);
 
 META_EXPORT_TEST
@@ -269,21 +279,17 @@ gboolean meta_monitor_mode_foreach_output (MetaMonitor          *monitor,
                                            gpointer              user_data,
                                            GError              **error);
 
-MetaMonitorCrtcMode * meta_monitor_get_crtc_mode_for_output (MetaMonitor     *monitor,
-                                                             MetaMonitorMode *mode,
-                                                             MetaOutput      *output);
-
 META_EXPORT_TEST
 gboolean meta_monitor_mode_should_be_advertised (MetaMonitorMode *monitor_mode);
 
 META_EXPORT_TEST
-MetaMonitorSpec * meta_monitor_spec_clone (MetaMonitorSpec *monitor_id);
+MetaMonitorSpec * meta_monitor_spec_clone (const MetaMonitorSpec *monitor_id);
 
 guint meta_monitor_spec_hash (gconstpointer key);
 
 META_EXPORT_TEST
-gboolean meta_monitor_spec_equals (MetaMonitorSpec *monitor_id,
-                                   MetaMonitorSpec *other_monitor_id);
+gboolean meta_monitor_spec_equals (const MetaMonitorSpec *monitor_id,
+                                   const MetaMonitorSpec *other_monitor_id);
 
 META_EXPORT_TEST
 int meta_monitor_spec_compare (MetaMonitorSpec *monitor_spec_a,
@@ -303,10 +309,43 @@ gboolean meta_monitor_set_privacy_screen_enabled (MetaMonitor  *monitor,
                                                   gboolean      enabled,
                                                   GError      **error);
 
+gboolean meta_monitor_get_min_refresh_rate (MetaMonitor *monitor,
+                                            int         *min_refresh_rate);
+
 META_EXPORT_TEST
 size_t meta_monitor_get_gamma_lut_size (MetaMonitor *monitor);
 
 void meta_monitor_set_gamma_lut (MetaMonitor        *monitor,
                                  const MetaGammaLut *lut);
 
-#endif /* META_MONITOR_H */
+MetaColorMode meta_monitor_get_color_mode (MetaMonitor *monitor);
+
+META_EXPORT_TEST
+GList * meta_monitor_get_supported_color_modes (MetaMonitor *monitor);
+
+META_EXPORT_TEST
+gboolean meta_parse_monitor_mode (const char *string,
+                                  int        *out_width,
+                                  int        *out_height,
+                                  float      *out_refresh_rate,
+                                  float       fallback_refresh_rate);
+
+META_EXPORT_TEST
+gboolean meta_monitor_get_backlight_info (MetaMonitor *monitor,
+                                          int         *backlight_min,
+                                          int         *backlight_max);
+
+void meta_monitor_set_backlight (MetaMonitor *monitor,
+                                 int          value);
+
+META_EXPORT_TEST
+gboolean meta_monitor_get_backlight (MetaMonitor *monitor,
+                                     int         *value);
+
+void meta_monitor_set_for_lease (MetaMonitor *monitor,
+                                 gboolean     for_lease);
+
+META_EXPORT_TEST
+gboolean meta_monitor_is_for_lease (MetaMonitor *monitor);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaMonitorSpec, meta_monitor_spec_free)

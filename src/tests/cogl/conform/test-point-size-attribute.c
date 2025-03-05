@@ -33,7 +33,7 @@ calc_coord_offset (int pos, int pos_index, int point_size)
 }
 
 static void
-verify_point_size (CoglFramebuffer *test_fb,
+verify_point_size (CoglFramebuffer *framebuffer,
                    int x_pos,
                    int y_pos,
                    int point_size)
@@ -46,7 +46,7 @@ verify_point_size (CoglFramebuffer *test_fb,
         gboolean in_point = x >= 1 && x <= 2 && y >= 1 && y <= 2;
         uint32_t expected_pixel = in_point ? 0x00ff00ff : 0xff0000ff;
 
-        test_utils_check_pixel (test_fb,
+        test_utils_check_pixel (framebuffer,
                                 calc_coord_offset (x_pos, x, point_size),
                                 calc_coord_offset (y_pos, y, point_size),
                                 expected_pixel);
@@ -92,7 +92,7 @@ create_primitive (const char *attribute_name)
                                              2 /* n_attributes */);
 
   for (i = 0; i < 2; i++)
-    cogl_object_unref (attributes[i]);
+    g_object_unref (attributes[i]);
 
   return prim;
 }
@@ -105,6 +105,7 @@ do_test (const char *attribute_name,
   int fb_height = cogl_framebuffer_get_height (test_fb);
   CoglPrimitive *primitive;
   CoglPipeline *pipeline;
+  CoglColor color;
   int i;
 
   cogl_framebuffer_orthographic (test_fb,
@@ -119,13 +120,14 @@ do_test (const char *attribute_name,
 
   primitive = create_primitive (attribute_name);
   pipeline = cogl_pipeline_new (test_ctx);
-  cogl_pipeline_set_color4ub (pipeline, 0x00, 0xff, 0x00, 0xff);
+  cogl_color_init_from_4f (&color, 0.0, 1.0, 0.0, 1.0);
+  cogl_pipeline_set_color (pipeline, &color);
   cogl_pipeline_set_per_vertex_point_size (pipeline, TRUE, NULL);
   if (pipeline_setup_func)
     pipeline_setup_func (pipeline);
   cogl_primitive_draw (primitive, test_fb, pipeline);
-  cogl_object_unref (pipeline);
-  cogl_object_unref (primitive);
+  g_object_unref (pipeline);
+  g_object_unref (primitive);
 
   /* Verify all of the points where drawn at the right size */
   for (i = 0; i < N_POINTS; i++)
@@ -157,7 +159,7 @@ setup_snippet (CoglPipeline *pipeline)
                             "cogl_point_size_out = "
                             "my_super_duper_point_size_attrib;\n");
   cogl_pipeline_add_snippet (pipeline, snippet);
-  cogl_object_unref (snippet);
+  g_object_unref (snippet);
 }
 
 static void

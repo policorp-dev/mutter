@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_STAGE_PRIVATE_H
-#define META_STAGE_PRIVATE_H
+#pragma once
 
 #include "backends/meta-cursor.h"
 #include "core/util-private.h"
@@ -37,12 +34,15 @@ typedef enum
   META_STAGE_WATCH_AFTER_ACTOR_PAINT,
   META_STAGE_WATCH_AFTER_OVERLAY_PAINT,
   META_STAGE_WATCH_AFTER_PAINT,
+  META_STAGE_WATCH_SKIPPED_PAINT,
 } MetaStageWatchPhase;
+#define META_N_WATCH_MODES (META_STAGE_WATCH_SKIPPED_PAINT + 1)
 
-typedef void (* MetaStageWatchFunc) (MetaStage           *stage,
-                                     ClutterStageView    *view,
-                                     ClutterPaintContext *paint_context,
-                                     gpointer             user_data);
+typedef void (* MetaStageWatchFunc) (MetaStage        *stage,
+                                     ClutterStageView *view,
+                                     const MtkRegion  *redraw_clip,
+                                     ClutterFrame     *frame,
+                                     gpointer          user_data);
 
 ClutterActor     *meta_stage_new                     (MetaBackend *backend);
 
@@ -50,19 +50,14 @@ MetaOverlay      *meta_stage_create_cursor_overlay   (MetaStage   *stage);
 void              meta_stage_remove_cursor_overlay   (MetaStage   *stage,
 						      MetaOverlay *overlay);
 
-void              meta_stage_update_cursor_overlay   (MetaStage            *stage,
-                                                      MetaOverlay          *overlay,
-                                                      CoglTexture          *texture,
-                                                      graphene_rect_t      *rect,
-                                                      MetaMonitorTransform  buffer_transform);
+void              meta_stage_update_cursor_overlay   (MetaStage               *stage,
+                                                      MetaOverlay             *overlay,
+                                                      CoglTexture             *texture,
+                                                      const graphene_matrix_t *matrix,
+                                                      const graphene_rect_t   *dst_rect);
 
 void meta_overlay_set_visible (MetaOverlay *overlay,
                                gboolean     is_visible);
-
-gboolean meta_overlay_is_visible (MetaOverlay *overlay);
-
-void meta_stage_set_active (MetaStage *stage,
-                            gboolean   is_active);
 
 META_EXPORT_TEST
 MetaStageWatch * meta_stage_watch_view (MetaStage           *stage,
@@ -76,5 +71,3 @@ void meta_stage_remove_watch (MetaStage      *stage,
                               MetaStageWatch *watch);
 
 G_END_DECLS
-
-#endif /* META_STAGE_PRIVATE_H */

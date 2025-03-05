@@ -12,17 +12,15 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_OUTPUT_NATIVE_H
-#define META_OUTPUT_NATIVE_H
+#pragma once
 
 #include "backends/meta-output.h"
 
 #define META_TYPE_OUTPUT_NATIVE (meta_output_native_get_type ())
+META_EXPORT_TEST
 G_DECLARE_DERIVABLE_TYPE (MetaOutputNative, meta_output_native,
                           META, OUTPUT_NATIVE,
                           MetaOutput)
@@ -35,5 +33,3 @@ struct _MetaOutputNativeClass
 };
 
 GBytes * meta_output_native_read_edid (MetaOutputNative *output_native);
-
-#endif /* META_OUTPUT_NATIVE_H */

@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
@@ -46,20 +44,13 @@ struct _MetaStageNative
   int64_t presented_frame_counter_complete;
 };
 
-static ClutterStageWindowInterface *clutter_stage_window_parent_iface = NULL;
-
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface);
-
-G_DEFINE_TYPE_WITH_CODE (MetaStageNative, meta_stage_native,
-                         META_TYPE_STAGE_IMPL,
-                         G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_STAGE_WINDOW,
-                                                clutter_stage_window_iface_init))
+G_DEFINE_FINAL_TYPE (MetaStageNative, meta_stage_native, META_TYPE_STAGE_IMPL)
 
 void
 meta_stage_native_rebuild_views (MetaStageNative *stage_native)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_native);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
   ClutterActor *stage = meta_backend_get_stage (backend);
 
@@ -74,10 +65,11 @@ meta_stage_native_can_clip_redraws (ClutterStageWindow *stage_window)
 }
 
 static void
-meta_stage_native_get_geometry (ClutterStageWindow    *stage_window,
-                                cairo_rectangle_int_t *geometry)
+meta_stage_native_get_geometry (ClutterStageWindow *stage_window,
+                                MtkRectangle       *geometry)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
 
@@ -86,14 +78,14 @@ meta_stage_native_get_geometry (ClutterStageWindow    *stage_window,
       int width, height;
 
       meta_monitor_manager_get_screen_size (monitor_manager, &width, &height);
-      *geometry = (cairo_rectangle_int_t) {
+      *geometry = (MtkRectangle) {
         .width = width,
         .height = height,
       };
     }
   else
     {
-      *geometry = (cairo_rectangle_int_t) {
+      *geometry = (MtkRectangle) {
         .width = 1,
         .height = 1,
       };
@@ -103,7 +95,8 @@ meta_stage_native_get_geometry (ClutterStageWindow    *stage_window,
 static GList *
 meta_stage_native_get_views (ClutterStageWindow *stage_window)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
   return meta_renderer_get_views (renderer);
@@ -114,7 +107,8 @@ meta_stage_native_prepare_frame (ClutterStageWindow *stage_window,
                                  ClutterStageView   *stage_view,
                                  ClutterFrame       *frame)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
   MetaRendererNative *renderer_native = META_RENDERER_NATIVE (renderer);
   MetaCursorRenderer *cursor_renderer =
@@ -126,7 +120,8 @@ meta_stage_native_prepare_frame (ClutterStageWindow *stage_window,
                                       META_RENDERER_VIEW (stage_view),
                                       frame);
   meta_cursor_renderer_native_prepare_frame (cursor_renderer_native,
-                                             META_RENDERER_VIEW (stage_view));
+                                             META_RENDERER_VIEW (stage_view),
+                                             frame);
 }
 
 static void
@@ -134,14 +129,22 @@ meta_stage_native_redraw_view (ClutterStageWindow *stage_window,
                                ClutterStageView   *view,
                                ClutterFrame       *frame)
 {
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
+  MetaRenderer *renderer = meta_backend_get_renderer (backend);
   MetaCrtc *crtc;
 
-  clutter_stage_window_parent_iface->redraw_view (stage_window, view, frame);
+  meta_renderer_native_before_redraw (META_RENDERER_NATIVE (renderer),
+                                      META_RENDERER_VIEW (view), frame);
+
+  CLUTTER_STAGE_WINDOW_CLASS (meta_stage_native_parent_class)->
+      redraw_view (stage_window, view, frame);
 
   crtc = meta_renderer_view_get_crtc (META_RENDERER_VIEW (view));
-  if (META_IS_CRTC_VIRTUAL (crtc))
+
+  if (!clutter_frame_has_result (frame))
     {
-      g_warn_if_fail (!clutter_frame_has_result (frame));
+      g_warn_if_fail (!META_IS_CRTC_KMS (crtc));
 
       clutter_frame_set_result (frame, CLUTTER_FRAME_RESULT_PENDING_PRESENTED);
     }
@@ -152,7 +155,8 @@ meta_stage_native_finish_frame (ClutterStageWindow *stage_window,
                                 ClutterStageView   *stage_view,
                                 ClutterFrame       *frame)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
   meta_renderer_native_finish_frame (META_RENDERER_NATIVE (renderer),
@@ -173,19 +177,15 @@ meta_stage_native_init (MetaStageNative *stage_native)
 static void
 meta_stage_native_class_init (MetaStageNativeClass *klass)
 {
+  ClutterStageWindowClass *window_class = CLUTTER_STAGE_WINDOW_CLASS (klass);
+
   quark_view_frame_closure =
     g_quark_from_static_string ("-meta-native-stage-view-frame-closure");
-}
 
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface)
-{
-  clutter_stage_window_parent_iface = g_type_interface_peek_parent (iface);
-
-  iface->can_clip_redraws = meta_stage_native_can_clip_redraws;
-  iface->get_geometry = meta_stage_native_get_geometry;
-  iface->get_views = meta_stage_native_get_views;
-  iface->prepare_frame = meta_stage_native_prepare_frame;
-  iface->redraw_view = meta_stage_native_redraw_view;
-  iface->finish_frame = meta_stage_native_finish_frame;
+  window_class->can_clip_redraws = meta_stage_native_can_clip_redraws;
+  window_class->get_geometry = meta_stage_native_get_geometry;
+  window_class->get_views = meta_stage_native_get_views;
+  window_class->prepare_frame = meta_stage_native_prepare_frame;
+  window_class->redraw_view = meta_stage_native_redraw_view;
+  window_class->finish_frame = meta_stage_native_finish_frame;
 }

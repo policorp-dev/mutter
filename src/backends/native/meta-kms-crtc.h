@@ -12,19 +12,17 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_CRTC_H
-#define META_KMS_CRTC_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
 #include <xf86drmMode.h>
 
 #include "backends/native/meta-kms-types.h"
+#include "backends/meta-backend-types.h"
 #include "core/util-private.h"
 #include "meta/boxes.h"
 
@@ -32,27 +30,21 @@ typedef struct _MetaKmsCrtcState
 {
   gboolean is_active;
 
-  MetaRectangle rect;
+  MtkRectangle rect;
   gboolean is_drm_mode_valid;
   drmModeModeInfo drm_mode;
 
   struct {
-    uint16_t *red;
-    uint16_t *green;
-    uint16_t *blue;
+    gboolean enabled;
+    gboolean supported;
+  } vrr;
 
+  struct {
+    MetaGammaLut *value;
     int size;
+    gboolean supported;
   } gamma;
 } MetaKmsCrtcState;
-
-typedef struct _MetaKmsCrtcGamma
-{
-  MetaKmsCrtc *crtc;
-  int size;
-  uint16_t *red;
-  uint16_t *green;
-  uint16_t *blue;
-} MetaKmsCrtcGamma;
 
 #define META_TYPE_KMS_CRTC (meta_kms_crtc_get_type ())
 META_EXPORT_TEST
@@ -71,17 +63,12 @@ uint32_t meta_kms_crtc_get_id (MetaKmsCrtc *crtc);
 
 int meta_kms_crtc_get_idx (MetaKmsCrtc *crtc);
 
-gboolean meta_kms_crtc_has_gamma (MetaKmsCrtc *crtc);
-
 META_EXPORT_TEST
 gboolean meta_kms_crtc_is_active (MetaKmsCrtc *crtc);
 
-void meta_kms_crtc_gamma_free (MetaKmsCrtcGamma *gamma);
+gboolean meta_kms_crtc_is_leased (MetaKmsCrtc *crtc);
 
-MetaKmsCrtcGamma * meta_kms_crtc_gamma_new (MetaKmsCrtc    *crtc,
-                                            int             size,
-                                            const uint16_t *red,
-                                            const uint16_t *green,
-                                            const uint16_t *blue);
+void meta_kms_crtc_update_shortterm_max_dispatch_duration (MetaKmsCrtc *crtc,
+                                                           int64_t      duration_us);
 
-#endif /* META_KMS_CRTC_H */
+int64_t meta_kms_crtc_get_deadline_evasion (MetaKmsCrtc *crtc);

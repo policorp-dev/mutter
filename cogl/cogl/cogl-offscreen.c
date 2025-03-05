@@ -25,12 +25,12 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-context-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-offscreen-private.h"
-#include "cogl-texture-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-offscreen-private.h"
+#include "cogl/cogl-texture-private.h"
 
 struct _CoglOffscreen
 {
@@ -40,20 +40,20 @@ struct _CoglOffscreen
   int texture_level;
 };
 
-G_DEFINE_TYPE (CoglOffscreen, cogl_offscreen,
-               COGL_TYPE_FRAMEBUFFER)
+G_DEFINE_FINAL_TYPE (CoglOffscreen, cogl_offscreen,
+                     COGL_TYPE_FRAMEBUFFER)
 
 CoglOffscreen *
 _cogl_offscreen_new_with_texture_full (CoglTexture       *texture,
                                        CoglOffscreenFlags flags,
                                        int                level)
 {
-  CoglContext *ctx = texture->context;
+  CoglContext *ctx = cogl_texture_get_context (texture);
   CoglFramebufferDriverConfig driver_config;
   CoglOffscreen *offscreen;
   CoglFramebuffer *fb;
 
-  g_return_val_if_fail (cogl_is_texture (texture), NULL);
+  g_return_val_if_fail (COGL_IS_TEXTURE (texture), NULL);
 
   driver_config = (CoglFramebufferDriverConfig) {
     .type = COGL_FRAMEBUFFER_DRIVER_TYPE_FBO,
@@ -64,7 +64,7 @@ _cogl_offscreen_new_with_texture_full (CoglTexture       *texture,
                             "context", ctx,
                             "driver-config", &driver_config,
                             NULL);
-  offscreen->texture = cogl_object_ref (texture);
+  offscreen->texture = g_object_ref (texture);
   offscreen->texture_level = level;
 
   fb = COGL_FRAMEBUFFER (offscreen);
@@ -122,7 +122,7 @@ cogl_offscreen_allocate (CoglFramebuffer  *framebuffer,
   height = cogl_texture_get_height (offscreen->texture);
   cogl_framebuffer_update_size (framebuffer, width, height);
 
-  texture_format = _cogl_texture_get_format (offscreen->texture);
+  texture_format = cogl_texture_get_format (offscreen->texture);
   _cogl_framebuffer_set_internal_format (framebuffer, texture_format);
 
   return TRUE;
@@ -141,7 +141,7 @@ cogl_offscreen_dispose (GObject *object)
 
   G_OBJECT_CLASS (cogl_offscreen_parent_class)->dispose (object);
 
-  cogl_clear_object (&offscreen->texture);
+  g_clear_object (&offscreen->texture);
 }
 
 static void

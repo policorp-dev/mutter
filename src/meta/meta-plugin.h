@@ -19,17 +19,15 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_PLUGIN_H_
-#define META_PLUGIN_H_
+#pragma once
 
-#include <X11/extensions/Xfixes.h>
 #include <gmodule.h>
 
 #include "clutter/clutter.h"
-#include "meta/compositor-mutter.h"
 #include "meta/compositor.h"
 #include "meta/meta-close-dialog.h"
 #include "meta/meta-inhibit-shortcuts-dialog.h"
+#include "meta/meta-window-actor.h"
 #include "meta/types.h"
 
 #define META_TYPE_PLUGIN (meta_plugin_get_type ())
@@ -37,7 +35,8 @@
 META_EXPORT
 G_DECLARE_DERIVABLE_TYPE (MetaPlugin, meta_plugin, META, PLUGIN, GObject)
 
-typedef struct _MetaPluginInfo    MetaPluginInfo;
+/* Allows us to keep the xevent_filter vfunc even when building Mutter without X11 */
+typedef union _XEvent XEvent;
 
 /**
  * MetaPluginClass:
@@ -55,8 +54,6 @@ typedef struct _MetaPluginInfo    MetaPluginInfo;
  * effect needs to be killed prematurely
  * @xevent_filter: virtual function called when handling each event
  * @keybinding_filter: virtual function called when handling each keybinding
- * @plugin_info: virtual function that returns information about the
- * #MetaPlugin
  */
 struct _MetaPluginClass
 {
@@ -96,8 +93,8 @@ struct _MetaPluginClass
   void (*size_change)      (MetaPlugin         *plugin,
                             MetaWindowActor    *actor,
                             MetaSizeChange      which_change,
-                            MetaRectangle      *old_frame_rect,
-                            MetaRectangle      *old_buffer_rect);
+                            MtkRectangle       *old_frame_rect,
+                            MtkRectangle       *old_buffer_rect);
 
   /**
    * MetaPluginClass::map:
@@ -132,7 +129,7 @@ struct _MetaPluginClass
 
   void (*show_tile_preview) (MetaPlugin      *plugin,
                              MetaWindow      *window,
-                             MetaRectangle   *tile_rect,
+                             MtkRectangle    *tile_rect,
                              int              tile_monitor_number);
   void (*hide_tile_preview) (MetaPlugin      *plugin);
 
@@ -143,9 +140,9 @@ struct _MetaPluginClass
                              int                 y);
 
   void (*show_window_menu_for_rect)  (MetaPlugin         *plugin,
-		                      MetaWindow         *window,
-				      MetaWindowMenuType  menu,
-				      MetaRectangle      *rect);
+		                                  MetaWindow         *window,
+				                              MetaWindowMenuType  menu,
+				                              MtkRectangle       *rect);
 
   /**
    * MetaPluginClass::kill_window_effects:
@@ -207,22 +204,14 @@ struct _MetaPluginClass
   void (*confirm_display_change) (MetaPlugin *plugin);
 
   /**
-   * MetaPluginClass::plugin_info:
-   * @plugin: a #MetaPlugin
-   *
-   * Virtual function that returns information about the #MetaPlugin.
-   *
-   * Returns: a #MetaPluginInfo.
-   */
-  const MetaPluginInfo * (*plugin_info) (MetaPlugin *plugin);
-
-  /**
    * MetaPluginClass::create_close_dialog:
    * @plugin: a #MetaPlugin
    * @window: a #MetaWindow
    *
    * Virtual function called to create a "force quit" dialog
    * on non-responsive clients.
+   *
+   * Returns: (transfer full) (nullable): a #MetaCloseDialog
    */
   MetaCloseDialog * (* create_close_dialog) (MetaPlugin *plugin,
                                              MetaWindow *window);
@@ -234,6 +223,8 @@ struct _MetaPluginClass
    *
    * Virtual function called to create a "inhibit shortcuts" dialog
    * when a client requests compositor shortcuts to be inhibited.
+   *
+   * Returns: (transfer full): a #MetaInhibitShortcutsDialog
    */
   MetaInhibitShortcutsDialog * (* create_inhibit_shortcuts_dialog) (MetaPlugin *plugin,
                                                                     MetaWindow *window);
@@ -248,26 +239,6 @@ struct _MetaPluginClass
    */
   void (*locate_pointer) (MetaPlugin      *plugin);
 };
-
-/**
- * MetaPluginInfo:
- * @name: name of the plugin
- * @version: version of the plugin
- * @author: author of the plugin
- * @license: license of the plugin
- * @description: description of the plugin
- */
-struct _MetaPluginInfo
-{
-  const gchar *name;
-  const gchar *version;
-  const gchar *author;
-  const gchar *license;
-  const gchar *description;
-};
-
-META_EXPORT
-const MetaPluginInfo * meta_plugin_get_info (MetaPlugin *plugin);
 
 /*
  * Convenience macro to set up the plugin type. Based on GEdit.
@@ -340,5 +311,3 @@ void _meta_plugin_set_compositor (MetaPlugin *plugin, MetaCompositor *compositor
 /* XXX: Putting this in here so it's in the public header. */
 META_EXPORT
 void     meta_plugin_manager_set_plugin_type (GType gtype);
-
-#endif /* META_PLUGIN_H_ */

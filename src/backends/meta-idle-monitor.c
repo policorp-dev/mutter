@@ -21,16 +21,14 @@
  */
 
 /**
- * SECTION:idle-monitor
- * @title: MetaIdleMonitor
- * @short_description: Mutter idle counter (similar to X's IDLETIME)
+ * MetaIdleMonitor:
+ *
+ * Mutter idle counter (similar to X's IDLETIME)
  */
 
 #include "config.h"
 
 #include <string.h>
-#include <X11/Xlib.h>
-#include <X11/extensions/sync.h>
 
 #include "backends/gsm-inhibitor-flag.h"
 #include "backends/meta-backend-private.h"
@@ -152,9 +150,7 @@ meta_idle_monitor_class_init (MetaIdleMonitorClass *klass)
    * The device to listen to idletime on.
    */
   obj_props[PROP_DEVICE] =
-    g_param_spec_object ("device",
-                         "Device",
-                         "The device to listen to idletime on",
+    g_param_spec_object ("device", NULL, NULL,
                          CLUTTER_TYPE_INPUT_DEVICE,
                          G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
 

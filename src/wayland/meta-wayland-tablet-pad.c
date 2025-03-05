@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -39,6 +37,16 @@
 #include "wayland/meta-wayland-tablet.h"
 
 #include "tablet-unstable-v2-server-protocol.h"
+
+static MetaDisplay *
+display_from_pad (MetaWaylandTabletPad *pad)
+{
+  MetaWaylandCompositor *compositor =
+    meta_wayland_seat_get_compositor (pad->tablet_seat->seat);
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+
+  return meta_context_get_display (context);
+}
 
 static void
 unbind_resource (struct wl_resource *resource)
@@ -202,7 +210,7 @@ tablet_pad_set_feedback (struct wl_client   *client,
   if (!group || group->mode_switch_serial != serial)
     return;
 
-  mapper = meta_get_display ()->pad_action_mapper;
+  mapper = display_from_pad (pad)->pad_action_mapper;
 
   if (meta_pad_action_mapper_is_button_grabbed (mapper, pad->device, button))
     return;
@@ -294,13 +302,16 @@ handle_pad_button_event (MetaWaylandTabletPad *pad,
   enum zwp_tablet_pad_v2_button_state button_state;
   struct wl_list *focus_resources = &pad->focus_resource_list;
   struct wl_resource *resource;
+  ClutterEventType event_type;
 
   if (wl_list_empty (focus_resources))
     return FALSE;
 
-  if (event->type == CLUTTER_PAD_BUTTON_PRESS)
+  event_type = clutter_event_type (event);
+
+  if (event_type == CLUTTER_PAD_BUTTON_PRESS)
     button_state = ZWP_TABLET_PAD_V2_BUTTON_STATE_PRESSED;
-  else if (event->type == CLUTTER_PAD_BUTTON_RELEASE)
+  else if (event_type == CLUTTER_PAD_BUTTON_RELEASE)
     button_state = ZWP_TABLET_PAD_V2_BUTTON_STATE_RELEASED;
   else
     return FALSE;
@@ -309,7 +320,8 @@ handle_pad_button_event (MetaWaylandTabletPad *pad,
     {
       zwp_tablet_pad_v2_send_button (resource,
                                      clutter_event_get_time (event),
-                                     event->pad_button.button, button_state);
+                                     clutter_event_get_button (event),
+                                     button_state);
     }
 
   return TRUE;
@@ -323,10 +335,10 @@ meta_wayland_tablet_pad_handle_event_action (MetaWaylandTabletPad *pad,
   ClutterInputDevice *device;
 
   device = clutter_event_get_source_device (event);
-  mapper = meta_get_display ()->pad_action_mapper;
+  mapper = display_from_pad (pad)->pad_action_mapper;
 
   if (meta_pad_action_mapper_is_button_grabbed (mapper, device,
-                                                event->pad_button.button))
+                                                clutter_event_get_button (event)))
     return TRUE;
 
   return FALSE;
@@ -466,7 +478,7 @@ meta_wayland_tablet_pad_set_focus (MetaWaylandTabletPad *pad,
   tablet = meta_wayland_tablet_seat_lookup_paired_tablet (pad->tablet_seat,
                                                           pad);
 
-  if (tablet != NULL && surface != NULL)
+  if (tablet != NULL && surface != NULL && surface->resource != NULL)
     {
       struct wl_client *client;
 
@@ -523,24 +535,31 @@ meta_wayland_tablet_pad_label_mode_switch_button (MetaWaylandTabletPad *pad,
   return NULL;
 }
 
-gchar *
-meta_wayland_tablet_pad_get_label (MetaWaylandTabletPad *pad,
-				   MetaPadActionType     type,
-				   guint                 action)
+char *
+meta_wayland_tablet_pad_get_button_label (MetaWaylandTabletPad *pad,
+                                          int                   button)
 {
-  const gchar *label = NULL;
-  gchar *mode_label;
+  const char *label = NULL;
+  char *mode_label;
 
-  switch (type)
+  mode_label = meta_wayland_tablet_pad_label_mode_switch_button (pad, button);
+  if (mode_label)
+    return mode_label;
+
+  label = g_hash_table_lookup (pad->feedback, GUINT_TO_POINTER (button));
+  return g_strdup (label);
+}
+
+char *
+meta_wayland_tablet_pad_get_feature_label (MetaWaylandTabletPad *pad,
+                                           MetaPadFeatureType    feature,
+                                           int                   action)
+{
+  const char *label = NULL;
+
+  switch (feature)
     {
-    case META_PAD_ACTION_BUTTON:
-      mode_label = meta_wayland_tablet_pad_label_mode_switch_button (pad, action);
-      if (mode_label)
-        return mode_label;
-
-      label = g_hash_table_lookup (pad->feedback, GUINT_TO_POINTER (action));
-      break;
-    case META_PAD_ACTION_RING:
+    case META_PAD_FEATURE_RING:
       {
         MetaWaylandTabletPadRing *ring;
 
@@ -549,7 +568,7 @@ meta_wayland_tablet_pad_get_label (MetaWaylandTabletPad *pad,
           label = ring->feedback;
         break;
       }
-    case META_PAD_ACTION_STRIP:
+    case META_PAD_FEATURE_STRIP:
       {
         MetaWaylandTabletPadStrip *strip;
 

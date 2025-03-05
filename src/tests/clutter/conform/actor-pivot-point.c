@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CLUTTER_DISABLE_DEPRECATION_WARNINGS
 #include <clutter/clutter.h>
 
 #include "tests/clutter-test-utils.h"
@@ -41,7 +40,7 @@ actor_pivot (void)
   clutter_actor_get_transform (actor_implicit, &result_implicit);
   clutter_actor_get_transform (actor_explicit, &result_explicit);
 
-  g_assert (graphene_matrix_equal (&result_implicit, &result_explicit));
+  g_assert_true (graphene_matrix_equal (&result_implicit, &result_explicit));
 
   clutter_actor_destroy (actor_implicit);
   clutter_actor_destroy (actor_explicit);

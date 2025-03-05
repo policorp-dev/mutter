@@ -18,12 +18,12 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_STACK_H
-#define META_STACK_H
+#pragma once
 
 /**
- * SECTION:stack
- * @short_description: Which windows cover which other windows
+ * stack:
+ *
+ * Which windows cover which other windows
  *
  * There are two factors that determine window position.
  *
@@ -134,27 +134,22 @@ void       meta_stack_remove (MetaStack  *stack,
 /**
  * meta_stack_update_layer:
  * @stack: The stack to recalculate
- * @window: Dummy parameter
  *
  * Recalculates the correct layer for all windows in the stack,
  * and moves them about accordingly.
  *
  */
-void       meta_stack_update_layer (MetaStack  *stack,
-                                    MetaWindow *window);
+void       meta_stack_update_layer (MetaStack *stack);
 
 /**
  * meta_stack_update_transient:
  * @stack: The stack to recalculate
- * @window: Dummy parameter
  *
  * Recalculates the correct stacking order for all windows in the stack
  * according to their transience, and moves them about accordingly.
  *
- * FIXME: What's with the dummy parameter?
  */
-void       meta_stack_update_transient (MetaStack  *stack,
-                                        MetaWindow *window);
+void       meta_stack_update_transient (MetaStack *stack);
 
 /**
  * meta_stack_raise:
@@ -211,16 +206,6 @@ void        meta_stack_thaw (MetaStack *stack);
 MetaWindow * meta_stack_get_top (MetaStack  *stack);
 
 /**
- * meta_stack_get_bottom:
- * @stack: The stack to search
- *
- * Finds the window at the bottom of the stack.  Since that's pretty much
- * always the desktop, this isn't the most useful of functions, and nobody
- * actually calls it.  We should probably get rid of it.
- */
-MetaWindow * meta_stack_get_bottom (MetaStack  *stack);
-
-/**
  * meta_stack_get_above:
  * @stack: The stack to search.
  * @window: The window to look above.
@@ -273,29 +258,6 @@ GList * meta_stack_list_windows (MetaStack     *stack,
                                  MetaWorkspace *workspace);
 
 /**
- * meta_stack_windows_cmp:
- * @stack: A stack containing both window_a and window_b
- * @window_a: A window
- * @window_b  Another window
- *
- * Comparison function for windows within a stack.  This is not directly
- * suitable for use within a standard comparison routine, because it takes
- * an extra parameter; you will need to wrap it.
- *
- * (FIXME: We could remove the stack parameter and use the stack of
- * the screen of window A, and complain if the stack of the screen of
- * window B differed; then this would be a usable general comparison function.)
- *
- * (FIXME: Apparently identical to compare_window_position(). Merge them.)
- *
- * \return -1 if window_a is below window_b, honouring layers; 1 if it's
- *         above it; 0 if you passed in the same window twice!
- */
-int meta_stack_windows_cmp (MetaStack  *stack,
-                            MetaWindow *window_a,
-                            MetaWindow *window_b);
-
-/**
  * meta_window_set_stack_position:
  * @window: The window which is moving.
  * @position:  Where it should move to (0 is the bottom).
@@ -309,33 +271,7 @@ int meta_stack_windows_cmp (MetaStack  *stack,
 void meta_window_set_stack_position (MetaWindow *window,
                                      int         position);
 
-/**
- * meta_stack_get_positions:
- * @stack: The stack to examine.
- *
- * Returns the current stack state, allowing rudimentary transactions.
- *
- * Returns: (transfer container) (element-type Meta.Window):
- *          An opaque #GList representing the current stack sort order;
- *          it is the caller's responsibility to free it.
- *          Pass this to meta_stack_set_positions() later if you want to restore
- *          the state to where it was when you called this function.
- */
-GList * meta_stack_get_positions (MetaStack *stack);
-
-/**
- * meta_stack_set_positions:
- * @stack:  The stack to roll back.
- * @windows:  The list returned from meta_stack_get_positions().
- *
- * Rolls back a transaction, given the list returned from
- * meta_stack_get_positions().
- *
- */
-void meta_stack_set_positions (MetaStack *stack,
-                               GList     *windows);
-
 void meta_stack_update_window_tile_matches (MetaStack     *stack,
                                             MetaWorkspace *workspace);
 
-#endif
+void meta_stack_ensure_sorted (MetaStack *stack);

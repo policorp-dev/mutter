@@ -25,7 +25,7 @@
 #include "tests/meta-ref-test.h"
 #include "wayland/meta-wayland-actor-surface.h"
 #include "wayland/meta-wayland-private.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
 
 #include "test-driver-server-protocol.h"
 
@@ -41,6 +41,8 @@ static int signals[N_SIGNALS];
 struct _MetaWaylandTestDriver
 {
   GObject parent;
+
+  MetaWaylandCompositor *compositor;
 
   struct wl_global *test_driver;
 
@@ -103,6 +105,7 @@ on_effects_completed (ClutterActor       *actor,
 static void
 check_for_pending_effects (ClutterStage       *stage,
                            ClutterStageView   *view,
+                           ClutterFrame       *frame,
                            PendingEffectsData *data)
 {
   MetaWindow *window;
@@ -135,7 +138,10 @@ sync_effects_completed (struct wl_client   *client,
                         uint32_t            id,
                         struct wl_resource *surface_resource)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaWaylandTestDriver *test_driver = wl_resource_get_user_data (resource);
+  MetaContext *context =
+    meta_wayland_compositor_get_context (test_driver->compositor);
+  MetaBackend *backend = meta_context_get_backend (context);
   ClutterActor *stage = meta_backend_get_stage (backend);
   MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
   PendingEffectsData *data;
@@ -148,12 +154,47 @@ sync_effects_completed (struct wl_client   *client,
   data->callback = wl_resource_create (client, &wl_callback_interface, 1, id);
 
   stage_views = clutter_stage_peek_stage_views (CLUTTER_STAGE (stage));
-  g_assert (g_list_length (stage_views) > 0);
+  g_assert_cmpint (g_list_length (stage_views), >, 0);
 
   g_signal_connect (CLUTTER_STAGE (stage), "after-update",
                     G_CALLBACK (check_for_pending_effects), data);
 
   clutter_stage_schedule_update (CLUTTER_STAGE (stage));
+}
+
+static void
+on_window_shown (MetaWindow         *window,
+                 struct wl_resource *callback)
+{
+  g_signal_handlers_disconnect_by_data (window, callback);
+  wl_callback_send_done (callback, 0);
+}
+
+static void
+sync_window_shown (struct wl_client   *client,
+                   struct wl_resource *resource,
+                   uint32_t            id,
+                   struct wl_resource *surface_resource)
+{
+  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
+  MetaWindow *window = meta_wayland_surface_get_window (surface);
+  struct wl_resource *callback;
+
+  g_assert_nonnull (surface);
+  g_assert_nonnull (window);
+
+  callback = wl_resource_create (client, &wl_callback_interface, 1, id);
+
+  if (meta_window_is_hidden (window))
+    {
+      g_signal_connect (meta_wayland_surface_get_window (surface),
+                        "shown", G_CALLBACK (on_window_shown),
+                        callback);
+    }
+  else
+    {
+      wl_callback_send_done (callback, 0);
+    }
 }
 
 static void
@@ -173,6 +214,7 @@ sync_point (struct wl_client   *client,
 static void
 on_after_paint (ClutterStage       *stage,
                 ClutterStageView   *view,
+                ClutterFrame       *frame,
                 struct wl_resource *callback)
 {
   g_signal_handlers_disconnect_by_data (stage, callback);
@@ -186,13 +228,16 @@ verify_view (struct wl_client   *client,
              uint32_t            id,
              uint32_t            sequence)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaWaylandTestDriver *test_driver = wl_resource_get_user_data (resource);
+  MetaContext *context =
+    meta_wayland_compositor_get_context (test_driver->compositor);
+  MetaBackend *backend = meta_context_get_backend (context);
   ClutterActor *stage = meta_backend_get_stage (backend);
   GList *stage_views;
   struct wl_resource *callback;
 
   stage_views = clutter_stage_peek_stage_views (CLUTTER_STAGE (stage));
-  g_assert (g_list_length (stage_views) > 0);
+  g_assert_cmpint (g_list_length (stage_views), >, 0);
 
   callback = wl_resource_create (client, &wl_callback_interface, 1, id);
   g_signal_connect_after (CLUTTER_STAGE (stage), "after-paint",
@@ -204,11 +249,52 @@ verify_view (struct wl_client   *client,
                              meta_ref_test_determine_ref_test_flag ());
 }
 
+static void
+move_to (struct wl_client   *client,
+         struct wl_resource *resource,
+         struct wl_resource *surface_resource,
+         int32_t             x,
+         int32_t             y)
+{
+  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
+  MetaWindow *window = meta_wayland_surface_get_window (surface);
+
+  meta_window_move_frame (window, TRUE, x, y);
+}
+
+static void
+tile (struct wl_client   *client,
+      struct wl_resource *resource,
+      struct wl_resource *surface_resource,
+      uint32_t            direction_value)
+{
+  enum test_driver_direction direction = direction_value;
+  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
+  MetaWindow *window = meta_wayland_surface_get_window (surface);
+
+  switch (direction)
+    {
+    case TEST_DRIVER_DIRECTION_LEFT:
+      meta_window_tile (window, META_TILE_LEFT);
+      break;
+    case TEST_DRIVER_DIRECTION_RIGHT:
+      meta_window_tile (window, META_TILE_RIGHT);
+      break;
+    default:
+      wl_client_post_implementation_error (client,
+                                           "Invalid direction");
+      break;
+    }
+}
+
 static const struct test_driver_interface meta_test_driver_interface = {
   sync_actor_destroy,
   sync_effects_completed,
+  sync_window_shown,
   sync_point,
   verify_view,
+  move_to,
+  tile,
 };
 
 static void
@@ -243,7 +329,29 @@ bind_test_driver (struct wl_client *client,
 
   g_hash_table_iter_init (&iter, test_driver->properties);
   while (g_hash_table_iter_next (&iter, &key, &value))
-    test_driver_send_property (resource, key, value);
+    {
+      GVariant *variant = value;
+
+      if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+        {
+          test_driver_send_property (resource,
+                                     key,
+                                     g_variant_get_string (variant, NULL));
+        }
+      else if (g_variant_is_of_type (value, G_VARIANT_TYPE_INT32))
+        {
+          test_driver_send_property_int (resource,
+                                         key,
+                                         g_variant_get_int32 (variant));
+        }
+      else
+        {
+          g_autofree char *variant_string = NULL;
+
+          variant_string = g_variant_print (variant, TRUE);
+          g_warning ("Unhandled test driver variant '%s'", variant_string);
+        }
+    }
 }
 
 static void
@@ -289,7 +397,8 @@ static void
 meta_wayland_test_driver_init (MetaWaylandTestDriver *test_driver)
 {
   test_driver->properties = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                                   g_free, g_free);
+                                                   g_free,
+                                                   (GDestroyNotify) g_variant_unref);
 }
 
 MetaWaylandTestDriver *
@@ -298,6 +407,7 @@ meta_wayland_test_driver_new (MetaWaylandCompositor *compositor)
   MetaWaylandTestDriver *test_driver;
 
   test_driver = g_object_new (META_TYPE_WAYLAND_TEST_DRIVER, NULL);
+  test_driver->compositor = compositor;
   test_driver->test_driver = wl_global_create (compositor->wayland_display,
                                                &test_driver_interface,
                                                1,
@@ -329,7 +439,17 @@ meta_wayland_test_driver_set_property (MetaWaylandTestDriver *test_driver,
 {
   g_hash_table_replace (test_driver->properties,
                         g_strdup (name),
-                        g_strdup (value));
+                        g_variant_new_string (value));
+}
+
+void
+meta_wayland_test_driver_set_property_int (MetaWaylandTestDriver *test_driver,
+                                           const char            *name,
+                                           int32_t                value)
+{
+  g_hash_table_replace (test_driver->properties,
+                        g_strdup (name),
+                        g_variant_new_int32 (value));
 }
 
 static void

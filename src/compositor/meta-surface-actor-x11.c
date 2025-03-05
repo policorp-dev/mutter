@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Owen Taylor <otaylor@redhat.com>
@@ -34,7 +32,7 @@
 #include "compositor/meta-shaped-texture-private.h"
 #include "compositor/meta-window-actor-private.h"
 #include "core/window-private.h"
-#include "meta/meta-x11-errors.h"
+#include "mtk/mtk-x11.h"
 #include "x11/meta-x11-display-private.h"
 #include "x11/window-x11.h"
 
@@ -46,7 +44,7 @@ struct _MetaSurfaceActorX11
 
   MetaDisplay *display;
 
-  CoglTexture *texture;
+  MetaMultiTexture *texture;
   Pixmap pixmap;
   Damage damage;
 
@@ -79,10 +77,10 @@ free_damage (MetaSurfaceActorX11 *self)
 
   xdisplay = meta_x11_display_get_xdisplay (display->x11_display);
 
-  meta_x11_error_trap_push (display->x11_display);
+  mtk_x11_error_trap_push (xdisplay);
   XDamageDestroy (xdisplay, self->damage);
   self->damage = None;
-  meta_x11_error_trap_pop (display->x11_display);
+  mtk_x11_error_trap_pop (xdisplay);
 }
 
 static void
@@ -90,6 +88,10 @@ detach_pixmap (MetaSurfaceActorX11 *self)
 {
   MetaDisplay *display = self->display;
   MetaShapedTexture *stex = meta_surface_actor_get_texture (META_SURFACE_ACTOR (self));
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
   Display *xdisplay;
 
   if (self->pixmap == None)
@@ -102,40 +104,43 @@ detach_pixmap (MetaSurfaceActorX11 *self)
    * pixmap, but it certainly doesn't work with current DRI/Mesa
    */
   meta_shaped_texture_set_texture (stex, NULL);
-  cogl_flush ();
+  cogl_context_flush (cogl_context);
 
-  meta_x11_error_trap_push (display->x11_display);
+  mtk_x11_error_trap_push (xdisplay);
   XFreePixmap (xdisplay, self->pixmap);
   self->pixmap = None;
-  meta_x11_error_trap_pop (display->x11_display);
+  mtk_x11_error_trap_pop (xdisplay);
 
-  g_clear_pointer (&self->texture, cogl_object_unref);
+  g_clear_object (&self->texture);
 }
 
 static void
 set_pixmap (MetaSurfaceActorX11 *self,
             Pixmap               pixmap)
 {
-  CoglContext *ctx = clutter_backend_get_cogl_context (clutter_get_default_backend ());
+  ClutterContext *clutter_context =
+    clutter_actor_get_context (CLUTTER_ACTOR (self));
+  ClutterBackend *backend = clutter_context_get_backend (clutter_context);
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   MetaShapedTexture *stex = meta_surface_actor_get_texture (META_SURFACE_ACTOR (self));
   GError *error = NULL;
-  CoglTexture *texture;
+  CoglTexture *cogl_texture;
 
   g_assert (self->pixmap == None);
   self->pixmap = pixmap;
 
-  texture = COGL_TEXTURE (cogl_texture_pixmap_x11_new (ctx, self->pixmap, FALSE, &error));
+  cogl_texture = cogl_texture_pixmap_x11_new (ctx, self->pixmap, FALSE, &error);
 
   if (error != NULL)
     {
       g_warning ("Failed to allocate stex texture: %s", error->message);
       g_error_free (error);
     }
-  else if (G_UNLIKELY (!cogl_texture_pixmap_x11_is_using_tfp_extension (COGL_TEXTURE_PIXMAP_X11 (texture))))
+  else if (G_UNLIKELY (!cogl_texture_pixmap_x11_is_using_tfp_extension (COGL_TEXTURE_PIXMAP_X11 (cogl_texture))))
     g_warning ("NOTE: Not using GLX TFP!");
 
-  self->texture = texture;
-  meta_shaped_texture_set_texture (stex, texture);
+  self->texture = meta_multi_texture_new_simple (cogl_texture);
+  meta_shaped_texture_set_texture (stex, self->texture);
 }
 
 static void
@@ -155,10 +160,10 @@ update_pixmap (MetaSurfaceActorX11 *self)
       Pixmap new_pixmap;
       Window xwindow = meta_window_x11_get_toplevel_xwindow (self->window);
 
-      meta_x11_error_trap_push (display->x11_display);
+      mtk_x11_error_trap_push (xdisplay);
       new_pixmap = XCompositeNameWindowPixmap (xdisplay, xwindow);
 
-      if (meta_x11_error_trap_pop_with_return (display->x11_display) != Success)
+      if (mtk_x11_error_trap_pop_with_return (xdisplay) != Success)
         {
           /* Probably a BadMatch if the window isn't viewable; we could
            * GrabServer/GetWindowAttributes/NameWindowPixmap/UngrabServer/Sync
@@ -172,8 +177,9 @@ update_pixmap (MetaSurfaceActorX11 *self)
 
       if (new_pixmap == None)
         {
-          meta_verbose ("Unable to get named pixmap for %s",
-                        meta_window_get_description (self->window));
+          meta_topic (META_DEBUG_RENDER,
+                      "Unable to get named pixmap for %s",
+                      meta_window_get_description (self->window));
           return;
         }
 
@@ -188,25 +194,23 @@ meta_surface_actor_x11_is_visible (MetaSurfaceActorX11 *self)
 }
 
 static void
-meta_surface_actor_x11_process_damage (MetaSurfaceActor *actor,
-                                       int               x,
-                                       int               y,
-                                       int               width,
-                                       int               height)
+meta_surface_actor_x11_process_damage (MetaSurfaceActor   *actor,
+                                       const MtkRectangle *area)
 {
   MetaSurfaceActorX11 *self = META_SURFACE_ACTOR_X11 (actor);
+  CoglTexturePixmapX11 *pixmap;
 
   self->received_damage = TRUE;
 
   if (meta_window_is_fullscreen (self->window) && !self->unredirected && !self->does_full_damage)
     {
-      MetaRectangle window_rect;
+      MtkRectangle window_rect;
       meta_window_get_frame_rect (self->window, &window_rect);
 
-      if (x == 0 &&
-          y == 0 &&
-          window_rect.width == width &&
-          window_rect.height == height)
+      if (area->x == 0 &&
+          area->y == 0 &&
+          window_rect.width == area->width &&
+          window_rect.height == area->height)
         self->full_damage_frames_count++;
       else
         self->full_damage_frames_count = 0;
@@ -218,9 +222,13 @@ meta_surface_actor_x11_process_damage (MetaSurfaceActor *actor,
   if (!meta_surface_actor_x11_is_visible (self))
     return;
 
-  cogl_texture_pixmap_x11_update_area (COGL_TEXTURE_PIXMAP_X11 (self->texture),
-                                       x, y, width, height);
-  meta_surface_actor_update_area (actor, x, y, width, height);
+  /* We don't support multi-plane or YUV based formats in X */
+  if (!meta_multi_texture_is_simple (self->texture))
+    return;
+
+  pixmap = COGL_TEXTURE_PIXMAP_X11 (meta_multi_texture_get_plane (self->texture, 0));
+  cogl_texture_pixmap_x11_update_area (pixmap, area);
+  meta_surface_actor_update_area (actor, area);
 }
 
 void
@@ -231,9 +239,9 @@ meta_surface_actor_x11_handle_updates (MetaSurfaceActorX11 *self)
 
   if (self->received_damage)
     {
-      meta_x11_error_trap_push (display->x11_display);
+      mtk_x11_error_trap_push (xdisplay);
       XDamageSubtract (xdisplay, self->damage, None, None);
-      meta_x11_error_trap_pop (display->x11_display);
+      mtk_x11_error_trap_pop (xdisplay);
 
       self->received_damage = FALSE;
     }
@@ -273,7 +281,7 @@ sync_unredirected (MetaSurfaceActorX11 *self)
   Display *xdisplay = meta_x11_display_get_xdisplay (display->x11_display);
   Window xwindow = meta_window_x11_get_toplevel_xwindow (self->window);
 
-  meta_x11_error_trap_push (display->x11_display);
+  mtk_x11_error_trap_push (xdisplay);
 
   if (self->unredirected)
     {
@@ -288,7 +296,7 @@ sync_unredirected (MetaSurfaceActorX11 *self)
       clutter_actor_queue_redraw (CLUTTER_ACTOR (self));
     }
 
-  meta_x11_error_trap_pop (display->x11_display);
+  mtk_x11_error_trap_pop (xdisplay);
 }
 
 void
@@ -311,8 +319,12 @@ meta_surface_actor_x11_is_unredirected (MetaSurfaceActorX11 *self)
 static void
 release_x11_resources (MetaSurfaceActorX11 *self)
 {
+  MetaX11Display *x11_display = meta_display_get_x11_display (self->display);
+
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   detach_pixmap (self);
   free_damage (self);
+  mtk_x11_error_trap_pop (x11_display->xdisplay);
 }
 
 static void
@@ -347,10 +359,13 @@ meta_surface_actor_x11_init (MetaSurfaceActorX11 *self)
 static void
 create_damage (MetaSurfaceActorX11 *self)
 {
-  Display *xdisplay = meta_x11_display_get_xdisplay (self->display->x11_display);
+  MetaX11Display *x11_display = meta_display_get_x11_display (self->display);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   Window xwindow = meta_window_x11_get_toplevel_xwindow (self->window);
 
+  mtk_x11_error_trap_push (xdisplay);
   self->damage = XDamageCreate (xdisplay, xwindow, XDamageReportBoundingBox);
+  mtk_x11_error_trap_pop (xdisplay);
 }
 
 static void
@@ -405,6 +420,7 @@ meta_surface_actor_x11_new (MetaWindow *window)
   sync_unredirected (self);
 
   clutter_actor_set_reactive (CLUTTER_ACTOR (self), TRUE);
+  clutter_actor_set_accessible_name (CLUTTER_ACTOR (self), "X11 surface");
   return META_SURFACE_ACTOR (self);
 }
 

@@ -15,9 +15,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -31,7 +29,7 @@
  */
 #include <atk/atk.h>
 #include <clutter/clutter.h>
-#include <cally/cally.h>
+#include <clutter/clutter-pango.h>
 
 #include "cally-examples-util.h"
 
@@ -88,12 +86,13 @@ make_ui (ClutterActor *stage)
   ClutterActor    *editable      = NULL;
   ClutterActor    *rectangle     = NULL;
   ClutterActor    *label         = NULL;
-  ClutterColor     color_sel     = { 0x00, 0xff, 0x00, 0x55 };
-  ClutterColor     color_label   = { 0x00, 0xff, 0x55, 0xff };
-  ClutterColor     color_rect    = { 0x00, 0xff, 0xff, 0x55 };
+  CoglColor color_sel = { 0x00, 0xff, 0x00, 0x55 };
+  CoglColor color_label = { 0x00, 0xff, 0x55, 0xff };
+  CoglColor color_rect = { 0x00, 0xff, 0xff, 0x55 };
   float label_geom_y, editable_geom_y;
 
-  clutter_actor_set_background_color (CLUTTER_ACTOR (stage), CLUTTER_COLOR_White);
+  clutter_actor_set_background_color (CLUTTER_ACTOR (stage),
+                                      &COGL_COLOR_INIT (255, 255, 255, 255));
   clutter_actor_set_size (stage, WIDTH, HEIGHT);
 
   label_geom_y = 50;
@@ -110,7 +109,7 @@ make_ui (ClutterActor *stage)
       /* editable */
       editable = clutter_text_new_full ("Sans Bold 32px",
                                         "ddd",
-                                        CLUTTER_COLOR_Red);
+                                        &COGL_COLOR_INIT (255, 0, 0, 255));
       clutter_actor_set_position (editable, 150, editable_geom_y);
       clutter_actor_set_size (editable, 500, 75);
       clutter_text_set_editable (CLUTTER_TEXT (editable), TRUE);
@@ -126,9 +125,9 @@ make_ui (ClutterActor *stage)
       clutter_actor_set_position (rectangle, 150, editable_geom_y);
       clutter_actor_set_size (rectangle, 500, 75);
 
-      clutter_container_add_actor (CLUTTER_CONTAINER (stage), label);
-      clutter_container_add_actor (CLUTTER_CONTAINER (stage), editable);
-      clutter_container_add_actor (CLUTTER_CONTAINER (stage), rectangle);
+      clutter_actor_add_child (stage, label);
+      clutter_actor_add_child (stage, editable);
+      clutter_actor_add_child (stage, rectangle);
 
       label_geom_y += HEIGHT_STEP;
       editable_geom_y += HEIGHT_STEP;
@@ -172,14 +171,12 @@ main (int argc, char *argv[])
   atk_add_global_event_listener (window_event_listener, "Atk:AtkWindow:deactivate");
 
   stage_main = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage_main), "Cally - AtkEvents/1");
   g_signal_connect (stage_main, "destroy", G_CALLBACK (clutter_test_quit), NULL);
   make_ui (stage_main);
 
   clutter_actor_show (stage_main);
 
   stage = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Cally - AtkEvents/2");
   g_signal_connect (stage, "destroy", G_CALLBACK (clutter_test_quit), NULL);
 
   make_ui (stage);

@@ -22,14 +22,13 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_PAINT_NODE_PRIVATE_H__
-#define __CLUTTER_PAINT_NODE_PRIVATE_H__
+#pragma once
 
 #include <glib-object.h>
-#include <json-glib/json-glib.h>
-#include <clutter/clutter-backend.h>
-#include <clutter/clutter-paint-context.h>
-#include <clutter/clutter-paint-node.h>
+
+#include "clutter/clutter-backend.h"
+#include "clutter/clutter-paint-context.h"
+#include "clutter/clutter-paint-node.h"
 
 G_BEGIN_DECLS
 
@@ -71,9 +70,6 @@ struct _ClutterPaintNodeClass
                           ClutterPaintContext *paint_context);
   void     (* post_draw) (ClutterPaintNode    *node,
                           ClutterPaintContext *paint_context);
-
-  JsonNode*(* serialize) (ClutterPaintNode *node);
-
   CoglFramebuffer *(* get_framebuffer) (ClutterPaintNode *node);
 };
 
@@ -101,48 +97,15 @@ struct _ClutterPaintOperation
   } op;
 };
 
-GType _clutter_transform_node_get_type (void) G_GNUC_CONST;
 GType _clutter_dummy_node_get_type (void) G_GNUC_CONST;
-
-void                    _clutter_paint_operation_paint_rectangle        (const ClutterPaintOperation *op);
-void                    _clutter_paint_operation_clip_rectangle         (const ClutterPaintOperation *op);
-void                    _clutter_paint_operation_paint_path             (const ClutterPaintOperation *op);
-void                    _clutter_paint_operation_clip_path              (const ClutterPaintOperation *op);
-void                    _clutter_paint_operation_paint_primitive        (const ClutterPaintOperation *op);
 
 void                    clutter_paint_node_init_types                   (ClutterBackend *clutter_backend);
 gpointer                _clutter_paint_node_create                      (GType gtype);
 
-ClutterPaintNode *      _clutter_transform_node_new                     (const graphene_matrix_t     *matrix);
 ClutterPaintNode *      _clutter_dummy_node_new                         (ClutterActor                *actor,
                                                                          CoglFramebuffer             *framebuffer);
-
-void                    _clutter_paint_node_dump_tree                   (ClutterPaintNode            *root);
-
-G_GNUC_INTERNAL
-void                    clutter_paint_node_remove_child                 (ClutterPaintNode      *node,
-                                                                         ClutterPaintNode      *child);
-G_GNUC_INTERNAL
-void                    clutter_paint_node_replace_child                (ClutterPaintNode      *node,
-                                                                         ClutterPaintNode      *old_child,
-                                                                         ClutterPaintNode      *new_child);
-G_GNUC_INTERNAL
-void                    clutter_paint_node_remove_all                   (ClutterPaintNode      *node);
-
 G_GNUC_INTERNAL
 guint                   clutter_paint_node_get_n_children               (ClutterPaintNode      *node);
-
-G_GNUC_INTERNAL
-ClutterPaintNode *      clutter_paint_node_get_first_child              (ClutterPaintNode      *node);
-G_GNUC_INTERNAL
-ClutterPaintNode *      clutter_paint_node_get_previous_sibling         (ClutterPaintNode      *node);
-G_GNUC_INTERNAL
-ClutterPaintNode *      clutter_paint_node_get_next_sibling             (ClutterPaintNode      *node);
-G_GNUC_INTERNAL
-ClutterPaintNode *      clutter_paint_node_get_last_child               (ClutterPaintNode      *node);
-G_GNUC_INTERNAL
-ClutterPaintNode *      clutter_paint_node_get_parent                   (ClutterPaintNode      *node);
-
 
 #define CLUTTER_TYPE_EFFECT_NODE                (clutter_effect_node_get_type ())
 #define CLUTTER_EFFECT_NODE(obj)                (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_EFFECT_NODE, ClutterEffectNode))
@@ -164,5 +127,3 @@ CLUTTER_EXPORT
 ClutterPaintNode * clutter_effect_node_new (ClutterEffect *effect);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_PAINT_NODE_PRIVATE_H__ */

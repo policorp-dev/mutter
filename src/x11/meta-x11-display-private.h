@@ -22,8 +22,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_X11_DISPLAY_PRIVATE_H
-#define META_X11_DISPLAY_PRIVATE_H
+#pragma once
 
 #include <glib.h>
 #include <X11/Xlib.h>
@@ -36,10 +35,12 @@
 #include "meta/meta-x11-display.h"
 #include "meta-startup-notification-x11.h"
 #include "meta-x11-stack-private.h"
-#include "ui/ui.h"
+#include "x11/meta-sync-counter.h"
 
 typedef struct _MetaGroupPropHooks  MetaGroupPropHooks;
 typedef struct _MetaWindowPropHooks MetaWindowPropHooks;
+
+#define meta_XFree(p) do { if ((p)) XFree ((p)); } while (0)
 
 typedef gboolean (*MetaAlarmFilter) (MetaX11Display        *x11_display,
                                      XSyncAlarmNotifyEvent *event,
@@ -56,7 +57,6 @@ struct _MetaX11Display
   GObject parent;
 
   MetaDisplay *display;
-  GdkDisplay *gdk_display;
 
   char *name;
   char *screen_name;
@@ -109,6 +109,9 @@ struct _MetaX11Display
   Window composite_overlay_window;
 
   GHashTable *xids;
+  GHashTable *alarms;
+
+  GList *event_funcs;
 
   gboolean has_xinerama_indices;
 
@@ -128,7 +131,10 @@ struct _MetaX11Display
 
   GPtrArray *alarm_filters;
 
-  MetaUI *ui;
+  GSubprocess *frames_client;
+  GCancellable *frames_client_cancellable;
+
+  GSource *event_source;
 
   struct {
     Window xwindow;
@@ -148,14 +154,11 @@ struct _MetaX11Display
    */
   guint focused_by_us : 1;
 
+  guint is_server_focus : 1;
+
   guint keys_grabbed : 1;
 
   guint closing : 1;
-
-  /* we use property updates as sentinels for certain window focus events
-   * to avoid some race conditions on EnterNotify events
-   */
-  int sentinel_counter;
 
   int composite_event_base;
   int composite_error_base;
@@ -184,21 +187,14 @@ struct _MetaX11Display
   MetaX11StartupNotification *startup_notification;
   MetaX11Stack *x11_stack;
 
-  XserverRegion empty_region;
+  XserverRegion stage_input_region;
+
+  unsigned int reload_x11_cursor_later;
 };
 
 MetaX11Display *meta_x11_display_new (MetaDisplay *display, GError **error);
 
 void meta_x11_display_restore_active_workspace (MetaX11Display *x11_display);
-
-Window meta_x11_display_create_offscreen_window (MetaX11Display *x11_display,
-                                                 Window          parent,
-                                                 long            valuemask);
-
-Cursor meta_x11_display_create_x_cursor (MetaX11Display *x11_display,
-                                         MetaCursor      cursor);
-
-void meta_x11_display_reload_cursor (MetaX11Display *x11_display);
 
 MetaWindow *meta_x11_display_lookup_x_window     (MetaX11Display *x11_display,
                                                   Window          xwindow);
@@ -208,11 +204,13 @@ void        meta_x11_display_register_x_window   (MetaX11Display *x11_display,
 void        meta_x11_display_unregister_x_window (MetaX11Display *x11_display,
                                                   Window          xwindow);
 
-MetaWindow *meta_x11_display_lookup_sync_alarm     (MetaX11Display *x11_display,
-                                                    XSyncAlarm      alarm);
-void        meta_x11_display_register_sync_alarm   (MetaX11Display *x11_display,
-                                                    XSyncAlarm     *alarmp,
-                                                    MetaWindow     *window);
+MetaSyncCounter * meta_x11_display_lookup_sync_alarm (MetaX11Display *x11_display,
+                                                      XSyncAlarm      alarm);
+
+void        meta_x11_display_register_sync_alarm (MetaX11Display  *x11_display,
+                                                  XSyncAlarm      *alarmp,
+                                                  MetaSyncCounter *sync_counter);
+
 void        meta_x11_display_unregister_sync_alarm (MetaX11Display *x11_display,
                                                     XSyncAlarm      alarm);
 
@@ -227,14 +225,7 @@ void meta_x11_display_remove_alarm_filter (MetaX11Display     *x11_display,
 
 void meta_x11_display_create_guard_window (MetaX11Display *x11_display);
 
-/* make a request to ensure the event serial has changed */
-void meta_x11_display_increment_event_serial    (MetaX11Display *x11_display);
-
 guint32 meta_x11_display_get_current_time_roundtrip (MetaX11Display *x11_display);
-
-void meta_x11_display_set_input_focus_xwindow (MetaX11Display *x11_display,
-                                               Window          window,
-                                               guint32         timestamp);
 
 int meta_x11_display_logical_monitor_to_xinerama_index (MetaX11Display     *x11_display,
                                                         MetaLogicalMonitor *logical_monitor);
@@ -245,19 +236,19 @@ MetaLogicalMonitor *meta_x11_display_xinerama_index_to_logical_monitor (MetaX11D
 void meta_x11_display_update_workspace_layout (MetaX11Display *x11_display);
 void meta_x11_display_update_workspace_names  (MetaX11Display *x11_display);
 
-void meta_x11_display_increment_focus_sentinel (MetaX11Display *x11_display);
-void meta_x11_display_decrement_focus_sentinel (MetaX11Display *x11_display);
-gboolean meta_x11_display_focus_sentinel_clear (MetaX11Display *x11_display);
-
 void meta_x11_display_update_focus_window (MetaX11Display *x11_display,
                                            Window          xwindow,
                                            gulong          serial,
                                            gboolean        focused_by_us);
-void meta_x11_display_set_input_focus (MetaX11Display *x11_display,
-                                       MetaWindow     *window,
-                                       gboolean        focus_frame,
-                                       uint32_t        timestamp);
 
 MetaDisplay * meta_x11_display_get_display (MetaX11Display *x11_display);
 
-#endif /* META_X11_DISPLAY_PRIVATE_H */
+void meta_x11_display_run_event_funcs (MetaX11Display *x11_display,
+                                       XEvent         *xevent);
+
+int meta_x11_display_get_screen_number (MetaX11Display *x11_display);
+
+int meta_x11_display_get_damage_event_base (MetaX11Display *x11_display);
+
+gboolean meta_x11_display_xwindow_is_a_no_focus_window (MetaX11Display *x11_display,
+                                                        Window xwindow);

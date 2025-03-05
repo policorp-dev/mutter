@@ -15,8 +15,7 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_PAINT_CONTEXT_H
-#define CLUTTER_PAINT_CONTEXT_H
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
@@ -24,8 +23,8 @@
 
 #include <glib-object.h>
 
-#include "clutter-macros.h"
-#include "clutter-stage-view.h"
+#include "clutter/clutter-macros.h"
+#include "clutter/clutter-stage-view.h"
 
 typedef struct _ClutterPaintContext ClutterPaintContext;
 
@@ -43,9 +42,10 @@ CLUTTER_EXPORT
 GType clutter_paint_context_get_type (void);
 
 CLUTTER_EXPORT
-ClutterPaintContext * clutter_paint_context_new_for_framebuffer (CoglFramebuffer      *framebuffer,
-                                                                 const cairo_region_t *redraw_clip,
-                                                                 ClutterPaintFlag      paint_flags);
+ClutterPaintContext * clutter_paint_context_new_for_framebuffer (CoglFramebuffer   *framebuffer,
+                                                                 const MtkRegion   *redraw_clip,
+                                                                 ClutterPaintFlag   paint_flags,
+                                                                 ClutterColorState *color_state);
 
 CLUTTER_EXPORT
 ClutterPaintContext * clutter_paint_context_ref (ClutterPaintContext *paint_context);
@@ -70,9 +70,25 @@ CLUTTER_EXPORT
 void clutter_paint_context_pop_framebuffer (ClutterPaintContext *paint_context);
 
 CLUTTER_EXPORT
-const cairo_region_t * clutter_paint_context_get_redraw_clip (ClutterPaintContext *paint_context);
+const MtkRegion * clutter_paint_context_get_redraw_clip (ClutterPaintContext *paint_context);
 
 CLUTTER_EXPORT
 ClutterPaintFlag clutter_paint_context_get_paint_flags (ClutterPaintContext *paint_context);
 
-#endif /* CLUTTER_PAINT_CONTEXT_H */
+CLUTTER_EXPORT
+ClutterFrame * clutter_paint_context_get_frame (ClutterPaintContext *paint_context);
+
+CLUTTER_EXPORT
+void clutter_paint_context_push_color_state (ClutterPaintContext *paint_context,
+                                             ClutterColorState   *color_state);
+
+CLUTTER_EXPORT
+void clutter_paint_context_pop_color_state (ClutterPaintContext *paint_context);
+
+CLUTTER_EXPORT
+ClutterColorState * clutter_paint_context_get_target_color_state (ClutterPaintContext *paint_context);
+
+CLUTTER_EXPORT
+ClutterColorState * clutter_paint_context_get_color_state (ClutterPaintContext *paint_context);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterPaintContext, clutter_paint_context_unref)

@@ -15,16 +15,15 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_PAINT_CONTEXT_PRIVATE_H
-#define CLUTTER_PAINT_CONTEXT_PRIVATE_H
+#pragma once
 
-#include "clutter-paint-context.h"
+#include "clutter/clutter-paint-context.h"
 
 ClutterPaintContext *
-clutter_paint_context_new_for_view (ClutterStageView     *view,
-                                    const cairo_region_t *redraw_clip,
-                                    GArray               *clip_frusta,
-                                    ClutterPaintFlag      paint_flags);
+clutter_paint_context_new_for_view (ClutterStageView *view,
+                                    const MtkRegion  *redraw_clip,
+                                    GArray           *clip_frusta,
+                                    ClutterPaintFlag  paint_flags);
 
 gboolean clutter_paint_context_is_drawing_off_stage (ClutterPaintContext *paint_context);
 
@@ -33,4 +32,10 @@ CoglFramebuffer * clutter_paint_context_get_base_framebuffer (ClutterPaintContex
 const GArray *
 clutter_paint_context_get_clip_frusta (ClutterPaintContext *paint_context);
 
-#endif /* CLUTTER_PAINT_CONTEXT_PRIVATE_H */
+void clutter_paint_context_assign_frame (ClutterPaintContext *paint_context,
+                                         ClutterFrame        *frame);
+
+void clutter_paint_context_push_target_color_state (ClutterPaintContext *paint_context,
+                                                    ClutterColorState   *color_state);
+
+void clutter_paint_context_pop_target_color_state (ClutterPaintContext *paint_context);

@@ -22,15 +22,15 @@ corner_colors[SOURCE_DIVISIONS_X * SOURCE_DIVISIONS_Y] =
 
 typedef struct _TestState
 {
-  CoglTexture2D *tex;
+  CoglTexture *tex;
 } TestState;
 
-static CoglTexture2D *
+static CoglTexture *
 create_source (TestState *state)
 {
   int dx, dy;
   uint8_t *data = g_malloc (SOURCE_SIZE * SOURCE_SIZE * 4);
-  CoglTexture2D *tex;
+  CoglTexture *tex;
 
   /* Create a texture with a different coloured rectangle at each
      corner */
@@ -63,10 +63,10 @@ create_source (TestState *state)
   return tex;
 }
 
-static CoglTexture2D *
+static CoglTexture *
 create_test_texture (TestState *state)
 {
-  CoglTexture2D *tex;
+  CoglTexture *tex;
   uint8_t *data = g_malloc (256 * 256 * 4), *p = data;
   int x, y;
 
@@ -97,8 +97,7 @@ create_test_texture (TestState *state)
 static void
 paint (TestState *state)
 {
-  CoglTexture2D *full_texture;
-  CoglSubTexture *sub_texture, *sub_sub_texture;
+  CoglTexture *full_texture, *sub_texture, *sub_sub_texture;
   CoglPipeline *pipeline = cogl_pipeline_new (test_ctx);
 
   /* Create a sub texture of the bottom right quarter of the texture */
@@ -111,7 +110,7 @@ paint (TestState *state)
 
   /* Paint it */
   cogl_pipeline_set_layer_texture (pipeline, 0, sub_texture);
-  cogl_object_unref (sub_texture);
+  g_object_unref (sub_texture);
   cogl_framebuffer_draw_rectangle (test_fb, pipeline,
                                    0.0f, 0.0f, DIVISION_WIDTH, DIVISION_HEIGHT);
 
@@ -125,7 +124,7 @@ paint (TestState *state)
                                       SOURCE_SIZE,
                                       DIVISION_HEIGHT);
   cogl_pipeline_set_layer_texture (pipeline, 0, sub_texture);
-  cogl_object_unref (sub_texture);
+  g_object_unref (sub_texture);
   cogl_framebuffer_draw_textured_rectangle (test_fb, pipeline,
                                             0.0f,
                                             SOURCE_SIZE,
@@ -139,18 +138,18 @@ paint (TestState *state)
   sub_texture = cogl_sub_texture_new (test_ctx,
                                       full_texture,
                                       20, 10, 30, 20);
-  cogl_object_unref (full_texture);
+  g_object_unref (full_texture);
   sub_sub_texture = cogl_sub_texture_new (test_ctx,
                                           sub_texture,
                                           20, 10, 10, 10);
-  cogl_object_unref (sub_texture);
+  g_object_unref (sub_texture);
   cogl_pipeline_set_layer_texture (pipeline, 0, sub_sub_texture);
-  cogl_object_unref (sub_sub_texture);
+  g_object_unref (sub_sub_texture);
   cogl_framebuffer_draw_rectangle (test_fb, pipeline,
                                    0.0f, SOURCE_SIZE * 2.0f,
                                    10.0f, SOURCE_SIZE * 2.0f + 10.0f);
 
-  cogl_object_unref (pipeline);
+  g_object_unref (pipeline);
 }
 
 static void
@@ -192,8 +191,7 @@ static void
 validate_result (TestState *state)
 {
   int i, division_num, x, y;
-  CoglTexture2D *test_tex;
-  CoglSubTexture *sub_texture;
+  CoglTexture *test_tex, *sub_texture;
   uint8_t *texture_data, *p;
   int tex_width, tex_height;
 
@@ -213,7 +211,7 @@ validate_result (TestState *state)
 
   /* Sub sub texture */
   p = texture_data = g_malloc (10 * 10 * 4);
-  cogl_flush ();
+  cogl_context_flush (cogl_framebuffer_get_context (test_fb));
   cogl_framebuffer_read_pixels (test_fb,
                                 0, SOURCE_SIZE * 2, 10, 10,
                                 COGL_PIXEL_FORMAT_RGBA_8888,
@@ -221,8 +219,8 @@ validate_result (TestState *state)
   for (y = 0; y < 10; y++)
     for (x = 0; x < 10; x++)
       {
-        g_assert (*(p++) == x + 40);
-        g_assert (*(p++) == y + 20);
+        g_assert_true (*(p++) == x + 40);
+        g_assert_true (*(p++) == y + 20);
         p += 2;
       }
   g_free (texture_data);
@@ -250,11 +248,11 @@ validate_result (TestState *state)
                      DIVISION_HEIGHT);
         uint32_t reference = corner_colors[div_x + div_y * SOURCE_DIVISIONS_X] >> 8;
         uint32_t color = GUINT32_FROM_BE (*((uint32_t *)p)) >> 8;
-        g_assert (color == reference);
+        g_assert_true (color == reference);
         p += 4;
       }
   g_free (texture_data);
-  cogl_object_unref (sub_texture);
+  g_object_unref (sub_texture);
 
   /* Create a 256x256 test texture */
   test_tex = create_test_texture (state);
@@ -269,7 +267,7 @@ validate_result (TestState *state)
                            COGL_PIXEL_FORMAT_RGBA_8888_PRE, 256 * 4,
                            texture_data);
   g_free (texture_data);
-  cogl_object_unref (sub_texture);
+  g_object_unref (sub_texture);
   /* Get the texture data */
   p = texture_data = g_malloc (256 * 256 * 4);
   cogl_texture_get_data (test_tex,
@@ -283,21 +281,21 @@ validate_result (TestState *state)
         /* If we're in the center quarter */
         if (x >= 96 && x < 160 && y >= 96 && y < 160)
           {
-            g_assert ((*p++) == 0);
-            g_assert ((*p++) == 0);
-            g_assert ((*p++) == x - 96);
-            g_assert ((*p++) == y - 96);
+            g_assert_cmpint ((*p++), ==, 0);
+            g_assert_cmpint ((*p++), ==, 0);
+            g_assert_true ((*p++) == x - 96);
+            g_assert_true ((*p++) == y - 96);
           }
         else
           {
-            g_assert ((*p++) == x);
-            g_assert ((*p++) == y);
-            g_assert ((*p++) == 255);
-            g_assert ((*p++) == 255);
+            g_assert_true ((*p++) == x);
+            g_assert_true ((*p++) == y);
+            g_assert_true ((*p++) == 255);
+            g_assert_true ((*p++) == 255);
           }
       }
   g_free (texture_data);
-  cogl_object_unref (test_tex);
+  g_object_unref (test_tex);
 }
 
 static void
@@ -317,7 +315,7 @@ test_sub_texture (void)
   paint (&state);
   validate_result (&state);
 
-  cogl_object_unref (state.tex);
+  g_object_unref (state.tex);
 
   if (cogl_test_verbose ())
     g_print ("OK\n");

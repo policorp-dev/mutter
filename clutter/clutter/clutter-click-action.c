@@ -24,7 +24,7 @@
 
 /**
  * ClutterClickAction:
- * 
+ *
  * Action for clickable actors
  *
  * #ClutterClickAction is a sub-class of [class@Action] that implements
@@ -87,14 +87,14 @@
  * ```
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-click-action.h"
+#include "clutter/clutter-click-action.h"
 
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-marshal.h"
-#include "clutter-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-marshal.h"
+#include "clutter/clutter-private.h"
 
 struct _ClutterClickActionPrivate
 {
@@ -204,13 +204,15 @@ click_action_query_long_press (ClutterClickAction *action)
 {
   ClutterClickActionPrivate *priv =
     clutter_click_action_get_instance_private (action);
-  ClutterActor *actor;
+  ClutterActor *actor =
+    clutter_actor_meta_get_actor (CLUTTER_ACTOR_META (action));
+  ClutterContext *context = clutter_actor_get_context (actor);
   gboolean result = FALSE;
   gint timeout;
 
   if (priv->long_press_duration < 0)
     {
-      ClutterSettings *settings = clutter_settings_get_default ();
+      ClutterSettings *settings = clutter_context_get_settings (context);
 
       g_object_get (settings,
                     "long-press-duration", &timeout,
@@ -219,7 +221,6 @@ click_action_query_long_press (ClutterClickAction *action)
   else
     timeout = priv->long_press_duration;
 
-  actor = clutter_actor_meta_get_actor (CLUTTER_ACTOR_META (action));
 
   g_signal_emit (action, click_signals[LONG_PRESS], 0,
                  actor,
@@ -229,10 +230,9 @@ click_action_query_long_press (ClutterClickAction *action)
   if (result)
     {
       g_clear_handle_id (&priv->long_press_id, g_source_remove);
-      priv->long_press_id =
-        clutter_threads_add_timeout (timeout,
-                                     click_action_emit_long_press,
-                                     action);
+      priv->long_press_id = g_timeout_add (timeout,
+                                           click_action_emit_long_press,
+                                           action);
     }
 }
 
@@ -284,6 +284,7 @@ clutter_click_action_handle_event (ClutterAction      *action,
     clutter_click_action_get_instance_private (click_action);
   ClutterActor *actor =
     clutter_actor_meta_get_actor (CLUTTER_ACTOR_META (action));
+  ClutterContext *context = clutter_actor_get_context (actor);
   gboolean has_button = TRUE;
   ClutterModifierType modifier_state;
   ClutterActor *target;
@@ -309,7 +310,7 @@ clutter_click_action_handle_event (ClutterAction      *action,
       if (priv->is_held)
         return CLUTTER_EVENT_STOP;
 
-      target = clutter_stage_get_device_actor (clutter_event_get_stage (event),
+      target = clutter_stage_get_device_actor (CLUTTER_STAGE (clutter_actor_get_stage (actor)),
                                                clutter_event_get_device (event),
                                                clutter_event_get_event_sequence (event));
 
@@ -324,7 +325,7 @@ clutter_click_action_handle_event (ClutterAction      *action,
 
       if (priv->long_press_threshold < 0)
         {
-          ClutterSettings *settings = clutter_settings_get_default ();
+          ClutterSettings *settings = clutter_context_get_settings (context);
 
           g_object_get (settings,
                         "dnd-drag-threshold", &priv->drag_threshold,
@@ -343,12 +344,12 @@ clutter_click_action_handle_event (ClutterAction      *action,
 
     case CLUTTER_ENTER:
       click_action_set_pressed (click_action, priv->is_held);
-      break;
+      return CLUTTER_EVENT_PROPAGATE;
 
     case CLUTTER_LEAVE:
       click_action_set_pressed (click_action, FALSE);
       click_action_cancel_long_press (click_action);
-      break;
+      return CLUTTER_EVENT_PROPAGATE;
 
     case CLUTTER_TOUCH_CANCEL:
       clutter_click_action_release (click_action);
@@ -372,7 +373,7 @@ clutter_click_action_handle_event (ClutterAction      *action,
 
       g_clear_handle_id (&priv->long_press_id, g_source_remove);
 
-      target = clutter_stage_get_device_actor (clutter_event_get_stage (event),
+      target = clutter_stage_get_device_actor (CLUTTER_STAGE (clutter_actor_get_stage (actor)),
                                                clutter_event_get_device (event),
                                                clutter_event_get_event_sequence (event));
 
@@ -421,6 +422,19 @@ clutter_click_action_handle_event (ClutterAction      *action,
     }
 
   return priv->is_held ? CLUTTER_EVENT_STOP : CLUTTER_EVENT_PROPAGATE;
+}
+
+static void
+clutter_click_action_sequence_cancelled (ClutterAction        *action,
+                                         ClutterInputDevice   *device,
+                                         ClutterEventSequence *sequence)
+{
+  ClutterClickAction *self = CLUTTER_CLICK_ACTION (action);
+  ClutterClickActionPrivate *priv =
+    clutter_click_action_get_instance_private (self);
+
+  if (priv->press_device == device && priv->press_sequence == sequence)
+    clutter_click_action_release (self);
 }
 
 static void
@@ -530,6 +544,7 @@ clutter_click_action_class_init (ClutterClickActionClass *klass)
   ClutterActionClass *action_class = CLUTTER_ACTION_CLASS (klass);
 
   action_class->handle_event = clutter_click_action_handle_event;
+  action_class->sequence_cancelled = clutter_click_action_sequence_cancelled;
 
   meta_class->set_actor = clutter_click_action_set_actor;
   meta_class->set_enabled = clutter_click_action_set_enabled;
@@ -544,11 +559,10 @@ clutter_click_action_class_init (ClutterClickActionClass *klass)
    * Whether the clickable actor should be in "pressed" state
    */
   obj_props[PROP_PRESSED] =
-    g_param_spec_boolean ("pressed",
-                          P_("Pressed"),
-                          P_("Whether the clickable should be in pressed state"),
+    g_param_spec_boolean ("pressed", NULL, NULL,
                           FALSE,
-                          CLUTTER_PARAM_READABLE);
+                          G_PARAM_READABLE |
+                          G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterClickAction:held:
@@ -556,11 +570,10 @@ clutter_click_action_class_init (ClutterClickActionClass *klass)
    * Whether the clickable actor has the pointer grabbed
    */
   obj_props[PROP_HELD] =
-    g_param_spec_boolean ("held",
-                          P_("Held"),
-                          P_("Whether the clickable has a grab"),
+    g_param_spec_boolean ("held", NULL, NULL,
                           FALSE,
-                          CLUTTER_PARAM_READABLE);
+                          G_PARAM_READABLE |
+                          G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterClickAction:long-press-duration:
@@ -572,12 +585,11 @@ clutter_click_action_class_init (ClutterClickActionClass *klass)
    * the [property@Settings:long-press-duration] property.
    */
   obj_props[PROP_LONG_PRESS_DURATION] =
-    g_param_spec_int ("long-press-duration",
-                      P_("Long Press Duration"),
-                      P_("The minimum duration of a long press to recognize the gesture"),
+    g_param_spec_int ("long-press-duration", NULL, NULL,
                       -1, G_MAXINT,
                       -1,
-                      CLUTTER_PARAM_READWRITE);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterClickAction:long-press-threshold:
@@ -589,12 +601,11 @@ clutter_click_action_class_init (ClutterClickActionClass *klass)
    * the [property@Settings:dnd-drag-threshold] property.
    */
   obj_props[PROP_LONG_PRESS_THRESHOLD] =
-    g_param_spec_int ("long-press-threshold",
-                      P_("Long Press Threshold"),
-                      P_("The maximum threshold before a long press is cancelled"),
+    g_param_spec_int ("long-press-threshold", NULL, NULL,
                       -1, G_MAXINT,
                       -1,
-                      CLUTTER_PARAM_READWRITE);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class,
                                      PROP_LAST,

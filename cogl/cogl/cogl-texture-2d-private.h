@@ -28,17 +28,15 @@
  *
  */
 
-#ifndef __COGL_TEXTURE_2D_PRIVATE_H
-#define __COGL_TEXTURE_2D_PRIVATE_H
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-texture-2d.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/cogl-texture-2d.h"
 
 struct _CoglTexture2D
 {
-  CoglTexture _parent;
+  CoglTexture parent_instance;
 
   /* The internal format of the GL texture represented as a
      CoglPixelFormat */
@@ -60,7 +58,6 @@ struct _CoglTexture2D
   GLenum gl_legacy_texobj_mag_filter;
   GLint gl_legacy_texobj_wrap_mode_s;
   GLint gl_legacy_texobj_wrap_mode_t;
-  CoglTexturePixel first_pixel;
 
   struct {
     void *user_data;
@@ -68,20 +65,17 @@ struct _CoglTexture2D
   } egl_image_external;
 };
 
-CoglTexture2D *
-_cogl_texture_2d_new_from_bitmap (CoglBitmap *bmp,
-                                  gboolean can_convert_in_place);
+struct _CoglTexture2DClass
+{
+   CoglTextureClass parent_class;
+};
 
-CoglTexture2D *
+CoglTexture *
 _cogl_texture_2d_create_base (CoglContext *ctx,
                               int width,
                               int height,
                               CoglPixelFormat internal_format,
                               CoglTextureLoader *loader);
-
-void
-_cogl_texture_2d_set_auto_mipmap (CoglTexture *tex,
-                                  gboolean value);
 
 /*
  * _cogl_texture_2d_externally_modified:
@@ -119,5 +113,3 @@ _cogl_texture_2d_copy_from_framebuffer (CoglTexture2D *texture,
                                         int dst_x,
                                         int dst_y,
                                         int level);
-
-#endif /* __COGL_TEXTURE_2D_PRIVATE_H */

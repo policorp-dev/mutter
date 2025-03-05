@@ -15,13 +15,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_OUTPUT_KMS_H
-#define META_OUTPUT_KMS_H
+#pragma once
 
 #include "backends/meta-output.h"
 #include "backends/native/meta-gpu-kms.h"
@@ -33,15 +30,7 @@ G_DECLARE_FINAL_TYPE (MetaOutputKms, meta_output_kms,
                       META, OUTPUT_KMS,
                       MetaOutputNative)
 
-void meta_output_kms_set_power_save_mode (MetaOutputKms *output_kms,
-                                          uint64_t       dpms_state,
-                                          MetaKmsUpdate *kms_update);
-
-void meta_output_kms_set_underscan (MetaOutputKms *output_kms,
-                                    MetaKmsUpdate *kms_update);
-
-void meta_output_kms_set_max_bpc (MetaOutputKms *output_kms,
-                                  MetaKmsUpdate *kms_update);
+gboolean meta_output_kms_is_privacy_screen_invalid (MetaOutputKms *output_kms);
 
 gboolean meta_output_kms_can_clone (MetaOutputKms *output_kms,
                                     MetaOutputKms *other_output_kms);
@@ -50,9 +39,9 @@ MetaKmsConnector * meta_output_kms_get_kms_connector (MetaOutputKms *output_kms)
 
 uint32_t meta_output_kms_get_connector_id (MetaOutputKms *output_kms);
 
+MetaOutputKms * meta_output_kms_from_kms_connector (MetaKmsConnector *connector);
+
 MetaOutputKms * meta_output_kms_new (MetaGpuKms        *gpu_kms,
                                      MetaKmsConnector  *kms_connector,
                                      MetaOutput        *old_output,
                                      GError           **error);
-
-#endif /* META_OUTPUT_KMS_H */

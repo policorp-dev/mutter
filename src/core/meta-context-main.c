@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -27,23 +25,32 @@
 #include <glib.h>
 #include <gio/gio.h>
 
-#if defined(HAVE_NATIVE_BACKEND) && defined(HAVE_WAYLAND)
+#ifdef HAVE_WAYLAND
 #include <systemd/sd-login.h>
-#endif /* HAVE_WAYLAND && HAVE_NATIVE_BACKEND */
+#endif
 
+#include "backends/meta-monitor.h"
 #include "backends/meta-monitor-manager-private.h"
 #include "backends/meta-virtual-monitor.h"
-#include "backends/x11/cm/meta-backend-x11-cm.h"
+#include "core/meta-session-manager.h"
 #include "meta/meta-backend.h"
-#include "wayland/meta-wayland.h"
+
+#ifdef HAVE_X11
+#include "backends/x11/cm/meta-backend-x11-cm.h"
 #include "x11/session.h"
+#endif
 
 #ifdef HAVE_NATIVE_BACKEND
 #include "backends/native/meta-backend-native.h"
+#include "backends/native/meta-backend-native-types.h"
+#endif
+
+#if defined (HAVE_X11) && defined (HAVE_WAYLAND)
+#include "backends/x11/nested/meta-backend-x11-nested.h"
 #endif
 
 #ifdef HAVE_WAYLAND
-#include "backends/x11/nested/meta-backend-x11-nested.h"
+#include "wayland/meta-wayland.h"
 #endif
 
 typedef struct _MetaContextMainOptions
@@ -68,11 +75,11 @@ typedef struct _MetaContextMainOptions
 #ifdef HAVE_NATIVE_BACKEND
   gboolean display_server;
   gboolean headless;
-#endif
-  gboolean unsafe_mode;
-#ifdef HAVE_NATIVE_BACKEND
   GList *virtual_monitor_infos;
 #endif
+  char *trace_file;
+  gboolean debug_control;
+  gboolean unsafe_mode;
 } MetaContextMainOptions;
 
 struct _MetaContextMain
@@ -80,6 +87,8 @@ struct _MetaContextMain
   GObject parent;
 
   MetaContextMainOptions options;
+
+  MetaSessionManager *session_manager;
 
   MetaCompositorType compositor_type;
 
@@ -209,7 +218,7 @@ find_session_type (GError **error)
     }
 
   /* Legacy support for starting through xinit */
-  if (is_tty && (g_getenv ("MUTTER_DISPLAY") || g_getenv ("DISPLAY")))
+  if (is_tty && g_getenv ("DISPLAY"))
     {
       session_type = strdup ("x11");
       goto out;
@@ -289,6 +298,28 @@ meta_context_main_configure (MetaContext   *context,
     meta_wayland_override_display_name (context_main->options.wayland_display);
 #endif
 
+  if (!context_main->options.sm.client_id)
+    {
+      const char *desktop_autostart_id;
+
+      desktop_autostart_id = g_getenv ("DESKTOP_AUTOSTART_ID");
+      if (desktop_autostart_id)
+        context_main->options.sm.client_id = g_strdup (desktop_autostart_id);
+    }
+
+#ifdef HAVE_PROFILER
+  meta_context_set_trace_file (context, context_main->options.trace_file);
+#endif
+
+  if (context_main->options.debug_control)
+    {
+      MetaDebugControl *debug_control = meta_context_get_debug_control (context);
+
+      meta_debug_control_set_exported (debug_control, TRUE);
+    }
+
+  g_unsetenv ("DESKTOP_AUTOSTART_ID");
+
   return TRUE;
 }
 
@@ -306,7 +337,7 @@ meta_context_main_get_x11_display_policy (MetaContext *context)
   MetaCompositorType compositor_type;
 #ifdef HAVE_WAYLAND
   MetaContextMain *context_main = META_CONTEXT_MAIN (context);
-  char *unit;
+  g_autofree char *unit = NULL;
 #endif
 
   compositor_type = meta_context_get_compositor_type (context);
@@ -318,8 +349,10 @@ meta_context_main_get_x11_display_policy (MetaContext *context)
 #ifdef HAVE_WAYLAND
       if (context_main->options.no_x11)
         return META_X11_DISPLAY_POLICY_DISABLED;
+#ifdef HAVE_LOGIND
       else if (sd_pid_get_user_unit (0, &unit) < 0)
         return META_X11_DISPLAY_POLICY_MANDATORY;
+#endif
       else
         return META_X11_DISPLAY_POLICY_ON_DEMAND;
 #else /* HAVE_WAYLAND */
@@ -343,7 +376,8 @@ static gboolean
 add_persistent_virtual_monitors (MetaContextMain  *context_main,
                                  GError          **error)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaContext *context = META_CONTEXT (context_main);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
   GList *l;
@@ -400,6 +434,7 @@ meta_context_main_setup (MetaContext  *context,
   return TRUE;
 }
 
+#ifdef HAVE_X11
 static MetaBackend *
 create_x11_cm_backend (MetaContext  *context,
                        GError      **error)
@@ -417,8 +452,9 @@ create_x11_cm_backend (MetaContext  *context,
                          "display-name", context_main->options.x11.display_name,
                          NULL);
 }
+#endif
 
-#ifdef HAVE_WAYLAND
+#if defined (HAVE_X11) && defined (HAVE_WAYLAND)
 static MetaBackend *
 create_nested_backend (MetaContext  *context,
                        GError      **error)
@@ -428,7 +464,9 @@ create_nested_backend (MetaContext  *context,
                          "context", context,
                          NULL);
 }
+#endif
 
+#ifdef HAVE_WAYLAND
 #ifdef HAVE_NATIVE_BACKEND
 static MetaBackend *
 create_headless_backend (MetaContext  *context,
@@ -465,19 +503,21 @@ meta_context_main_create_backend (MetaContext  *context,
   compositor_type = meta_context_get_compositor_type (context);
   switch (compositor_type)
     {
-#ifdef HAVE_X11
     case META_COMPOSITOR_TYPE_X11:
+#ifdef HAVE_X11
       return create_x11_cm_backend (context, error);
 #endif
     case META_COMPOSITOR_TYPE_WAYLAND:
 #ifdef HAVE_WAYLAND
+#ifdef HAVE_X11
       if (context_main->options.nested)
         return create_nested_backend (context, error);
+#endif
 #ifdef HAVE_NATIVE_BACKEND
-      else if (context_main->options.headless)
+      if (context_main->options.headless)
         return create_headless_backend (context, error);
-      else
-        return create_native_backend (context, error);
+
+      return create_native_backend (context, error);
 #endif /* HAVE_NATIVE_BACKEND */
 #else /* HAVE_WAYLAND */
       g_assert_not_reached ();
@@ -491,7 +531,9 @@ static void
 meta_context_main_notify_ready (MetaContext *context)
 {
   MetaContextMain *context_main = META_CONTEXT_MAIN (context);
+  g_autoptr (GError) error = NULL;
 
+#ifdef HAVE_X11
   if (!context_main->options.sm.disable)
     {
       meta_session_init (context,
@@ -500,6 +542,13 @@ meta_context_main_notify_ready (MetaContext *context)
     }
   g_clear_pointer (&context_main->options.sm.client_id, g_free);
   g_clear_pointer (&context_main->options.sm.save_file, g_free);
+#endif
+
+  context_main->session_manager =
+    meta_session_manager_new (meta_context_get_nick (context), &error);
+
+  if (!context_main->session_manager)
+    g_critical ("Could not create session manager: %s", error->message);
 }
 
 #ifdef HAVE_X11
@@ -512,6 +561,14 @@ meta_context_main_is_x11_sync (MetaContext *context)
 }
 #endif
 
+static MetaSessionManager *
+meta_context_main_get_session_manager (MetaContext *context)
+{
+  MetaContextMain *context_main = META_CONTEXT_MAIN (context);
+
+  return context_main->session_manager;
+}
+
 #ifdef HAVE_NATIVE_BACKEND
 static gboolean
 add_virtual_monitor_cb (const char  *option_name,
@@ -521,12 +578,9 @@ add_virtual_monitor_cb (const char  *option_name,
 {
   MetaContextMain *context_main = user_data;
   int width, height;
-  float refresh_rate = 60.0;
+  float refresh_rate;
 
-  if (sscanf (value, "%dx%d@%f",
-              &width, &height, &refresh_rate) == 3 ||
-      sscanf (value, "%dx%d",
-              &width, &height) == 2)
+  if (meta_parse_monitor_mode (value, &width, &height, &refresh_rate, 60.0))
     {
       g_autofree char *serial = NULL;
       MetaVirtualMonitorInfo *virtual_monitor;
@@ -605,6 +659,7 @@ meta_context_main_add_option_entries (MetaContextMain *context_main)
       N_("Run as a wayland compositor"),
       NULL
     },
+#ifdef HAVE_X11
     {
       "nested", 0, 0, G_OPTION_ARG_NONE,
       &context_main->options.nested,
@@ -617,6 +672,7 @@ meta_context_main_add_option_entries (MetaContextMain *context_main)
       N_("Run wayland compositor without starting Xwayland"),
       NULL
     },
+#endif
     {
       "wayland-display", 0, 0, G_OPTION_ARG_STRING,
       &context_main->options.wayland_display,
@@ -653,6 +709,17 @@ meta_context_main_add_option_entries (MetaContextMain *context_main)
       N_("Run with X11 backend")
     },
 #endif
+    {
+      "profile", 0, 0, G_OPTION_ARG_FILENAME,
+      &context_main->options.trace_file,
+      N_("Profile performance using trace instrumentation"),
+      "FILE"
+    },
+    {
+      "debug-control", 0, 0, G_OPTION_ARG_NONE,
+      &context_main->options.debug_control,
+      N_("Enable debug control D-Bus interface")
+    },
     { NULL }
   };
 
@@ -683,6 +750,10 @@ meta_context_main_finalize (GObject *object)
 
   g_list_free_full (context_main->persistent_virtual_monitors, g_object_unref);
   context_main->persistent_virtual_monitors = NULL;
+
+  if (context_main->session_manager)
+    meta_session_manager_save_sync (context_main->session_manager, NULL);
+  g_clear_object (&context_main->session_manager);
 #endif
 
   G_OBJECT_CLASS (meta_context_main_parent_class)->finalize (object);
@@ -718,6 +789,7 @@ meta_context_main_class_init (MetaContextMainClass *klass)
 #ifdef HAVE_X11
   context_class->is_x11_sync = meta_context_main_is_x11_sync;
 #endif
+  context_class->get_session_manager = meta_context_main_get_session_manager;
 }
 
 static void

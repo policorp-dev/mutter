@@ -28,6 +28,7 @@
 
 /**
  * meta_create_texture_pipeline:
+ * @cogl_context: A #CoglContext
  * @src_texture: (nullable): texture to use initially for the layer
  *
  * Creates a pipeline with a single layer. Using a common template
@@ -37,7 +38,8 @@
  * Return value: (transfer full): a newly created #CoglPipeline
  */
 CoglPipeline *
-meta_create_texture_pipeline (CoglTexture *src_texture)
+meta_create_texture_pipeline (CoglContext *cogl_context,
+                              CoglTexture *src_texture)
 {
   static CoglPipeline *texture_pipeline_template = NULL;
   CoglPipeline *pipeline;
@@ -50,10 +52,7 @@ meta_create_texture_pipeline (CoglTexture *src_texture)
      pipeline ancestry instead of resorting to the shader cache. */
   if (G_UNLIKELY (texture_pipeline_template == NULL))
     {
-      CoglContext *ctx =
-        clutter_backend_get_cogl_context (clutter_get_default_backend ());
-
-      texture_pipeline_template = cogl_pipeline_new (ctx);
+      texture_pipeline_template = cogl_pipeline_new (cogl_context);
       cogl_pipeline_set_layer_null_texture (texture_pipeline_template, 0);
     }
 
@@ -69,7 +68,8 @@ meta_create_texture_pipeline (CoglTexture *src_texture)
  * meta_create_texture:
  * @width: width of the texture to create
  * @height: height of the texture to create
- * @components; components to store in the texture (color or alpha)
+ * @ctx: A #CoglContext
+ * @components: components to store in the texture (color or alpha)
  * @flags: flags that affect the allocation behavior
  *
  * Creates a texture of the given size with the specified components
@@ -83,16 +83,15 @@ meta_create_texture_pipeline (CoglTexture *src_texture)
  * be as small as 2048x2048 on reasonably current systems.
  */
 CoglTexture *
-meta_create_texture (int                   width,
-                     int                   height,
-                     CoglTextureComponents components,
-                     MetaTextureFlags      flags)
+meta_create_texture (int                    width,
+                     int                    height,
+                     CoglContext           *ctx,
+                     CoglTextureComponents  components,
+                     MetaTextureFlags       flags)
 {
-  ClutterBackend *backend = clutter_get_default_backend ();
-  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   CoglTexture *texture;
 
-  texture = COGL_TEXTURE (cogl_texture_2d_new_with_size (ctx, width, height));
+  texture = cogl_texture_2d_new_with_size (ctx, width, height);
   cogl_texture_set_components (texture, components);
 
   if ((flags & META_TEXTURE_ALLOW_SLICING) != 0)
@@ -104,8 +103,8 @@ meta_create_texture (int                   width,
       if (!cogl_texture_allocate (texture, &catch_error))
         {
           g_error_free (catch_error);
-          cogl_object_unref (texture);
-          texture = COGL_TEXTURE (cogl_texture_2d_sliced_new_with_size (ctx, width, height, COGL_TEXTURE_MAX_WASTE));
+          g_object_unref (texture);
+          texture = cogl_texture_2d_sliced_new_with_size (ctx, width, height, COGL_TEXTURE_MAX_WASTE);
           cogl_texture_set_components (texture, components);
         }
     }

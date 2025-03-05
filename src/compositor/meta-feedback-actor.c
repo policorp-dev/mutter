@@ -19,9 +19,9 @@
  */
 
 /**
- * SECTION:meta-feedback-actor
- * @title: MetaFeedbackActor
- * @short_description: Actor for painting user interaction feedback
+ * MetaFeedbackActor:
+ *
+ * Actor for painting user interaction feedback
  */
 
 #include "config.h"
@@ -32,14 +32,21 @@
 
 enum
 {
-  PROP_ANCHOR_X = 1,
-  PROP_ANCHOR_Y
+  PROP_0,
+
+  PROP_COMPOSITOR,
+  PROP_ANCHOR_X,
+  PROP_ANCHOR_Y,
+
+  N_PROPS
 };
 
 typedef struct _MetaFeedbackActorPrivate MetaFeedbackActorPrivate;
 
 struct _MetaFeedbackActorPrivate
 {
+  MetaCompositor *compositor;
+
   float anchor_x;
   float anchor_y;
   float pos_x;
@@ -53,19 +60,24 @@ G_DEFINE_TYPE_WITH_PRIVATE (MetaFeedbackActor, meta_feedback_actor, CLUTTER_TYPE
 static void
 meta_feedback_actor_constructed (GObject *object)
 {
-  MetaDisplay *display;
+  MetaFeedbackActor *self = META_FEEDBACK_ACTOR (object);
+  MetaFeedbackActorPrivate *priv =
+    meta_feedback_actor_get_instance_private (self);
   ClutterActor *feedback_group;
 
-  display = meta_get_display ();
-  feedback_group = meta_get_feedback_group_for_display (display);
+  feedback_group = meta_compositor_get_feedback_group (priv->compositor);
   clutter_actor_add_child (feedback_group, CLUTTER_ACTOR (object));
-  meta_disable_unredirect_for_display (display);
+  meta_compositor_disable_unredirect (priv->compositor);
 }
 
 static void
 meta_feedback_actor_finalize (GObject *object)
 {
-  meta_enable_unredirect_for_display (meta_get_display ());
+  MetaFeedbackActor *self = META_FEEDBACK_ACTOR (object);
+  MetaFeedbackActorPrivate *priv =
+    meta_feedback_actor_get_instance_private (self);
+
+  meta_compositor_enable_unredirect (priv->compositor);
 
   G_OBJECT_CLASS (meta_feedback_actor_parent_class)->finalize (object);
 }
@@ -93,6 +105,9 @@ meta_feedback_actor_set_property (GObject      *object,
 
   switch (prop_id)
     {
+    case PROP_COMPOSITOR:
+      priv->compositor = g_value_get_object (value);
+      break;
     case PROP_ANCHOR_X:
       priv->anchor_x = g_value_get_int (value);
       meta_feedback_actor_update_position (self);
@@ -118,6 +133,9 @@ meta_feedback_actor_get_property (GObject      *object,
 
   switch (prop_id)
     {
+    case PROP_COMPOSITOR:
+      g_value_set_object (value, priv->compositor);
+      break;
     case PROP_ANCHOR_X:
       g_value_set_float (value, priv->anchor_x);
       break;
@@ -141,9 +159,17 @@ meta_feedback_actor_class_init (MetaFeedbackActorClass *klass)
   object_class->set_property = meta_feedback_actor_set_property;
   object_class->get_property = meta_feedback_actor_get_property;
 
-  pspec = g_param_spec_float ("anchor-x",
-                              "Anchor X",
-                              "The X axis of the anchor point",
+  pspec = g_param_spec_object ("compositor", NULL, NULL,
+                               META_TYPE_COMPOSITOR,
+                               G_PARAM_READWRITE |
+                               G_PARAM_STATIC_STRINGS |
+                               G_PARAM_CONSTRUCT_ONLY);
+
+  g_object_class_install_property (object_class,
+                                   PROP_COMPOSITOR,
+                                   pspec);
+
+  pspec = g_param_spec_float ("anchor-x", NULL, NULL,
                               0, G_MAXFLOAT, 0,
                               G_PARAM_READWRITE |
                               G_PARAM_STATIC_STRINGS);
@@ -152,9 +178,7 @@ meta_feedback_actor_class_init (MetaFeedbackActorClass *klass)
                                    PROP_ANCHOR_X,
                                    pspec);
 
-  pspec = g_param_spec_float ("anchor-y",
-                              "Anchor Y",
-                              "The Y axis of the anchor point",
+  pspec = g_param_spec_float ("anchor-y", NULL, NULL,
                               0, G_MAXFLOAT, 0,
                               G_PARAM_READWRITE |
                               G_PARAM_STATIC_STRINGS);
@@ -168,27 +192,6 @@ static void
 meta_feedback_actor_init (MetaFeedbackActor *self)
 {
   clutter_actor_set_reactive (CLUTTER_ACTOR (self), FALSE);
-}
-
-/**
- * meta_feedback_actor_new:
- *
- * Creates a new actor to draw the current drag and drop surface.
- *
- * Return value: the newly created background actor
- */
-ClutterActor *
-meta_feedback_actor_new (float anchor_x,
-                         float anchor_y)
-{
-  MetaFeedbackActor *self;
-
-  self = g_object_new (META_TYPE_FEEDBACK_ACTOR,
-                       "anchor-x", anchor_x,
-                       "anchor-y", anchor_y,
-                       NULL);
-
-  return CLUTTER_ACTOR (self);
 }
 
 void
@@ -251,19 +254,6 @@ meta_feedback_actor_set_position (MetaFeedbackActor  *self,
   priv->pos_y = y;
 
   meta_feedback_actor_update_position (self);
-}
-
-void
-meta_feedback_actor_update (MetaFeedbackActor  *self,
-                            const ClutterEvent *event)
-{
-  graphene_point_t point;
-
-  g_return_if_fail (META_IS_FEEDBACK_ACTOR (self));
-  g_return_if_fail (event != NULL);
-
-  clutter_event_get_position (event, &point);
-  meta_feedback_actor_set_position (self, point.x, point.y);
 }
 
 void

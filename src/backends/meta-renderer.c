@@ -14,22 +14,20 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
  */
 
 /**
- * SECTION:meta-renderer
- * @title: MetaRenderer
- * @short_description: Keeps track of the different renderer views.
+ * MetaRenderer:
+ *
+ * Keeps track of the different renderer views.
  *
  * A MetaRenderer object has 2 functions:
  *
- * 1) Keeping a list of #MetaRendererView<!-- -->s, each responsible for
+ * 1) Keeping a list of `MetaRendererView`s, each responsible for
  * rendering a part of the stage, corresponding to each #MetaLogicalMonitor. It
  * keeps track of this list by querying the list of logical monitors in the
  * #MetaBackend's #MetaMonitorManager, and creating a renderer view for each
@@ -94,15 +92,26 @@ meta_renderer_create_cogl_renderer (MetaRenderer *renderer)
 }
 
 static MetaRendererView *
-meta_renderer_create_view (MetaRenderer       *renderer,
-                           MetaLogicalMonitor *logical_monitor,
-                           MetaOutput         *output,
-                           MetaCrtc           *crtc)
+meta_renderer_create_view (MetaRenderer        *renderer,
+                           MetaLogicalMonitor  *logical_monitor,
+                           MetaMonitor         *monitor,
+                           MetaOutput          *output,
+                           MetaCrtc            *crtc,
+                           GError             **error)
 {
-  return META_RENDERER_GET_CLASS (renderer)->create_view (renderer,
+  MetaRendererView *view;
+
+  view = META_RENDERER_GET_CLASS (renderer)->create_view (renderer,
                                                           logical_monitor,
+                                                          monitor,
                                                           output,
-                                                          crtc);
+                                                          crtc,
+                                                          error);
+
+  if (view)
+    meta_renderer_add_view (renderer, view);
+
+  return view;
 }
 
 /**
@@ -129,16 +138,28 @@ create_crtc_view (MetaLogicalMonitor *logical_monitor,
 {
   MetaRenderer *renderer = user_data;
   MetaRendererView *view;
+  g_autoptr (GError) error = NULL;
 
-  view = meta_renderer_create_view (renderer, logical_monitor, output, crtc);
-  meta_renderer_add_view (renderer, view);
+  view = meta_renderer_create_view (renderer,
+                                    logical_monitor,
+                                    monitor,
+                                    output,
+                                    crtc,
+                                    &error);
+  if (!view)
+    {
+      g_warning ("Failed to create view for %s on %s: %s",
+                 meta_monitor_get_display_name (monitor),
+                 meta_output_get_name (output),
+                 error->message);
+    }
 }
 
 static void
 meta_renderer_real_rebuild_views (MetaRenderer *renderer)
 {
   MetaRendererPrivate *priv = meta_renderer_get_instance_private (renderer);
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = priv->backend;
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
   GList *logical_monitors, *l;
@@ -158,7 +179,7 @@ meta_renderer_real_rebuild_views (MetaRenderer *renderer)
           float scale;
 
           clutter_backend = meta_backend_get_clutter_backend (backend);
-          scale = meta_is_stage_views_scaled ()
+          scale = meta_backend_is_stage_views_scaled (backend)
             ? meta_logical_monitor_get_scale (logical_monitor)
             : 1.f;
 
@@ -298,6 +319,7 @@ void
 meta_renderer_resume (MetaRenderer *renderer)
 {
   MetaRendererPrivate *priv = meta_renderer_get_instance_private (renderer);
+  MetaRendererClass *klass = META_RENDERER_GET_CLASS (renderer);
   GList *l;
 
   g_return_if_fail (priv->is_paused);
@@ -311,6 +333,9 @@ meta_renderer_resume (MetaRenderer *renderer)
 
       clutter_frame_clock_uninhibit (frame_clock);
     }
+
+  if (klass->resume)
+    klass->resume (renderer);
 }
 
 gboolean
@@ -394,9 +419,7 @@ meta_renderer_class_init (MetaRendererClass *klass)
   klass->get_views_for_monitor = meta_renderer_real_get_views_for_monitor;
 
   obj_props[PROP_BACKEND] =
-    g_param_spec_object ("backend",
-                         "backend",
-                         "MetaBackend",
+    g_param_spec_object ("backend", NULL, NULL,
                          META_TYPE_BACKEND,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |

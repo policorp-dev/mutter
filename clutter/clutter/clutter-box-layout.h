@@ -25,50 +25,29 @@
  *   Thomas Wood <thomas.wood@intel.com>
  */
 
-#ifndef __CLUTTER_BOX_LAYOUT_H__
-#define __CLUTTER_BOX_LAYOUT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-layout-manager.h>
+#include "clutter/clutter-layout-manager.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_BOX_LAYOUT                 (clutter_box_layout_get_type ())
-#define CLUTTER_BOX_LAYOUT(obj)                 (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_BOX_LAYOUT, ClutterBoxLayout))
-#define CLUTTER_IS_BOX_LAYOUT(obj)              (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_BOX_LAYOUT))
-#define CLUTTER_BOX_LAYOUT_CLASS(klass)         (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_BOX_LAYOUT, ClutterBoxLayoutClass))
-#define CLUTTER_IS_BOX_LAYOUT_CLASS(klass)      (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_BOX_LAYOUT))
-#define CLUTTER_BOX_LAYOUT_GET_CLASS(obj)       (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_BOX_LAYOUT, ClutterBoxLayoutClass))
 
-typedef struct _ClutterBoxLayout                ClutterBoxLayout;
-typedef struct _ClutterBoxLayoutPrivate         ClutterBoxLayoutPrivate;
-typedef struct _ClutterBoxLayoutClass           ClutterBoxLayoutClass;
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterBoxLayout,
+                          clutter_box_layout,
+                          CLUTTER, BOX_LAYOUT,
+                          ClutterLayoutManager)
 
-struct _ClutterBoxLayout
-{
-  /*< private >*/
-  ClutterLayoutManager parent_instance;
-
-  ClutterBoxLayoutPrivate *priv;
-};
-
-/**
- * ClutterBoxLayoutClass:
- *
- * The #ClutterBoxLayoutClass structure contains only private
- * data and should be accessed using the provided API
- */
 struct _ClutterBoxLayoutClass
 {
   /*< private >*/
   ClutterLayoutManagerClass parent_class;
 };
-
-CLUTTER_EXPORT
-GType clutter_box_layout_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterLayoutManager *  clutter_box_layout_new                 (void);
@@ -91,5 +70,3 @@ CLUTTER_EXPORT
 gboolean                clutter_box_layout_get_homogeneous      (ClutterBoxLayout    *layout);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_BOX_LAYOUT_H__ */

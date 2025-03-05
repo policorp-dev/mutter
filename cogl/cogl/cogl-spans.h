@@ -28,11 +28,9 @@
  *
  */
 
-#ifndef __COGL_SPANS_PRIVATE_H
-#define __COGL_SPANS_PRIVATE_H
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-pipeline-layer-state.h"
+#include "cogl/cogl-pipeline-layer-state.h"
 
 typedef struct _CoglSpan
 {
@@ -77,5 +75,3 @@ _cogl_span_iter_next (CoglSpanIter *iter);
 
 gboolean
 _cogl_span_iter_end (CoglSpanIter *iter);
-
-#endif /* __COGL_SPANS_PRIVATE_H */

@@ -22,35 +22,24 @@
  *   Lionel Landwerlin <lionel.g.landwerlin@linux.intel.com>
  */
 
-#ifndef __CLUTTER_ROTATE_ACTION_H__
-#define __CLUTTER_ROTATE_ACTION_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-gesture-action.h>
+#include "clutter/clutter-gesture-action.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_ROTATE_ACTION               (clutter_rotate_action_get_type ())
-#define CLUTTER_ROTATE_ACTION(obj)               (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_ROTATE_ACTION, ClutterRotateAction))
-#define CLUTTER_IS_ROTATE_ACTION(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_ROTATE_ACTION))
-#define CLUTTER_ROTATE_ACTION_CLASS(klass)       (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_ROTATE_ACTION, ClutterRotateActionClass))
-#define CLUTTER_IS_ROTATE_ACTION_CLASS(klass)    (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_ROTATE_ACTION))
-#define CLUTTER_ROTATE_ACTION_GET_CLASS(obj)     (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_ROTATE_ACTION, ClutterRotateActionClass))
 
-typedef struct _ClutterRotateAction              ClutterRotateAction;
-typedef struct _ClutterRotateActionPrivate       ClutterRotateActionPrivate;
-typedef struct _ClutterRotateActionClass         ClutterRotateActionClass;
-
-struct _ClutterRotateAction
-{
-  /*< private >*/
-  ClutterGestureAction parent_instance;
-
-  ClutterRotateActionPrivate *priv;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterRotateAction,
+                          clutter_rotate_action,
+                          CLUTTER,
+                          ROTATE_ACTION,
+                          ClutterGestureAction)
 
 /**
  * ClutterRotateActionClass:
@@ -63,22 +52,9 @@ struct _ClutterRotateActionClass
 {
   /*< private >*/
   ClutterGestureActionClass parent_class;
-
-  void (* _clutter_rotate_action1) (void);
-  void (* _clutter_rotate_action2) (void);
-  void (* _clutter_rotate_action3) (void);
-  void (* _clutter_rotate_action4) (void);
-  void (* _clutter_rotate_action5) (void);
-  void (* _clutter_rotate_action6) (void);
-  void (* _clutter_rotate_action7) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_rotate_action_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterAction *clutter_rotate_action_new        (void);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_ROTATE_ACTION_H__ */

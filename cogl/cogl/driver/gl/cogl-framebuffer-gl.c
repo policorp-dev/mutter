@@ -29,17 +29,20 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-context-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-framebuffer.h"
-#include "cogl-offscreen-private.h"
-#include "cogl-texture-private.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "driver/gl/cogl-framebuffer-gl-private.h"
-#include "driver/gl/cogl-bitmap-gl-private.h"
-#include "driver/gl/cogl-buffer-gl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-framebuffer.h"
+#include "cogl/cogl-indices-private.h"
+#include "cogl/cogl-offscreen-private.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/driver/gl/cogl-framebuffer-gl-private.h"
+#include "cogl/driver/gl/cogl-bitmap-gl-private.h"
+#include "cogl/driver/gl/cogl-buffer-impl-gl-private.h"
+  #include "cogl/driver/gl/cogl-driver-gl-private.h"
+  #include "cogl/driver/gl/cogl-texture-driver-gl-private.h"
 
 #include <glib.h>
 #include <string.h>
@@ -92,10 +95,10 @@ cogl_gl_framebuffer_flush_viewport_state (CoglGlFramebuffer *gl_framebuffer)
              viewport_height);
 
   GE (cogl_framebuffer_get_context (framebuffer),
-      glViewport (viewport_x,
-                  gl_viewport_y,
-                  viewport_width,
-                  viewport_height));
+      glViewport ((GLint) viewport_x,
+                  (GLint) gl_viewport_y,
+                  (GLsizei) viewport_width,
+                  (GLsizei) viewport_height));
 }
 
 static void
@@ -190,15 +193,6 @@ cogl_gl_framebuffer_flush_front_face_winding_state (CoglGlFramebuffer *gl_frameb
   context->current_pipeline_age--;
 }
 
-static void
-cogl_gl_framebuffer_flush_stereo_mode_state (CoglGlFramebuffer *gl_framebuffer)
-{
-  CoglGlFramebufferClass *klass =
-    COGL_GL_FRAMEBUFFER_GET_CLASS (gl_framebuffer);
-
-  klass->flush_stereo_mode_state (gl_framebuffer);
-}
-
 void
 cogl_gl_framebuffer_flush_state_differences (CoglGlFramebuffer *gl_framebuffer,
                                              unsigned long      differences)
@@ -234,9 +228,6 @@ cogl_gl_framebuffer_flush_state_differences (CoglGlFramebuffer *gl_framebuffer,
         case COGL_FRAMEBUFFER_STATE_INDEX_DEPTH_WRITE:
           /* Nothing to do for depth write state change; the state will always
            * be taken into account when flushing the pipeline's depth state. */
-          break;
-        case COGL_FRAMEBUFFER_STATE_INDEX_STEREO_MODE:
-          cogl_gl_framebuffer_flush_stereo_mode_state (gl_framebuffer);
           break;
         default:
           g_warn_if_reached ();
@@ -305,6 +296,9 @@ cogl_gl_framebuffer_finish (CoglFramebufferDriver *driver)
 {
   CoglContext *ctx = context_from_driver (driver);
 
+  /* Update our "latest" sync fd to contain all previous work */
+  _cogl_context_update_sync (ctx);
+
   ctx->glFinish ();
 }
 
@@ -312,6 +306,9 @@ static void
 cogl_gl_framebuffer_flush (CoglFramebufferDriver *driver)
 {
   CoglContext *ctx = context_from_driver (driver);
+
+  /* Update our "latest" sync fd to contain all previous work */
+  _cogl_context_update_sync (ctx);
 
   ctx->glFlush ();
 }
@@ -336,21 +333,6 @@ cogl_gl_framebuffer_draw_attributes (CoglFramebufferDriver  *driver,
       glDrawArrays ((GLenum)mode, first_vertex, n_vertices));
 }
 
-static size_t
-sizeof_index_type (CoglIndicesType type)
-{
-  switch (type)
-    {
-    case COGL_INDICES_TYPE_UNSIGNED_BYTE:
-      return 1;
-    case COGL_INDICES_TYPE_UNSIGNED_SHORT:
-      return 2;
-    case COGL_INDICES_TYPE_UNSIGNED_INT:
-      return 4;
-    }
-  g_return_val_if_reached (0);
-}
-
 static void
 cogl_gl_framebuffer_draw_indexed_attributes (CoglFramebufferDriver  *driver,
                                              CoglPipeline           *pipeline,
@@ -366,7 +348,6 @@ cogl_gl_framebuffer_draw_indexed_attributes (CoglFramebufferDriver  *driver,
     cogl_framebuffer_driver_get_framebuffer (driver);
   CoglBuffer *buffer;
   uint8_t *base;
-  size_t buffer_offset;
   size_t index_size;
   GLenum indices_gl_type = 0;
 
@@ -382,10 +363,9 @@ cogl_gl_framebuffer_draw_indexed_attributes (CoglFramebufferDriver  *driver,
    */
   base = _cogl_buffer_gl_bind (buffer,
                                COGL_BUFFER_BIND_TARGET_INDEX_BUFFER, NULL);
-  buffer_offset = cogl_indices_get_offset (indices);
-  index_size = sizeof_index_type (cogl_indices_get_type (indices));
+  index_size = cogl_indices_type_get_size (cogl_indices_get_indices_type (indices));
 
-  switch (cogl_indices_get_type (indices))
+  switch (cogl_indices_get_indices_type (indices))
     {
     case COGL_INDICES_TYPE_UNSIGNED_BYTE:
       indices_gl_type = GL_UNSIGNED_BYTE;
@@ -402,7 +382,7 @@ cogl_gl_framebuffer_draw_indexed_attributes (CoglFramebufferDriver  *driver,
       glDrawElements ((GLenum)mode,
                       n_vertices,
                       indices_gl_type,
-                      base + buffer_offset + index_size * first_vertex));
+                      base + index_size * first_vertex));
 
   _cogl_buffer_gl_unbind (buffer);
 }
@@ -424,11 +404,17 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
   CoglPixelFormat format = cogl_bitmap_get_format (bitmap);
   CoglPixelFormat internal_format =
     cogl_framebuffer_get_internal_format (framebuffer);
-  CoglPixelFormat required_format;
-  GLenum gl_intformat;
+  CoglDriverGLClass *driver_gl_klass = COGL_DRIVER_GL_GET_CLASS (ctx->driver);
+  CoglTextureDriverGL *tex_driver_gl = COGL_TEXTURE_DRIVER_GL (ctx->texture_driver);
+  CoglTextureDriverGLClass *tex_driver_gl_klass =
+    COGL_TEXTURE_DRIVER_GL_GET_CLASS (tex_driver_gl);
+  CoglPixelFormat read_format;
   GLenum gl_format;
   GLenum gl_type;
   GLenum gl_pack_enum = GL_FALSE;
+  int bytes_per_pixel;
+  gboolean format_mismatch;
+  gboolean stride_mismatch;
   gboolean pack_invert_set;
   int status = FALSE;
 
@@ -445,17 +431,11 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
   if (!cogl_framebuffer_is_y_flipped (framebuffer))
     y = framebuffer_height - y - height;
 
-  required_format = ctx->driver_vtable->pixel_format_to_gl (ctx,
-                                                            format,
-                                                            &gl_intformat,
-                                                            &gl_format,
-                                                            &gl_type);
-
   if (_cogl_has_private_feature (ctx, COGL_PRIVATE_FEATURE_MESA_PACK_INVERT) &&
       (source & COGL_READ_PIXELS_NO_FLIP) == 0 &&
       !cogl_framebuffer_is_y_flipped (framebuffer))
     {
-      if (ctx->driver == COGL_DRIVER_GLES2)
+      if (ctx->driver_id == COGL_DRIVER_ID_GLES2)
         gl_pack_enum = GL_PACK_REVERSE_ROW_ORDER_ANGLE;
       else
         gl_pack_enum = GL_PACK_INVERT_MESA;
@@ -466,39 +446,30 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
   else
     pack_invert_set = FALSE;
 
-  /* Under GLES only GL_RGBA with GL_UNSIGNED_BYTE as well as an
-     implementation specific format under
-     GL_IMPLEMENTATION_COLOR_READ_FORMAT_OES and
-     GL_IMPLEMENTATION_COLOR_READ_TYPE_OES is supported. We could try
-     to be more clever and check if the requested type matches that
-     but we would need some reliable functions to convert from GL
-     types to Cogl types. For now, lets just always read in
-     GL_RGBA/GL_UNSIGNED_BYTE and convert if necessary. We also need
-     to use this intermediate buffer if the rowstride has padding
-     because GLES does not support setting GL_ROW_LENGTH */
-  if ((!_cogl_has_private_feature
-       (ctx, COGL_PRIVATE_FEATURE_READ_PIXELS_ANY_FORMAT) &&
-       (gl_format != GL_RGBA || gl_type != GL_UNSIGNED_BYTE ||
-        cogl_bitmap_get_rowstride (bitmap) != 4 * width)) ||
-      (required_format & ~COGL_PREMULT_BIT) != (format & ~COGL_PREMULT_BIT))
+  read_format = driver_gl_klass->get_read_pixels_format (COGL_DRIVER_GL (ctx->driver),
+                                                         ctx,
+                                                         internal_format,
+                                                         format,
+                                                         &gl_format,
+                                                         &gl_type);
+
+  format_mismatch =
+    (read_format & ~COGL_PREMULT_BIT) != (format & ~COGL_PREMULT_BIT);
+
+  bytes_per_pixel = cogl_pixel_format_get_bytes_per_pixel (format, 0);
+  stride_mismatch =
+    !_cogl_has_private_feature (ctx,
+                                COGL_PRIVATE_FEATURE_READ_PIXELS_ANY_STRIDE) &&
+    (cogl_bitmap_get_rowstride (bitmap) != bytes_per_pixel * width);
+
+  if (format_mismatch || stride_mismatch)
     {
       CoglBitmap *tmp_bmp;
-      CoglPixelFormat read_format;
       int bpp, rowstride;
       uint8_t *tmp_data;
       gboolean succeeded;
 
-      if (_cogl_has_private_feature
-          (ctx, COGL_PRIVATE_FEATURE_READ_PIXELS_ANY_FORMAT))
-        read_format = required_format;
-      else
-        {
-          read_format = COGL_PIXEL_FORMAT_RGBA_8888;
-          gl_format = GL_RGBA;
-          gl_type = GL_UNSIGNED_BYTE;
-        }
-
-      if (COGL_PIXEL_FORMAT_CAN_HAVE_PREMULT (read_format))
+      if (_cogl_pixel_format_can_have_premult (read_format))
         {
           read_format = ((read_format & ~COGL_PREMULT_BIT) |
                          (internal_format & COGL_PREMULT_BIT));
@@ -514,7 +485,8 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
       bpp = cogl_pixel_format_get_bytes_per_pixel (read_format, 0);
       rowstride = cogl_bitmap_get_rowstride (tmp_bmp);
 
-      ctx->texture_driver->prep_gl_for_pixels_download (ctx,
+      tex_driver_gl_klass->prep_gl_for_pixels_download (tex_driver_gl,
+                                                        ctx,
                                                         rowstride,
                                                         width,
                                                         bpp);
@@ -533,9 +505,17 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
 
       _cogl_bitmap_gl_unbind (tmp_bmp);
 
+      if (!(internal_format & COGL_A_BIT))
+        {
+          _cogl_bitmap_set_format (tmp_bmp, read_format & ~COGL_PREMULT_BIT);
+          _cogl_bitmap_set_format (bitmap, format & ~COGL_PREMULT_BIT);
+        }
+
       succeeded = _cogl_bitmap_convert_into_bitmap (tmp_bmp, bitmap, error);
 
-      cogl_object_unref (tmp_bmp);
+      _cogl_bitmap_set_format (bitmap, format);
+
+      g_object_unref (tmp_bmp);
 
       if (!succeeded)
         goto EXIT;
@@ -554,7 +534,7 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
       /* We match the premultiplied state of the target buffer to the
        * premultiplied state of the framebuffer so that it will get
        * converted to the right format below */
-      if (COGL_PIXEL_FORMAT_CAN_HAVE_PREMULT (format))
+      if (_cogl_pixel_format_can_have_premult (format))
         bmp_format = ((format & ~COGL_PREMULT_BIT) |
                       (internal_format & COGL_PREMULT_BIT));
       else
@@ -566,11 +546,12 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
                                               width, height,
                                               rowstride);
       else
-        shared_bmp = cogl_object_ref (bitmap);
+        shared_bmp = g_object_ref (bitmap);
 
       bpp = cogl_pixel_format_get_bytes_per_pixel (bmp_format, 0);
 
-      ctx->texture_driver->prep_gl_for_pixels_download (ctx,
+      tex_driver_gl_klass->prep_gl_for_pixels_download (tex_driver_gl,
+                                                        ctx,
                                                         rowstride,
                                                         width,
                                                         bpp);
@@ -584,7 +565,7 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
        * to know if there was a problem */
       if (internal_error)
         {
-          cogl_object_unref (shared_bmp);
+          g_object_unref (shared_bmp);
           g_propagate_error (error, internal_error);
           goto EXIT;
         }
@@ -599,10 +580,11 @@ cogl_gl_framebuffer_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
       /* Convert to the premult format specified by the caller
          in-place. This will do nothing if the premult status is already
          correct. */
-      if (_cogl_bitmap_convert_premult_status (shared_bmp, format, error))
+      if (!(internal_format & COGL_A_BIT) ||
+          _cogl_bitmap_convert_premult_status (shared_bmp, format, error))
         succeeded = TRUE;
 
-      cogl_object_unref (shared_bmp);
+      g_object_unref (shared_bmp);
 
       if (!succeeded)
         goto EXIT;

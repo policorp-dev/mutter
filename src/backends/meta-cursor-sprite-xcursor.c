@@ -20,8 +20,10 @@
 
 #include "backends/meta-cursor-sprite-xcursor.h"
 
+#include "backends/meta-backend-private.h"
 #include "backends/meta-cursor.h"
 #include "backends/meta-cursor-renderer.h"
+#include "backends/meta-cursor-tracker-private.h"
 #include "clutter/clutter.h"
 #include "cogl/cogl.h"
 #include "meta/prefs.h"
@@ -44,50 +46,85 @@ struct _MetaCursorSpriteXcursor
 G_DEFINE_TYPE (MetaCursorSpriteXcursor, meta_cursor_sprite_xcursor,
                META_TYPE_CURSOR_SPRITE)
 
-static const char *
-translate_meta_cursor (MetaCursor cursor)
+const char *
+meta_cursor_get_name (MetaCursor cursor)
 {
   switch (cursor)
     {
     case META_CURSOR_DEFAULT:
-      return "left_ptr";
-    case META_CURSOR_NORTH_RESIZE:
-      return "top_side";
-    case META_CURSOR_SOUTH_RESIZE:
-      return "bottom_side";
-    case META_CURSOR_WEST_RESIZE:
-      return "left_side";
-    case META_CURSOR_EAST_RESIZE:
-      return "right_side";
-    case META_CURSOR_SE_RESIZE:
-      return "bottom_right_corner";
-    case META_CURSOR_SW_RESIZE:
-      return "bottom_left_corner";
-    case META_CURSOR_NE_RESIZE:
-      return "top_right_corner";
-    case META_CURSOR_NW_RESIZE:
-      return "top_left_corner";
-    case META_CURSOR_MOVE_OR_RESIZE_WINDOW:
-      return "fleur";
-    case META_CURSOR_BUSY:
-      return "watch";
-    case META_CURSOR_DND_IN_DRAG:
-      return "dnd-none";
-    case META_CURSOR_DND_MOVE:
-      return "dnd-move";
-    case META_CURSOR_DND_COPY:
-      return "dnd-copy";
-    case META_CURSOR_DND_UNSUPPORTED_TARGET:
-      return "dnd-none";
-    case META_CURSOR_POINTING_HAND:
-      return "hand2";
+      return "default";
+    case META_CURSOR_CONTEXT_MENU:
+        return "context-menu";
+    case META_CURSOR_HELP:
+        return "help";
+    case META_CURSOR_POINTER:
+        return "pointer";
+    case META_CURSOR_PROGRESS:
+        return "progress";
+    case META_CURSOR_WAIT:
+      return "wait";
+    case META_CURSOR_CELL:
+      return "cell";
     case META_CURSOR_CROSSHAIR:
       return "crosshair";
-    case META_CURSOR_IBEAM:
-      return "xterm";
-    case META_CURSOR_BLANK:
+    case META_CURSOR_TEXT:
+      return "text";
+    case META_CURSOR_VERTICAL_TEXT:
+        return "vertical-text";
+    case META_CURSOR_ALIAS:
+        return "alias";
+    case META_CURSOR_COPY:
+      return "copy";
+    case META_CURSOR_MOVE:
+      return "move";
+    case META_CURSOR_NO_DROP:
+      return "no-drop";
+    case META_CURSOR_NOT_ALLOWED:
+      return "not-allowed";
+    case META_CURSOR_GRAB:
+      return "grab";
+    case META_CURSOR_GRABBING:
+      return "grabbing";
+    case META_CURSOR_E_RESIZE:
+      return "e-resize";
+    case META_CURSOR_N_RESIZE:
+      return "n-resize";
+    case META_CURSOR_NE_RESIZE:
+      return "ne-resize";
+    case META_CURSOR_NW_RESIZE:
+      return "nw-resize";
+    case META_CURSOR_S_RESIZE:
+      return "s-resize";
+    case META_CURSOR_SE_RESIZE:
+      return "se-resize";
+    case META_CURSOR_SW_RESIZE:
+      return "sw-resize";
+    case META_CURSOR_W_RESIZE:
+      return "w-resize";
+    case META_CURSOR_EW_RESIZE:
+      return "ew-resize";
+    case META_CURSOR_NS_RESIZE:
+        return "ns-resize";
+    case META_CURSOR_NESW_RESIZE:
+        return "nesw-resize";
+    case META_CURSOR_NWSE_RESIZE:
+        return "nwse-resize";
+    case META_CURSOR_COL_RESIZE:
+        return "col-resize";
+    case META_CURSOR_ROW_RESIZE:
+        return "row-resize";
+    case META_CURSOR_ALL_SCROLL:
+      return "all-scroll";
+    case META_CURSOR_ZOOM_IN:
+      return "zoom-in";
+    case META_CURSOR_ZOOM_OUT:
+      return "zoom-out";
+    case META_CURSOR_DND_ASK:
+      return "dnd-ask";
+    case META_CURSOR_ALL_RESIZE:
+      return "all-resize";
+    case META_CURSOR_INVALID:
     case META_CURSOR_NONE:
-    case META_CURSOR_LAST:
       break;
     }
 
@@ -95,31 +132,90 @@ translate_meta_cursor (MetaCursor cursor)
   return NULL;
 }
 
-static Cursor
-create_blank_cursor (Display *xdisplay)
+const char *
+meta_cursor_get_legacy_name (MetaCursor cursor)
 {
-  Pixmap pixmap;
-  XColor color;
-  Cursor cursor;
-  XGCValues gc_values;
-  GC gc;
+  switch (cursor)
+    {
+    case META_CURSOR_DEFAULT:
+      return "left_ptr";
+    case META_CURSOR_CONTEXT_MENU:
+        return "left_ptr";
+    case META_CURSOR_HELP:
+        return "question_arrow";
+    case META_CURSOR_POINTER:
+        return "hand";
+    case META_CURSOR_PROGRESS:
+        return "left_ptr_watch";
+    case META_CURSOR_WAIT:
+      return "watch";
+    case META_CURSOR_CELL:
+      return "crosshair";
+    case META_CURSOR_CROSSHAIR:
+      return "cross";
+    case META_CURSOR_TEXT:
+      return "xterm";
+    case META_CURSOR_VERTICAL_TEXT:
+        return "xterm";
+    case META_CURSOR_ALIAS:
+        return "dnd-link";
+    case META_CURSOR_COPY:
+      return "dnd-copy";
+    case META_CURSOR_MOVE:
+      return "dnd-move";
+    case META_CURSOR_NO_DROP:
+      return "dnd-none";
+    case META_CURSOR_NOT_ALLOWED:
+      return "crossed_circle";
+    case META_CURSOR_GRAB:
+      return "hand2";
+    case META_CURSOR_GRABBING:
+      return "hand2";
+    case META_CURSOR_E_RESIZE:
+      return "right_side";
+    case META_CURSOR_N_RESIZE:
+      return "top_side";
+    case META_CURSOR_NE_RESIZE:
+      return "top_right_corner";
+    case META_CURSOR_NW_RESIZE:
+      return "top_left_corner";
+    case META_CURSOR_S_RESIZE:
+      return "bottom_side";
+    case META_CURSOR_SE_RESIZE:
+      return "bottom_right_corner";
+    case META_CURSOR_SW_RESIZE:
+      return "bottom_left_corner";
+    case META_CURSOR_W_RESIZE:
+      return "left_side";
+    case META_CURSOR_EW_RESIZE:
+      return "h_double_arrow";
+    case META_CURSOR_NS_RESIZE:
+        return "v_double_arrow";
+    case META_CURSOR_NESW_RESIZE:
+        return "fd_double_arrow";
+    case META_CURSOR_NWSE_RESIZE:
+        return "bd_double_arrow";
+    case META_CURSOR_COL_RESIZE:
+        return "h_double_arrow";
+    case META_CURSOR_ROW_RESIZE:
+        return "v_double_arrow";
+    case META_CURSOR_ALL_SCROLL:
+      return "left_ptr";
+    case META_CURSOR_ZOOM_IN:
+      return "left_ptr";
+    case META_CURSOR_ZOOM_OUT:
+      return "left_ptr";
+    case META_CURSOR_DND_ASK:
+      return "dnd-copy";
+    case META_CURSOR_ALL_RESIZE:
+      return "dnd-move";
+    case META_CURSOR_INVALID:
+    case META_CURSOR_NONE:
+      break;
+    }
 
-  pixmap = XCreatePixmap (xdisplay, DefaultRootWindow (xdisplay), 1, 1, 1);
-
-  gc_values.foreground = BlackPixel (xdisplay, DefaultScreen (xdisplay));
-  gc = XCreateGC (xdisplay, pixmap, GCForeground, &gc_values);
-
-  XFillRectangle (xdisplay, pixmap, gc, 0, 0, 1, 1);
-
-  color.pixel = 0;
-  color.red = color.blue = color.green = 0;
-
-  cursor = XCreatePixmapCursor (xdisplay, pixmap, pixmap, &color, &color, 1, 1);
-
-  XFreeGC (xdisplay, gc);
-  XFreePixmap (xdisplay, pixmap);
-
-  return cursor;
+  g_assert_not_reached ();
+  return NULL;
 }
 
 static XcursorImages *
@@ -127,8 +223,8 @@ create_blank_cursor_images (void)
 {
   XcursorImages *images;
 
-  images = XcursorImagesCreate (1);
-  images->images[0] = XcursorImageCreate (1, 1);
+  images = xcursor_images_create (1);
+  images->images[0] = xcursor_image_create (1, 1);
 
   images->images[0]->xhot = 0;
   images->images[0]->yhot = 0;
@@ -143,37 +239,35 @@ meta_cursor_sprite_xcursor_get_cursor (MetaCursorSpriteXcursor *sprite_xcursor)
   return sprite_xcursor->cursor;
 }
 
-Cursor
-meta_create_x_cursor (Display    *xdisplay,
-                      MetaCursor  cursor)
-{
-  if (cursor == META_CURSOR_BLANK)
-    return create_blank_cursor (xdisplay);
-
-  return XcursorLibraryLoadCursor (xdisplay, translate_meta_cursor (cursor));
-}
-
 static XcursorImages *
-load_cursor_on_client (MetaCursor cursor, int scale)
+load_cursor_on_client (MetaCursor cursor,
+                       int        scale)
 {
   XcursorImages *xcursor_images;
-  int fallback_size;
+  int fallback_size, i;
+  const char *cursor_names[2];
 
-  if (cursor == META_CURSOR_BLANK)
+  if (cursor == META_CURSOR_NONE)
     return create_blank_cursor_images ();
 
-  xcursor_images =
-    XcursorLibraryLoadImages (translate_meta_cursor (cursor),
-                              meta_prefs_get_cursor_theme (),
-                              meta_prefs_get_cursor_size () * scale);
-  if (xcursor_images)
-    return xcursor_images;
+  cursor_names[0] = meta_cursor_get_name (cursor);
+  cursor_names[1] = meta_cursor_get_legacy_name (cursor);
+
+  for (i = 0; i < G_N_ELEMENTS (cursor_names); i++)
+    {
+      xcursor_images =
+        xcursor_library_load_images (cursor_names[i],
+                                     meta_prefs_get_cursor_theme (),
+                                     meta_prefs_get_cursor_size () * scale);
+      if (xcursor_images)
+        return xcursor_images;
+    }
 
   g_warning_once ("No cursor theme available, please install a cursor theme");
 
   fallback_size = 24 * scale;
-  xcursor_images = XcursorImagesCreate (1);
-  xcursor_images->images[0] = XcursorImageCreate (fallback_size, fallback_size);
+  xcursor_images = xcursor_images_create (1);
+  xcursor_images->images[0] = xcursor_image_create (fallback_size, fallback_size);
   xcursor_images->images[0]->xhot = 0;
   xcursor_images->images[0]->yhot = 0;
   memset (xcursor_images->images[0]->pixels, 0xc0,
@@ -185,12 +279,16 @@ static void
 load_from_current_xcursor_image (MetaCursorSpriteXcursor *sprite_xcursor)
 {
   MetaCursorSprite *sprite = META_CURSOR_SPRITE (sprite_xcursor);
+  MetaCursorTracker *cursor_tracker =
+    meta_cursor_sprite_get_cursor_tracker (sprite);
+  MetaBackend *backend =
+    meta_cursor_tracker_get_backend (cursor_tracker);
   XcursorImage *xc_image;
   int width, height, rowstride;
   CoglPixelFormat cogl_format;
   ClutterBackend *clutter_backend;
   CoglContext *cogl_context;
-  CoglTexture2D *texture;
+  CoglTexture *texture;
   GError *error = NULL;
   int hotspot_x, hotspot_y;
 
@@ -202,12 +300,12 @@ load_from_current_xcursor_image (MetaCursorSpriteXcursor *sprite_xcursor)
   rowstride = width * 4;
 
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
-  cogl_format = COGL_PIXEL_FORMAT_BGRA_8888;
+  cogl_format = COGL_PIXEL_FORMAT_BGRA_8888_PRE;
 #else
-  cogl_format = COGL_PIXEL_FORMAT_ARGB_8888;
+  cogl_format = COGL_PIXEL_FORMAT_ARGB_8888_PRE;
 #endif
 
-  clutter_backend = clutter_get_default_backend ();
+  clutter_backend = meta_backend_get_clutter_backend (backend);
   cogl_context = clutter_backend_get_cogl_context (clutter_backend);
   texture = cogl_texture_2d_new_from_data (cogl_context,
                                            width, height,
@@ -223,9 +321,11 @@ load_from_current_xcursor_image (MetaCursorSpriteXcursor *sprite_xcursor)
 
   if (meta_is_wayland_compositor ())
     {
-      hotspot_x = ((int) (xc_image->xhot / sprite_xcursor->theme_scale) *
+      hotspot_x = ((int) roundf ((float) xc_image->xhot /
+                                 sprite_xcursor->theme_scale) *
                    sprite_xcursor->theme_scale);
-      hotspot_y = ((int) (xc_image->yhot / sprite_xcursor->theme_scale) *
+      hotspot_y = ((int) roundf ((float) xc_image->yhot /
+                                 sprite_xcursor->theme_scale) *
                    sprite_xcursor->theme_scale);
     }
   else
@@ -234,10 +334,10 @@ load_from_current_xcursor_image (MetaCursorSpriteXcursor *sprite_xcursor)
       hotspot_y = xc_image->yhot;
     }
   meta_cursor_sprite_set_texture (sprite,
-                                  COGL_TEXTURE (texture),
+                                  texture,
                                   hotspot_x, hotspot_y);
 
-  g_clear_pointer (&texture, cogl_object_unref);
+  g_clear_object (&texture);
 }
 
 void
@@ -247,6 +347,25 @@ meta_cursor_sprite_xcursor_set_theme_scale (MetaCursorSpriteXcursor *sprite_xcur
   if (sprite_xcursor->theme_scale != theme_scale)
     sprite_xcursor->theme_dirty = TRUE;
   sprite_xcursor->theme_scale = theme_scale;
+}
+
+void
+meta_cursor_sprite_xcursor_get_scaled_image_size (MetaCursorSpriteXcursor *sprite_xcursor,
+                                                  int                     *width,
+                                                  int                     *height)
+{
+  XcursorImage *current_image;
+  int theme_size;
+  int image_size;
+  float effective_theme_scale;
+
+  current_image = meta_cursor_sprite_xcursor_get_current_image (sprite_xcursor);
+  theme_size = meta_prefs_get_cursor_size ();
+  image_size = current_image->size;
+  effective_theme_scale = (float) theme_size / image_size;
+
+  *width = (int) ceilf (current_image->width * effective_theme_scale);
+  *height = (int) ceilf (current_image->width * effective_theme_scale);
 }
 
 static gboolean
@@ -298,7 +417,7 @@ load_cursor_from_theme (MetaCursorSprite *sprite)
 {
   MetaCursorSpriteXcursor *sprite_xcursor = META_CURSOR_SPRITE_XCURSOR (sprite);
 
-  g_assert (sprite_xcursor->cursor != META_CURSOR_NONE);
+  g_assert (sprite_xcursor->cursor != META_CURSOR_INVALID);
 
   sprite_xcursor->theme_dirty = FALSE;
 
@@ -306,7 +425,7 @@ load_cursor_from_theme (MetaCursorSprite *sprite)
   if (sprite_xcursor->xcursor_images)
     {
       meta_cursor_sprite_clear_texture (sprite);
-      XcursorImagesDestroy (sprite_xcursor->xcursor_images);
+      xcursor_images_destroy (sprite_xcursor->xcursor_images);
     }
 
   sprite_xcursor->current_frame = 0;
@@ -342,14 +461,49 @@ meta_cursor_sprite_xcursor_invalidate (MetaCursorSprite *sprite)
   sprite_xcursor->invalidated = TRUE;
 }
 
+static ClutterColorState *
+ensure_xcursor_color_state (MetaCursorTracker *cursor_tracker)
+{
+  ClutterColorState *color_state;
+  static GOnce quark_once = G_ONCE_INIT;
+
+  g_once (&quark_once, (GThreadFunc) g_quark_from_static_string,
+          (gpointer) "-meta-cursor-sprite-xcursor-color-state");
+
+  color_state = g_object_get_qdata (G_OBJECT (cursor_tracker),
+                                    GPOINTER_TO_INT (quark_once.retval));
+  if (!color_state)
+    {
+      MetaBackend *backend =
+        meta_cursor_tracker_get_backend (cursor_tracker);
+      ClutterContext *clutter_context =
+        meta_backend_get_clutter_context (backend);
+      ClutterColorManager *color_manager =
+        clutter_context_get_color_manager (clutter_context);
+
+      color_state = clutter_color_manager_get_default_color_state (color_manager);
+
+      g_object_set_qdata_full (G_OBJECT (cursor_tracker),
+                               GPOINTER_TO_INT (quark_once.retval),
+                               g_object_ref (color_state),
+                               g_object_unref);
+    }
+
+  return color_state;
+}
+
 MetaCursorSpriteXcursor *
 meta_cursor_sprite_xcursor_new (MetaCursor         cursor,
                                 MetaCursorTracker *cursor_tracker)
 {
   MetaCursorSpriteXcursor *sprite_xcursor;
+  ClutterColorState *color_state;
+
+  color_state = ensure_xcursor_color_state (cursor_tracker);
 
   sprite_xcursor = g_object_new (META_TYPE_CURSOR_SPRITE_XCURSOR,
                                  "cursor-tracker", cursor_tracker,
+                                 "color-state", color_state,
                                  NULL);
   sprite_xcursor->cursor = cursor;
 
@@ -362,7 +516,7 @@ meta_cursor_sprite_xcursor_finalize (GObject *object)
   MetaCursorSpriteXcursor *sprite_xcursor = META_CURSOR_SPRITE_XCURSOR (object);
 
   g_clear_pointer (&sprite_xcursor->xcursor_images,
-                   XcursorImagesDestroy);
+                   xcursor_images_destroy);
 
   G_OBJECT_CLASS (meta_cursor_sprite_xcursor_parent_class)->finalize (object);
 }

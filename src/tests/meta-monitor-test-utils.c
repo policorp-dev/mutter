@@ -28,7 +28,8 @@
 #include "backends/meta-logical-monitor.h"
 #include "backends/meta-monitor-config-manager.h"
 #include "backends/meta-monitor-config-store.h"
-#include "backends/meta-output.h"
+#include "tests/meta-crtc-test.h"
+#include "tests/meta-output-test.h"
 #include "tests/meta-test-utils.h"
 #include "meta-backend-test.h"
 
@@ -128,7 +129,7 @@ check_monitor_mode (MetaMonitor         *monitor,
 
   output = output_from_winsys_id (backend,
                                   data->expect_crtc_mode_iter->output);
-  g_assert (monitor_crtc_mode->output == output);
+  g_assert_true (monitor_crtc_mode->output == output);
 
   expect_crtc_mode_index = data->expect_crtc_mode_iter->crtc_mode;
   if (expect_crtc_mode_index == -1)
@@ -142,19 +143,22 @@ check_monitor_mode (MetaMonitor         *monitor,
       crtc_mode = g_list_nth_data (meta_gpu_get_modes (gpu),
                                    expect_crtc_mode_index);
     }
-  g_assert (monitor_crtc_mode->crtc_mode == crtc_mode);
+  g_assert_true (monitor_crtc_mode->crtc_mode == crtc_mode);
 
   if (crtc_mode)
     {
       const MetaCrtcModeInfo *crtc_mode_info =
         meta_crtc_mode_get_info (crtc_mode);
       float refresh_rate;
+      MetaCrtcRefreshRateMode refresh_rate_mode;
       MetaCrtcModeFlag flags;
 
       refresh_rate = meta_monitor_mode_get_refresh_rate (mode);
+      refresh_rate_mode = meta_monitor_mode_get_refresh_rate_mode (mode);
       flags = meta_monitor_mode_get_flags (mode);
 
       g_assert_cmpfloat (refresh_rate, ==, crtc_mode_info->refresh_rate);
+      g_assert_cmpint (refresh_rate_mode, ==, crtc_mode_info->refresh_rate_mode);
       g_assert_cmpint (flags, ==, (crtc_mode_info->flags &
                                    HANDLED_CRTC_MODE_FLAGS));
     }
@@ -194,7 +198,7 @@ check_current_monitor_mode (MetaMonitor         *monitor,
       crtc_config = meta_crtc_get_config (crtc);
       g_assert_nonnull (crtc_config);
 
-      g_assert (monitor_crtc_mode->crtc_mode == crtc_config->mode);
+      g_assert_true (monitor_crtc_mode->crtc_mode == crtc_config->mode);
 
       logical_monitor = meta_monitor_get_logical_monitor (monitor);
       g_assert_nonnull (logical_monitor);
@@ -208,7 +212,7 @@ check_current_monitor_mode (MetaMonitor         *monitor,
 
 static MetaLogicalMonitor *
 logical_monitor_from_layout (MetaMonitorManager *monitor_manager,
-                             MetaRectangle      *layout)
+                             MtkRectangle       *layout)
 {
   GList *l;
 
@@ -216,7 +220,7 @@ logical_monitor_from_layout (MetaMonitorManager *monitor_manager,
     {
       MetaLogicalMonitor *logical_monitor = l->data;
 
-      if (meta_rectangle_equal (layout, &logical_monitor->rect))
+      if (mtk_rectangle_equal (layout, &logical_monitor->rect))
         return logical_monitor;
     }
 
@@ -233,6 +237,12 @@ check_logical_monitor (MetaMonitorManager             *monitor_manager,
   GList *monitors;
   GList *l;
   int i;
+
+  g_debug ("Checking logical monitor with layout %dx%d+%d+%d",
+           test_logical_monitor->layout.width,
+           test_logical_monitor->layout.height,
+           test_logical_monitor->layout.x,
+           test_logical_monitor->layout.y);
 
   logical_monitor = logical_monitor_from_layout (monitor_manager,
                                                  &test_logical_monitor->layout);
@@ -258,7 +268,7 @@ check_logical_monitor (MetaMonitorManager             *monitor_manager,
                     test_logical_monitor->transform);
 
   if (logical_monitor == monitor_manager->primary_logical_monitor)
-    g_assert (meta_logical_monitor_is_primary (logical_monitor));
+    g_assert_true (meta_logical_monitor_is_primary (logical_monitor));
 
   primary_output = NULL;
   monitors = meta_logical_monitor_get_monitors (logical_monitor);
@@ -287,7 +297,7 @@ check_logical_monitor (MetaMonitorManager             *monitor_manager,
           MetaOutput *output = l_output->data;
           MetaCrtc *crtc;
 
-          g_assert (meta_output_get_monitor (output) == monitor);
+          g_assert_true (meta_output_get_monitor (output) == monitor);
 
           if (meta_output_is_primary (output))
             {
@@ -298,10 +308,10 @@ check_logical_monitor (MetaMonitorManager             *monitor_manager,
           crtc = meta_output_get_assigned_crtc (output);
           if (crtc)
             {
-              g_assert (meta_monitor_get_logical_monitor (monitor) ==
-                        logical_monitor);
-              g_assert (g_list_find ((GList *) meta_crtc_get_outputs (crtc),
-                                     output));
+              g_assert_true (meta_monitor_get_logical_monitor (monitor) ==
+                             logical_monitor);
+              g_assert_true (g_list_find ((GList *) meta_crtc_get_outputs (crtc),
+                                          output));
               *all_crtcs = g_list_remove (*all_crtcs, crtc);
             }
           else
@@ -388,8 +398,9 @@ meta_check_monitor_configuration (MetaContext           *context,
           MetaOutput *output = l_output->data;
           uint64_t winsys_id = expect->monitors[i].outputs[j];
           unsigned int output_max_bpc;
+          MetaOutputRGBRange rgb_range = META_OUTPUT_RGB_RANGE_AUTO;
 
-          g_assert (output == output_from_winsys_id (backend, winsys_id));
+          g_assert_true (output == output_from_winsys_id (backend, winsys_id));
           g_assert_cmpint (expect->monitors[i].is_underscanning,
                            ==,
                            meta_output_is_underscanning (output));
@@ -398,6 +409,10 @@ meta_check_monitor_configuration (MetaContext           *context,
             output_max_bpc = 0;
 
           g_assert_cmpint (expect->monitors[i].max_bpc, ==, output_max_bpc);
+
+          if (expect->monitors[i].rgb_range)
+            rgb_range = expect->monitors[i].rgb_range;
+          g_assert_cmpint (rgb_range, ==, meta_output_peek_rgb_range (output));
         }
 
       meta_monitor_get_physical_dimensions (monitor, &width_mm, &height_mm);
@@ -432,11 +447,13 @@ meta_check_monitor_configuration (MetaContext           *context,
           int width;
           int height;
           float refresh_rate;
+          MetaCrtcRefreshRateMode refresh_rate_mode;
           MetaCrtcModeFlag flags;
           CheckMonitorModeData data;
 
           meta_monitor_mode_get_resolution (mode, &width, &height);
           refresh_rate = meta_monitor_mode_get_refresh_rate (mode);
+          refresh_rate_mode = meta_monitor_mode_get_refresh_rate_mode (mode);
           flags = meta_monitor_mode_get_flags (mode);
 
           g_debug ("Checking mode %dx%d @ %f", width, height, refresh_rate);
@@ -450,6 +467,9 @@ meta_check_monitor_configuration (MetaContext           *context,
           g_assert_cmpfloat (refresh_rate,
                              ==,
                              expect->monitors[i].modes[j].refresh_rate);
+          g_assert_cmpint (refresh_rate_mode,
+                           ==,
+                           expect->monitors[i].modes[j].refresh_rate_mode);
           g_assert_cmpint (flags,
                            ==,
                            expect->monitors[i].modes[j].flags);
@@ -473,11 +493,11 @@ meta_check_monitor_configuration (MetaContext           *context,
         expected_current_mode = g_list_nth (modes,
                                             expected_current_mode_index)->data;
 
-      g_assert (current_mode == expected_current_mode);
+      g_assert_true (current_mode == expected_current_mode);
       if (current_mode)
-        g_assert (meta_monitor_is_active (monitor));
+        g_assert_true (meta_monitor_is_active (monitor));
       else
-        g_assert (!meta_monitor_is_active (monitor));
+        g_assert_false (meta_monitor_is_active (monitor));
 
       if (current_mode)
         {
@@ -495,7 +515,7 @@ meta_check_monitor_configuration (MetaContext           *context,
         }
 
       meta_monitor_derive_current_mode (monitor);
-      g_assert (current_mode == meta_monitor_get_current_mode (monitor));
+      g_assert_true (current_mode == meta_monitor_get_current_mode (monitor));
     }
 
   n_logical_monitors =
@@ -524,16 +544,16 @@ meta_check_monitor_configuration (MetaContext           *context,
       logical_monitor =
         logical_monitor_from_layout (monitor_manager,
                                      &test_logical_monitor->layout);
-      g_assert (logical_monitor == monitor_manager->primary_logical_monitor);
+      g_assert_true (logical_monitor == monitor_manager->primary_logical_monitor);
     }
 
   all_crtcs = NULL;
   for (l = meta_backend_get_gpus (backend); l; l = l->next)
     {
-      MetaGpu *gpu = l->data;
+      MetaGpu *current_gpu = l->data;
 
       all_crtcs = g_list_concat (all_crtcs,
-                                 g_list_copy (meta_gpu_get_crtcs (gpu)));
+                                 g_list_copy (meta_gpu_get_crtcs (current_gpu)));
     }
 
   for (i = 0; i < expect->n_logical_monitors; i++)
@@ -572,7 +592,7 @@ meta_check_monitor_configuration (MetaContext           *context,
           const GList *outputs = meta_crtc_get_outputs (crtc);
           const GList *l_output;
           MetaRendererView *view;
-          cairo_rectangle_int_t view_layout;
+          MtkRectangle view_layout;
 
           for (l_output = outputs;
                l_output;
@@ -583,7 +603,7 @@ meta_check_monitor_configuration (MetaContext           *context,
               g_debug ("Checking CRTC Output %d",
                        g_list_index ((GList *) outputs, output));
 
-              g_assert (meta_output_get_assigned_crtc (output) == crtc);
+              g_assert_true (meta_output_get_assigned_crtc (output) == crtc);
               g_assert_null (g_list_find (l_output->next, output));
             }
 
@@ -592,7 +612,7 @@ meta_check_monitor_configuration (MetaContext           *context,
           expected_current_mode =
             g_list_nth_data (meta_gpu_get_modes (gpu),
                              expect->crtcs[i].current_mode);
-          g_assert (crtc_config->mode == expected_current_mode);
+          g_assert_true (crtc_config->mode == expected_current_mode);
 
           g_assert_cmpuint (crtc_config->transform,
                             ==,
@@ -647,6 +667,7 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
       crtc_mode_info->width = setup->modes[i].width;
       crtc_mode_info->height = setup->modes[i].height;
       crtc_mode_info->refresh_rate = setup->modes[i].refresh_rate;
+      crtc_mode_info->refresh_rate_mode = setup->modes[i].refresh_rate_mode;
       crtc_mode_info->flags = setup->modes[i].flags;
 
       mode = g_object_new (META_TYPE_CRTC_MODE,
@@ -664,6 +685,7 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
 
       crtc = g_object_new (META_TYPE_CRTC_TEST,
                            "id", (uint64_t) i + 1,
+                           "backend", backend,
                            "gpu", meta_test_get_gpu (backend),
                            NULL);
       if (setup->crtcs[i].disable_gamma_lut)
@@ -676,7 +698,6 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
   for (i = 0; i < setup->n_outputs; i++)
     {
       MetaOutput *output;
-      MetaOutputTest *output_test;
       int crtc_index;
       MetaCrtc *crtc;
       int preferred_mode_index;
@@ -686,7 +707,6 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
       int j;
       MetaCrtc **possible_crtcs;
       int n_possible_crtcs;
-      int scale;
       gboolean is_laptop_panel;
       char *serial;
       g_autoptr (MetaOutputInfo) output_info = NULL;
@@ -711,7 +731,7 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
           int mode_index;
 
           mode_index = setup->outputs[i].modes[j];
-          modes[j] = g_list_nth_data (test_setup->modes, mode_index);
+          modes[j] = g_object_ref (g_list_nth_data (test_setup->modes, mode_index));
         }
 
       n_possible_crtcs = setup->outputs[i].n_possible_crtcs;
@@ -724,10 +744,6 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
           possible_crtcs[j] = g_list_nth_data (test_setup->crtcs,
                                                possible_crtc_index);
         }
-
-      scale = setup->outputs[i].scale;
-      if (scale < 1)
-        scale = 1;
 
       is_laptop_panel = setup->outputs[i].is_laptop_panel;
 
@@ -755,9 +771,11 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
           output_info->suggested_x = -1;
           output_info->suggested_y = -1;
         }
+      output_info->backlight_min = setup->outputs[i].backlight_min;
+      output_info->backlight_max = setup->outputs[i].backlight_max;
       output_info->width_mm = setup->outputs[i].width_mm;
       output_info->height_mm = setup->outputs[i].height_mm;
-      output_info->subpixel_order = COGL_SUBPIXEL_ORDER_UNKNOWN;
+      output_info->subpixel_order = META_SUBPIXEL_ORDER_UNKNOWN;
       output_info->preferred_mode = preferred_mode;
       output_info->n_modes = n_modes;
       output_info->modes = modes;
@@ -779,6 +797,10 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
                                          (uint8_t *) &setup->outputs[i].edid_info,
                                          sizeof (setup->outputs[i].edid_info));
         }
+      output_info->supported_color_spaces =
+        setup->outputs[i].supported_color_spaces;
+      output_info->supported_hdr_eotfs =
+        setup->outputs[i].supported_hdr_eotfs;
 
       output = g_object_new (META_TYPE_OUTPUT_TEST,
                              "id", (uint64_t) i,
@@ -786,8 +808,18 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
                              "info", output_info,
                              NULL);
 
-      output_test = META_OUTPUT_TEST (output);
-      output_test->scale = scale;
+
+      if (!setup->outputs[i].dynamic_scale)
+        {
+          MetaOutputTest *output_test = META_OUTPUT_TEST (output);
+          float scale;
+
+          scale = setup->outputs[i].scale;
+          if (scale == 0.0f)
+            scale = 1.0f;
+
+          meta_output_test_override_scale (output_test, scale);
+        }
 
       if (crtc)
         {
@@ -797,6 +829,7 @@ meta_create_monitor_test_setup (MetaBackend          *backend,
             .is_underscanning = setup->outputs[i].is_underscanning,
             .has_max_bpc = !!setup->outputs[i].max_bpc,
             .max_bpc = setup->outputs[i].max_bpc,
+            .rgb_range = setup->outputs[i].rgb_range,
           };
           meta_output_assign_crtc (output, crtc, &output_assignment);
         }

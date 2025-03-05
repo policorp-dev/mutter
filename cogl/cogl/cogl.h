@@ -28,8 +28,7 @@
  *
  */
 
-#ifndef __COGL_H__
-#define __COGL_H__
+#pragma once
 
 #ifdef COGL_COMPILATION
 #error "<cogl/cogl.h> shouldn't be included internally"
@@ -44,92 +43,53 @@
 
 #include <graphene.h>
 
-/* We currently keep gtype integration delimited in case we eventually
- * want to split it out into a separate utility library when Cogl
- * becomes a standalone project. (like cairo-gobject.so)
- */
-#define _COGL_SUPPORTS_GTYPE_INTEGRATION
+#include "cogl/cogl-macros.h"
 
-/*
- * API common to the 1.x and 2.0 api...
- */
+#include "cogl/cogl-bitmap.h"
+#include "cogl/cogl-color.h"
+#include "cogl/cogl-dma-buf-handle.h"
+#include "cogl/cogl-matrix-stack.h"
+#include "cogl/cogl-offscreen.h"
+#include "cogl/cogl-pixel-format.h"
+#include "cogl/cogl-texture.h"
+#include "cogl/cogl-types.h"
 
-#include <cogl/cogl-defines.h>
-#include <cogl/cogl-macros.h>
 
-#include <cogl/cogl-object.h>
-#include <cogl/cogl1-context.h>
-#include <cogl/cogl-bitmap.h>
-#include <cogl/cogl-color.h>
-#include <cogl/cogl-dma-buf-handle.h>
-#include <cogl/cogl-matrix-stack.h>
-#include <cogl/cogl-offscreen.h>
-#include <cogl/cogl-pixel-format.h>
-#include <cogl/cogl-texture.h>
-#include <cogl/cogl-types.h>
-
-/*
- * 1.x only api...
- */
-#if 0
-#ifndef COGL_ENABLE_EXPERIMENTAL_2_0_API
-#warning
-#endif
-#endif
-
-/* It would be good to move these casts up into 1.x only api if we can
- * update Clutter, Mutter and GnomeShell to avoid redundant casts when
- * they enable the experimental api... */
-#include <cogl/deprecated/cogl-type-casts.h>
-
-#include <cogl/deprecated/cogl-shader.h>
+#include "cogl/deprecated/cogl-shader.h"
 
 #ifdef COGL_ENABLE_MUTTER_API
-#include <cogl/cogl-mutter.h>
+#include "cogl/cogl-mutter.h"
 #endif
 
-#include <cogl/cogl-swap-chain.h>
-#include <cogl/cogl-renderer.h>
-#include <cogl/cogl-output.h>
-#include <cogl/cogl-display.h>
-#include <cogl/cogl-context.h>
-#include <cogl/cogl-buffer.h>
-#include <cogl/cogl-pixel-buffer.h>
-#include <cogl/cogl-texture-2d.h>
-#include <cogl/cogl-texture-2d-sliced.h>
-#include <cogl/cogl-sub-texture.h>
-#include <cogl/cogl-atlas-texture.h>
-#include <cogl/cogl-meta-texture.h>
-#include <cogl/cogl-primitive-texture.h>
-#include <cogl/cogl-index-buffer.h>
-#include <cogl/cogl-attribute-buffer.h>
-#include <cogl/cogl-indices.h>
-#include <cogl/cogl-attribute.h>
-#include <cogl/cogl-primitive.h>
-#include <cogl/cogl-depth-state.h>
-#include <cogl/cogl-pipeline.h>
-#include <cogl/cogl-pipeline-state.h>
-#include <cogl/cogl-pipeline-layer-state.h>
-#include <cogl/cogl-snippet.h>
-#include <cogl/cogl-framebuffer.h>
-#include <cogl/cogl-onscreen.h>
-#include <cogl/cogl-frame-info.h>
-#include <cogl/cogl-poll.h>
-#include <cogl/cogl-fence.h>
-#include <cogl/cogl-glib-source.h>
-#include <cogl/cogl-trace.h>
-#include <cogl/cogl-scanout.h>
-#include <cogl/cogl-graphene.h>
-/* XXX: This will definitely go away once all the Clutter winsys
- * code has been migrated down into Cogl! */
-#include <cogl/deprecated/cogl-clutter.h>
-
-/**
- * SECTION:cogl
- * @short_description: General purpose API
- *
- * General utility functions for COGL.
- */
+#include "cogl/cogl-renderer.h"
+#include "cogl/cogl-display.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-buffer.h"
+#include "cogl/cogl-pixel-buffer.h"
+#include "cogl/cogl-texture-2d.h"
+#include "cogl/cogl-texture-2d-sliced.h"
+#include "cogl/cogl-sub-texture.h"
+#include "cogl/cogl-atlas.h"
+#include "cogl/cogl-atlas-texture.h"
+#include "cogl/cogl-meta-texture.h"
+#include "cogl/cogl-enum-types.h"
+#include "cogl/cogl-index-buffer.h"
+#include "cogl/cogl-attribute-buffer.h"
+#include "cogl/cogl-indices.h"
+#include "cogl/cogl-attribute.h"
+#include "cogl/cogl-primitive.h"
+#include "cogl/cogl-depth-state.h"
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-pipeline-state.h"
+#include "cogl/cogl-pipeline-layer-state.h"
+#include "cogl/cogl-snippet.h"
+#include "cogl/cogl-framebuffer.h"
+#include "cogl/cogl-onscreen.h"
+#include "cogl/cogl-frame-info.h"
+#include "cogl/cogl-glib-source.h"
+#include "cogl/cogl-trace.h"
+#include "cogl/cogl-scanout.h"
+#include "cogl/cogl-graphene.h"
 
 /* The gobject introspection scanner seems to parse public headers in
  * isolation which means we need to be extra careful about how we
@@ -143,5 +103,3 @@
 #undef __COGL_H_INSIDE__
 #undef __COGL_MUST_UNDEF_COGL_H_INSIDE__
 #endif
-
-#endif /* __COGL_H__ */

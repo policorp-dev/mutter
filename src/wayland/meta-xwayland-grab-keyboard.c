@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Olivier Fourdan <ofourdan@redhat.com>
@@ -26,6 +24,7 @@
 
 #include "meta/meta-backend.h"
 #include "backends/meta-settings-private.h"
+#include "wayland/meta-wayland-filter-manager.h"
 #include "wayland/meta-wayland-private.h"
 #include "wayland/meta-wayland-versions.h"
 #include "wayland/meta-wayland-seat.h"
@@ -36,60 +35,23 @@ struct _MetaXwaylandKeyboardActiveGrab
 {
   MetaWaylandSurface *surface;
   MetaWaylandSeat *seat;
-  MetaWaylandKeyboardGrab keyboard_grab;
+  MetaWaylandEventHandler *handler;
   gulong surface_destroyed_handler;
   gulong shortcuts_restored_handler;
   gulong window_associate_handler;
   struct wl_resource *resource;
 };
 
-static gboolean
-meta_xwayland_keyboard_grab_key (MetaWaylandKeyboardGrab *grab,
-                                 const ClutterEvent      *event)
-{
-  MetaXwaylandKeyboardActiveGrab *active_grab;
-  MetaWaylandKeyboard *keyboard;
-
-  active_grab = wl_container_of (grab, active_grab, keyboard_grab);
-  keyboard = active_grab->keyboard_grab.keyboard;
-
-  /* Force focus onto the surface who has the active grab on the keyboard */
-  if (active_grab->surface != NULL && keyboard->focus_surface != active_grab->surface)
-    meta_wayland_keyboard_set_focus (keyboard, active_grab->surface);
-
-  /* Chain-up with default keyboard handler */
-  return keyboard->default_grab.interface->key (&keyboard->default_grab, event);
-}
-
-static void
-meta_xwayland_keyboard_grab_modifiers (MetaWaylandKeyboardGrab *grab,
-                                       ClutterModifierType      modifiers)
-{
-  MetaXwaylandKeyboardActiveGrab *active_grab;
-  MetaWaylandKeyboard *keyboard;
-
-  active_grab = wl_container_of (grab, active_grab, keyboard_grab);
-  keyboard = active_grab->keyboard_grab.keyboard;
-
-  /* Force focus onto the surface who has the active grab on the keyboard */
-  if (active_grab->surface != NULL && keyboard->focus_surface != active_grab->surface)
-    meta_wayland_keyboard_set_focus (keyboard, active_grab->surface);
-
-  /* Chain-up with default keyboard handler */
- return keyboard->default_grab.interface->modifiers (&keyboard->default_grab,
-                                                     modifiers);
-}
-
 static void
 meta_xwayland_keyboard_grab_end (MetaXwaylandKeyboardActiveGrab *active_grab)
 {
-  MetaWaylandSeat *seat = active_grab->seat;
-
-  if (seat->keyboard->grab->interface->key == meta_xwayland_keyboard_grab_key)
+  if (active_grab->handler)
     {
-      meta_wayland_keyboard_end_grab (active_grab->keyboard_grab.keyboard);
-      meta_wayland_keyboard_set_focus (active_grab->keyboard_grab.keyboard, NULL);
-      meta_display_sync_wayland_input_focus (meta_get_display ());
+      MetaWaylandInput *input;
+
+      input = meta_wayland_seat_get_input (active_grab->seat);
+      meta_wayland_input_detach_event_handler (input, active_grab->handler);
+      active_grab->handler = NULL;
     }
 
   if (!active_grab->surface)
@@ -110,11 +72,45 @@ meta_xwayland_keyboard_grab_end (MetaXwaylandKeyboardActiveGrab *active_grab)
   active_grab->surface = NULL;
 }
 
-static const MetaWaylandKeyboardGrabInterface
-  keyboard_grab_interface = {
-    meta_xwayland_keyboard_grab_key,
-    meta_xwayland_keyboard_grab_modifiers
-  };
+static MetaWaylandSurface *
+meta_xwayland_keyboard_grab_get_focus_surface (MetaWaylandEventHandler *handler,
+                                               ClutterInputDevice      *device,
+                                               ClutterEventSequence    *sequence,
+                                               gpointer                 user_data)
+{
+  MetaXwaylandKeyboardActiveGrab *active_grab = user_data;
+
+  /* Force focus onto the surface who has the active grab on the keyboard */
+  if (clutter_input_device_get_capabilities (device) &
+      CLUTTER_INPUT_CAPABILITY_KEYBOARD)
+    return active_grab->surface;
+
+  return meta_wayland_event_handler_chain_up_get_focus_surface (handler,
+                                                                device,
+                                                                sequence);
+}
+
+static void
+meta_xwayland_keyboard_grab_focus (MetaWaylandEventHandler *handler,
+                                   ClutterInputDevice      *device,
+                                   ClutterEventSequence    *sequence,
+                                   MetaWaylandSurface      *surface,
+                                   gpointer                 user_data)
+{
+  MetaXwaylandKeyboardActiveGrab *active_grab = user_data;
+
+  if (clutter_input_device_get_capabilities (device) &
+      CLUTTER_INPUT_CAPABILITY_KEYBOARD &&
+      surface != active_grab->surface)
+    meta_xwayland_keyboard_grab_end (active_grab);
+  else
+    meta_wayland_event_handler_chain_up_focus (handler, device, sequence, surface);
+}
+
+static const MetaWaylandEventInterface grab_event_interface = {
+  meta_xwayland_keyboard_grab_get_focus_surface,
+  meta_xwayland_keyboard_grab_focus,
+};
 
 static void
 zwp_xwayland_keyboard_grab_destructor (struct wl_resource *resource)
@@ -193,14 +189,14 @@ application_is_in_pattern_array (MetaWindow *window,
 static gboolean
 meta_xwayland_grab_is_granted (MetaWindow *window)
 {
-  MetaBackend *backend;
-  MetaSettings *settings;
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaSettings *settings = meta_backend_get_settings (backend);
   GPtrArray *allow_list;
   GPtrArray *deny_list;
   gboolean may_grab;
 
-  backend = meta_get_backend ();
-  settings = meta_backend_get_settings (backend);
 
   /* Check whether the window is in the deny list */
   meta_settings_get_xwayland_grab_patterns (settings, &allow_list, &deny_list);
@@ -223,15 +219,14 @@ meta_xwayland_grab_is_granted (MetaWindow *window)
 static gboolean
 meta_xwayland_grab_should_lock_focus (MetaWindow *window)
 {
-  MetaBackend *backend;
-  MetaSettings *settings;
+  MetaDisplay *display = meta_window_get_display (window);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaSettings *settings = meta_backend_get_settings (backend);
 
   /* Lock focus applies to O-R windows which never receive keyboard focus otherwise */
   if (!window->override_redirect)
     return FALSE;
-
-  backend = meta_get_backend ();
-  settings = meta_backend_get_settings (backend);
 
   return meta_settings_are_xwayland_grabs_allowed (settings);
 }
@@ -245,11 +240,20 @@ meta_xwayland_keyboard_grab_activate (MetaXwaylandKeyboardActiveGrab *active_gra
 
   if (meta_xwayland_grab_is_granted (window))
     {
-      meta_verbose ("XWayland window %s has a grab granted", window->desc);
+      meta_topic (META_DEBUG_WAYLAND,
+                  "XWayland window %s has a grab granted", window->desc);
       meta_wayland_surface_inhibit_shortcuts (surface, seat);
 
       if (meta_xwayland_grab_should_lock_focus (window))
-        meta_wayland_keyboard_start_grab (seat->keyboard, &active_grab->keyboard_grab);
+        {
+          MetaWaylandInput *input;
+
+          input = meta_wayland_seat_get_input (seat);
+          active_grab->handler =
+            meta_wayland_input_attach_event_handler (input,
+                                                     &grab_event_interface,
+                                                     FALSE, active_grab);
+        }
     }
 
   g_clear_signal_handler (&active_grab->window_associate_handler,
@@ -285,7 +289,6 @@ zwp_xwayland_keyboard_grab_manager_grab (struct wl_client   *client,
   active_grab->surface = surface;
   active_grab->resource = grab_resource;
   active_grab->seat = seat;
-  active_grab->keyboard_grab.interface = &keyboard_grab_interface;
   active_grab->surface_destroyed_handler =
     g_signal_connect (surface, "destroy",
                       G_CALLBACK (surface_destroyed_cb),
@@ -335,12 +338,37 @@ bind_keyboard_grab (struct wl_client *client,
                                   NULL, NULL);
 }
 
+static MetaWaylandAccess
+xwayland_grab_keyboard_filter (const struct wl_client *client,
+                               const struct wl_global *global,
+                               gpointer                user_data)
+{
+  MetaWaylandCompositor *compositor = user_data;
+  MetaXWaylandManager *xwayland_manager = &compositor->xwayland_manager;
+
+  if (client == xwayland_manager->client)
+    return META_WAYLAND_ACCESS_ALLOWED;
+  else
+    return META_WAYLAND_ACCESS_DENIED;
+}
+
 gboolean
 meta_xwayland_grab_keyboard_init (MetaWaylandCompositor *compositor)
 {
-  return (wl_global_create (compositor->wayland_display,
-                            &zwp_xwayland_keyboard_grab_manager_v1_interface,
-                            META_ZWP_XWAYLAND_KEYBOARD_GRAB_V1_VERSION,
-                            NULL,
-                            bind_keyboard_grab) != NULL);
+  struct wl_global *global;
+  MetaWaylandFilterManager *filter_manager;
+
+  global = wl_global_create (compositor->wayland_display,
+                             &zwp_xwayland_keyboard_grab_manager_v1_interface,
+                             META_ZWP_XWAYLAND_KEYBOARD_GRAB_V1_VERSION,
+                             NULL,
+                             bind_keyboard_grab);
+
+  filter_manager = meta_wayland_compositor_get_filter_manager (compositor);
+  meta_wayland_filter_manager_add_global (filter_manager,
+                                          global,
+                                          xwayland_grab_keyboard_filter,
+                                          compositor);
+
+  return TRUE;
 }

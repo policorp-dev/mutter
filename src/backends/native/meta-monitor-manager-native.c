@@ -15,17 +15,15 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Giovanni Campagna <gcampagn@redhat.com>
  */
 
 /**
- * SECTION:meta-monitor-manager-native
- * @title: MetaMonitorManagerNative
- * @short_description: A subclass of #MetaMonitorManager using Linux DRM
+ * MetaMonitorManagerNative:
+ *
+ * A subclass of #MetaMonitorManager using Linux DRM
  *
  * #MetaMonitorManagerNative is a subclass of #MetaMonitorManager which
  * implements its functionality "natively": it uses the appropriate
@@ -53,13 +51,11 @@
 #include "backends/native/meta-gpu-kms.h"
 #include "backends/native/meta-kms-device.h"
 #include "backends/native/meta-kms.h"
-#include "backends/native/meta-launcher.h"
 #include "backends/native/meta-output-kms.h"
 #include "backends/native/meta-renderer-native.h"
 #include "backends/native/meta-virtual-monitor-native.h"
 #include "clutter/clutter.h"
 #include "meta/main.h"
-#include "meta/meta-x11-errors.h"
 
 #include "meta-dbus-display-config.h"
 
@@ -74,7 +70,7 @@ enum
 
 static GParamSpec *obj_props[N_PROPS];
 
-struct _MetaMonitorManagerNative
+typedef struct _MetaMonitorManagerNativePrivate
 {
   MetaMonitorManager parent_instance;
 
@@ -85,12 +81,7 @@ struct _MetaMonitorManagerNative
   gboolean needs_outputs;
 
   guint rebuild_virtual_idle_id;
-};
-
-struct _MetaMonitorManagerNativeClass
-{
-  MetaMonitorManagerClass parent_class;
-};
+} MetaMonitorManagerNativePrivate;
 
 static void
 initable_iface_init (GInitableIface *initable_iface);
@@ -98,49 +89,14 @@ initable_iface_init (GInitableIface *initable_iface);
 G_DEFINE_TYPE_WITH_CODE (MetaMonitorManagerNative, meta_monitor_manager_native,
                          META_TYPE_MONITOR_MANAGER,
                          G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
-                                                initable_iface_init))
+                                                initable_iface_init)
+                         G_ADD_PRIVATE (MetaMonitorManagerNative))
 
 static GBytes *
 meta_monitor_manager_native_read_edid (MetaMonitorManager *manager,
                                        MetaOutput         *output)
 {
   return meta_output_native_read_edid (META_OUTPUT_NATIVE (output));
-}
-
-static void
-meta_monitor_manager_native_read_current_state (MetaMonitorManager *manager)
-{
-  MetaMonitorManagerClass *parent_class =
-    META_MONITOR_MANAGER_CLASS (meta_monitor_manager_native_parent_class);
-  MetaPowerSave power_save_mode;
-
-  power_save_mode = meta_monitor_manager_get_power_save_mode (manager);
-  if (power_save_mode != META_POWER_SAVE_ON)
-    meta_monitor_manager_power_save_mode_changed (manager,
-                                                  META_POWER_SAVE_ON);
-
-  parent_class->read_current_state (manager);
-}
-
-uint64_t
-meta_power_save_to_dpms_state (MetaPowerSave power_save)
-{
-  switch (power_save)
-    {
-    case META_POWER_SAVE_ON:
-      return DRM_MODE_DPMS_ON;
-    case META_POWER_SAVE_STANDBY:
-      return DRM_MODE_DPMS_STANDBY;
-    case META_POWER_SAVE_SUSPEND:
-      return DRM_MODE_DPMS_SUSPEND;
-    case META_POWER_SAVE_OFF:
-      return DRM_MODE_DPMS_OFF;
-    case META_POWER_SAVE_UNSUPPORTED:
-      return DRM_MODE_DPMS_ON;
-    }
-
-  g_warn_if_reached ();
-  return DRM_MODE_DPMS_ON;
 }
 
 static void
@@ -158,12 +114,7 @@ meta_monitor_manager_native_set_power_save_mode (MetaMonitorManager *manager,
         {
         case META_POWER_SAVE_ON:
         case META_POWER_SAVE_UNSUPPORTED:
-          {
-            g_list_foreach (meta_gpu_get_crtcs (META_GPU (gpu_kms)),
-                            (GFunc) meta_crtc_kms_invalidate_gamma,
-                            NULL);
-            break;
-          }
+          break;
         case META_POWER_SAVE_STANDBY:
         case META_POWER_SAVE_SUSPEND:
         case META_POWER_SAVE_OFF:
@@ -183,14 +134,15 @@ meta_monitor_manager_native_ensure_initial_config (MetaMonitorManager *manager)
   config = meta_monitor_manager_ensure_configured (manager);
 
   meta_monitor_manager_update_logical_state (manager, config);
+  meta_monitor_manager_update_for_lease_state (manager, config);
 }
 
 static void
 apply_crtc_assignments (MetaMonitorManager    *manager,
-                        MetaCrtcAssignment   **crtcs,
-                        unsigned int           n_crtcs,
-                        MetaOutputAssignment **outputs,
-                        unsigned int           n_outputs)
+                        MetaCrtcAssignment   **crtc_assignments,
+                        unsigned int           n_crtc_assignments,
+                        MetaOutputAssignment **output_assignments,
+                        unsigned int           n_output_assignments)
 {
   MetaBackend *backend = meta_monitor_manager_get_backend (manager);
   g_autoptr (GList) to_configure_outputs = NULL;
@@ -223,9 +175,9 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
       to_configure_crtcs = g_list_append (to_configure_crtcs, crtc);
     }
 
-  for (i = 0; i < n_crtcs; i++)
+  for (i = 0; i < n_crtc_assignments; i++)
     {
-      MetaCrtcAssignment *crtc_assignment = crtcs[i];
+      MetaCrtcAssignment *crtc_assignment = crtc_assignments[i];
       MetaCrtc *crtc = crtc_assignment->crtc;
 
       to_configure_crtcs = g_list_remove (to_configure_crtcs, crtc);
@@ -236,12 +188,14 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
         }
       else
         {
+          MetaCrtcConfig *crtc_config;
           unsigned int j;
 
-          meta_crtc_set_config (crtc,
-                                &crtc_assignment->layout,
-                                crtc_assignment->mode,
-                                crtc_assignment->transform);
+          crtc_config = meta_crtc_config_new (&crtc_assignment->layout,
+                                              crtc_assignment->mode,
+                                              crtc_assignment->transform);
+          meta_crtc_set_config (crtc, crtc_config,
+                                crtc_assignment->backend_private);
 
           for (j = 0; j < crtc_assignment->outputs->len; j++)
             {
@@ -252,8 +206,8 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
               to_configure_outputs = g_list_remove (to_configure_outputs,
                                                     output);
 
-              output_assignment = meta_find_output_assignment (outputs,
-                                                               n_outputs,
+              output_assignment = meta_find_output_assignment (output_assignments,
+                                                               n_output_assignments,
                                                                output);
               meta_output_assign_crtc (output, crtc, output_assignment);
             }
@@ -308,12 +262,14 @@ meta_monitor_manager_native_apply_monitors_config (MetaMonitorManager        *ma
 
   if (!config)
     {
+      apply_crtc_assignments (manager, NULL, 0, NULL, 0);
+
       if (!manager->in_init)
         {
-          MetaBackend *backend = meta_get_backend ();
+          MetaBackend *backend = meta_monitor_manager_get_backend (manager);
           MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
-          meta_renderer_native_reset_modes (META_RENDERER_NATIVE (renderer));
+          meta_renderer_native_unset_modes (META_RENDERER_NATIVE (renderer));
         }
 
       manager->screen_width = META_MONITOR_MANAGER_MIN_SCREEN_WIDTH;
@@ -350,27 +306,31 @@ meta_monitor_manager_native_apply_monitors_config (MetaMonitorManager        *ma
   return TRUE;
 }
 
-MetaKmsCrtcGamma *
+MetaGammaLut *
 meta_monitor_manager_native_get_cached_crtc_gamma (MetaMonitorManagerNative *manager_native,
                                                    MetaCrtcKms              *crtc_kms)
 {
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
   uint64_t crtc_id;
 
   crtc_id = meta_crtc_get_id (META_CRTC (crtc_kms));
-  return g_hash_table_lookup (manager_native->crtc_gamma_cache,
+  return g_hash_table_lookup (priv->crtc_gamma_cache,
                               GUINT_TO_POINTER (crtc_id));
 }
 
 void
 meta_monitor_manager_native_update_cached_crtc_gamma (MetaMonitorManagerNative *manager_native,
                                                       MetaCrtcKms              *crtc_kms,
-                                                      MetaKmsCrtcGamma         *crtc_gamma)
+                                                      MetaGammaLut             *gamma)
 {
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
   MetaCrtc *crtc = META_CRTC (crtc_kms);
 
-  g_hash_table_replace (manager_native->crtc_gamma_cache,
+  g_hash_table_replace (priv->crtc_gamma_cache,
                         GUINT_TO_POINTER (meta_crtc_get_id (crtc)),
-                        crtc_gamma);
+                        gamma);
 }
 
 static void
@@ -422,12 +382,14 @@ out:
 static void
 meta_monitor_manager_native_connect_hotplug_handler (MetaMonitorManagerNative *manager_native)
 {
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
   MetaMonitorManager *manager = META_MONITOR_MANAGER (manager_native);
   MetaBackend *backend = meta_monitor_manager_get_backend (manager);
   MetaBackendNative *backend_native = META_BACKEND_NATIVE (backend);
   MetaKms *kms = meta_backend_native_get_kms (backend_native);
 
-  manager_native->kms_resources_changed_handler_id =
+  priv->kms_resources_changed_handler_id =
     g_signal_connect (kms, "resources-changed",
                       G_CALLBACK (on_kms_resources_changed), manager);
 }
@@ -435,12 +397,14 @@ meta_monitor_manager_native_connect_hotplug_handler (MetaMonitorManagerNative *m
 static void
 meta_monitor_manager_native_disconnect_hotplug_handler (MetaMonitorManagerNative *manager_native)
 {
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
   MetaMonitorManager *manager = META_MONITOR_MANAGER (manager_native);
   MetaBackend *backend = meta_monitor_manager_get_backend (manager);
   MetaBackendNative *backend_native = META_BACKEND_NATIVE (backend);
   MetaKms *kms = meta_backend_native_get_kms (backend_native);
 
-  g_clear_signal_handler (&manager_native->kms_resources_changed_handler_id, kms);
+  g_clear_signal_handler (&priv->kms_resources_changed_handler_id, kms);
 }
 
 void
@@ -452,29 +416,7 @@ meta_monitor_manager_native_pause (MetaMonitorManagerNative *manager_native)
 void
 meta_monitor_manager_native_resume (MetaMonitorManagerNative *manager_native)
 {
-  MetaMonitorManager *manager = META_MONITOR_MANAGER (manager_native);
-  MetaBackend *backend = meta_monitor_manager_get_backend (manager);
-  GList *l;
-
   meta_monitor_manager_native_connect_hotplug_handler (manager_native);
-
-  for (l = meta_backend_get_gpus (backend); l; l = l->next)
-    {
-      MetaGpu *gpu = l->data;
-
-      g_list_foreach (meta_gpu_get_crtcs (gpu),
-                      (GFunc) meta_crtc_kms_invalidate_gamma,
-                      NULL);
-    }
-}
-
-static gboolean
-meta_monitor_manager_native_is_transform_handled (MetaMonitorManager  *manager,
-                                                  MetaCrtc            *crtc,
-                                                  MetaMonitorTransform transform)
-{
-  return meta_crtc_native_is_transform_handled (META_CRTC_NATIVE (crtc),
-                                                transform);
 }
 
 static MetaMonitorScalesConstraint
@@ -594,18 +536,18 @@ allocate_virtual_monitor_id (MetaMonitorManagerNative *manager_native)
     }
 }
 
-static gboolean
+static void
 rebuild_virtual_idle_cb (gpointer user_data)
 {
   MetaMonitorManager *manager = user_data;
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (manager);
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
 
-  manager_native->rebuild_virtual_idle_id = 0;
+  priv->rebuild_virtual_idle_id = 0;
 
   meta_monitor_manager_reconfigure (manager);
-
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -615,12 +557,13 @@ on_virtual_monitor_mode_changed (MetaVirtualMonitor *virtual_monitor,
 {
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (manager);
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
 
-  if (manager_native->rebuild_virtual_idle_id)
+  if (priv->rebuild_virtual_idle_id)
     return;
 
-  manager_native->rebuild_virtual_idle_id =
-    g_idle_add (rebuild_virtual_idle_cb, manager);
+  priv->rebuild_virtual_idle_id = g_idle_add_once (rebuild_virtual_idle_cb, manager);
 }
 
 static MetaVirtualMonitor *
@@ -628,13 +571,14 @@ meta_monitor_manager_native_create_virtual_monitor (MetaMonitorManager          
                                                     const MetaVirtualMonitorInfo  *info,
                                                     GError                       **error)
 {
+  MetaBackend *backend = meta_monitor_manager_get_backend (manager);
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (manager);
   MetaVirtualMonitorNative *virtual_monitor_native;
   uint64_t id;
 
   id = allocate_virtual_monitor_id (manager_native);
-  virtual_monitor_native = meta_virtual_monitor_native_new (id, info);
+  virtual_monitor_native = meta_virtual_monitor_native_new (backend, id, info);
   g_signal_connect (virtual_monitor_native, "notify::crtc-mode",
                     G_CALLBACK (on_virtual_monitor_mode_changed),
                     manager);
@@ -650,11 +594,13 @@ meta_monitor_manager_native_set_property (GObject      *object,
 {
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (object);
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
 
   switch (prop_id)
     {
     case PROP_NEED_OUTPUTS:
-      manager_native->needs_outputs = g_value_get_boolean (value);
+      priv->needs_outputs = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -667,10 +613,11 @@ meta_monitor_manager_native_dispose (GObject *object)
 {
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (object);
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
 
-  g_clear_handle_id (&manager_native->rebuild_virtual_idle_id, g_source_remove);
-  g_clear_pointer (&manager_native->crtc_gamma_cache,
-                   g_hash_table_unref);
+  g_clear_handle_id (&priv->rebuild_virtual_idle_id, g_source_remove);
+  g_clear_pointer (&priv->crtc_gamma_cache, g_hash_table_unref);
 
   G_OBJECT_CLASS (meta_monitor_manager_native_parent_class)->dispose (object);
 }
@@ -682,6 +629,8 @@ meta_monitor_manager_native_initable_init (GInitable    *initable,
 {
   MetaMonitorManagerNative *manager_native =
     META_MONITOR_MANAGER_NATIVE (initable);
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
   MetaMonitorManager *manager = META_MONITOR_MANAGER (manager_native);
   MetaBackend *backend = meta_monitor_manager_get_backend (manager);
   gboolean can_have_outputs;
@@ -701,17 +650,17 @@ meta_monitor_manager_native_initable_init (GInitable    *initable,
         }
     }
 
-  if (manager_native->needs_outputs && !can_have_outputs)
+  if (priv->needs_outputs && !can_have_outputs)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
                    "No GPUs with outputs found");
       return FALSE;
     }
 
-  manager_native->crtc_gamma_cache =
+  priv->crtc_gamma_cache =
     g_hash_table_new_full (NULL, NULL,
                            NULL,
-                           (GDestroyNotify) meta_kms_crtc_gamma_free);
+                           (GDestroyNotify) meta_gamma_lut_free);
 
   return TRUE;
 }
@@ -725,7 +674,10 @@ initable_iface_init (GInitableIface *initable_iface)
 static void
 meta_monitor_manager_native_init (MetaMonitorManagerNative *manager_native)
 {
-  manager_native->needs_outputs = TRUE;
+  MetaMonitorManagerNativePrivate *priv =
+    meta_monitor_manager_native_get_instance_private (manager_native);
+
+  priv->needs_outputs = TRUE;
 }
 
 static void
@@ -739,16 +691,12 @@ meta_monitor_manager_native_class_init (MetaMonitorManagerNativeClass *klass)
 
   manager_class->read_edid =
     meta_monitor_manager_native_read_edid;
-  manager_class->read_current_state =
-    meta_monitor_manager_native_read_current_state;
   manager_class->ensure_initial_config =
     meta_monitor_manager_native_ensure_initial_config;
   manager_class->apply_monitors_config =
     meta_monitor_manager_native_apply_monitors_config;
   manager_class->set_power_save_mode =
     meta_monitor_manager_native_set_power_save_mode;
-  manager_class->is_transform_handled =
-    meta_monitor_manager_native_is_transform_handled;
   manager_class->calculate_monitor_mode_scale =
     meta_monitor_manager_native_calculate_monitor_mode_scale;
   manager_class->calculate_supported_scales =
@@ -763,9 +711,7 @@ meta_monitor_manager_native_class_init (MetaMonitorManagerNativeClass *klass)
     meta_monitor_manager_native_create_virtual_monitor;
 
   obj_props[PROP_NEED_OUTPUTS] =
-    g_param_spec_boolean ("needs-outputs",
-                          "needs-outputs",
-                          "Whether any outputs are needed for operation",
+    g_param_spec_boolean ("needs-outputs", NULL, NULL,
                           TRUE,
                           G_PARAM_WRITABLE |
                           G_PARAM_CONSTRUCT_ONLY |

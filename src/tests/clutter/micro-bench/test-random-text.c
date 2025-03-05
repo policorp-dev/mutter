@@ -1,5 +1,6 @@
 #include <gmodule.h>
 #include <clutter/clutter.h>
+#include <clutter/clutter-pango.h>
 #include <stdlib.h>
 
 #include "tests/clutter-test-utils.h"
@@ -19,8 +20,8 @@ on_idle (gpointer data)
 {
   ClutterActor *stage = CLUTTER_ACTOR (data);
   int line_height = 0, xpos = 0, ypos = 0;
-  int stage_width = clutter_actor_get_width (stage);
-  int stage_height = clutter_actor_get_height (stage);
+  int stage_width = (int) clutter_actor_get_width (stage);
+  int stage_height = (int) clutter_actor_get_height (stage);
   char text[MAX_TEXT_LEN + 1];
   char font_name[64];
   int i;
@@ -31,8 +32,7 @@ on_idle (gpointer data)
   /* Remove all of the children of the stage */
   children = clutter_actor_get_children (stage);
   for (node = children; node; node = node->next)
-    clutter_container_remove_actor (CLUTTER_CONTAINER (stage),
-                                    CLUTTER_ACTOR (node->data));
+    clutter_actor_remove_child (stage, CLUTTER_ACTOR (node->data));
   g_list_free (children);
 
   /* Fill the stage with new random labels */
@@ -52,7 +52,7 @@ on_idle (gpointer data)
       label = clutter_text_new_with_text (font_name, text);
 
       if (clutter_actor_get_height (label) > line_height)
-        line_height = clutter_actor_get_height (label);
+        line_height = (int) clutter_actor_get_height (label);
 
       if (xpos + clutter_actor_get_width (label) > stage_width)
         {
@@ -63,9 +63,9 @@ on_idle (gpointer data)
 
       clutter_actor_set_position (label, xpos, ypos);
 
-      clutter_container_add (CLUTTER_CONTAINER (stage), label, NULL);
+      clutter_actor_add_child (stage, label);
 
-      xpos += clutter_actor_get_width (label);
+      xpos += (int) clutter_actor_get_width (label);
     }
 
   if (timer == NULL)
@@ -92,11 +92,10 @@ main (int argc, char *argv[])
   clutter_test_init (&argc, &argv);
 
   stage = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Random Text");
 
   clutter_actor_show (stage);
 
-  clutter_threads_add_idle (on_idle, stage);
+  g_idle_add (on_idle, stage);
 
   clutter_test_main ();
 

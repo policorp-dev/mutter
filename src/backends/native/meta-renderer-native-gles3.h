@@ -15,26 +15,24 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_RENDERER_NATIVE_GLES3_H
-#define META_RENDERER_NATIVE_GLES3_H
+#pragma once
 
 #include <gbm.h>
 
 #include "backends/meta-egl.h"
 #include "backends/meta-gles3.h"
 
-gboolean meta_renderer_native_gles3_blit_shared_bo (MetaEgl       *egl,
-                                                    MetaGles3     *gles3,
-                                                    EGLDisplay     egl_display,
-                                                    EGLContext     egl_context,
-                                                    EGLSurface     egl_surface,
-                                                    struct gbm_bo *shared_bo,
-                                                    GError       **error);
+gboolean meta_renderer_native_gles3_blit_shared_bo (MetaEgl        *egl,
+                                                    MetaGles3      *gles3,
+                                                    EGLDisplay      egl_display,
+                                                    EGLContext      egl_context,
+                                                    EGLImageKHR     egl_image,
+                                                    struct gbm_bo  *shared_bo,
+                                                    GError        **error);
 
-#endif /* META_RENDERER_NATIVE_GLES3_H */
+void meta_renderer_native_gles3_forget_context (MetaGles3  *gles3,
+                                                EGLContext  egl_context);

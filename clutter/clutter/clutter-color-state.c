@@ -4,6 +4,7 @@
  * An OpenGL based 'interactive canvas' library.
  *
  * Copyright (C) 2022  Intel Corporation.
+ * Copyright (C) 2023-2024 Red Hat
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +21,7 @@
  *
  * Author:
  *   Naveen Kumar <naveen1.kumar@intel.com>
+ *   Jonas Ådahl <jadahl@redhat.com>
  */
 
 /**
@@ -43,52 +45,99 @@
  * actor content is in pq or not, and things like that
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-color-state.h"
+#include "clutter/clutter-color-state-private.h"
 
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-private.h"
+#include "clutter/clutter-color-manager-private.h"
 
 enum
 {
   PROP_0,
 
-  PROP_COLORSPACE,
+  PROP_CONTEXT,
 
   N_PROPS
 };
 
 static GParamSpec *obj_props[N_PROPS];
 
-typedef struct _ClutterColorStatePrivate ClutterColorStatePrivate;
-
-struct _ClutterColorState
+typedef struct _ClutterColorStatePrivate
 {
-  GObject parent_instance;
-};
+  ClutterContext *context;
 
-struct _ClutterColorStatePrivate
-{
-  ClutterColorspace colorspace;
-};
+  unsigned int id;
+} ClutterColorStatePrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (ClutterColorState,
                             clutter_color_state,
                             G_TYPE_OBJECT)
 
-ClutterColorspace
-clutter_color_state_get_colorspace (ClutterColorState *color_state)
+guint
+clutter_color_transform_key_hash (gconstpointer data)
+{
+  const ClutterColorTransformKey *key = data;
+
+  return key->source_eotf_bits << 0 &
+         key->target_eotf_bits << 4 &
+         key->luminance_bit    << 8 &
+         key->color_trans_bit  << 9;
+}
+
+gboolean
+clutter_color_transform_key_equal (gconstpointer data1,
+                                   gconstpointer data2)
+{
+  const ClutterColorTransformKey *key1 = data1;
+  const ClutterColorTransformKey *key2 = data2;
+
+  return (key1->source_eotf_bits == key2->source_eotf_bits &&
+          key1->target_eotf_bits == key2->target_eotf_bits &&
+          key1->luminance_bit == key2->luminance_bit &&
+          key1->color_trans_bit == key2->color_trans_bit);
+}
+
+void
+clutter_color_transform_key_init (ClutterColorTransformKey *key,
+                                  ClutterColorState        *color_state,
+                                  ClutterColorState        *target_color_state)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (color_state));
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (target_color_state));
+
+  color_state_class->init_color_transform_key (color_state,
+                                               target_color_state,
+                                               key);
+}
+
+unsigned int
+clutter_color_state_get_id (ClutterColorState *color_state)
 {
   ClutterColorStatePrivate *priv;
 
-  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state),
-                        CLUTTER_COLORSPACE_UNKNOWN);
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state), 0);
 
   priv = clutter_color_state_get_instance_private (color_state);
 
-  return priv->colorspace;
+  return priv->id;
+}
+
+static void
+clutter_color_state_constructed (GObject *object)
+{
+  ClutterColorState *color_state = CLUTTER_COLOR_STATE (object);
+  ClutterColorStatePrivate *priv =
+    clutter_color_state_get_instance_private (color_state);
+  ClutterColorManager *color_manager;
+
+  g_warn_if_fail (priv->context);
+
+  color_manager = clutter_context_get_color_manager (priv->context);
+
+  priv->id = clutter_color_manager_get_next_id (color_manager);
 }
 
 static void
@@ -104,8 +153,8 @@ clutter_color_state_set_property (GObject      *object,
 
   switch (prop_id)
     {
-    case PROP_COLORSPACE:
-      priv->colorspace = g_value_get_enum (value);
+    case PROP_CONTEXT:
+      priv->context = g_value_get_object (value);
       break;
 
     default:
@@ -121,12 +170,13 @@ clutter_color_state_get_property (GObject    *object,
                                   GParamSpec *pspec)
 {
   ClutterColorState *color_state = CLUTTER_COLOR_STATE (object);
+  ClutterColorStatePrivate *priv =
+    clutter_color_state_get_instance_private (color_state);
 
   switch (prop_id)
     {
-    case PROP_COLORSPACE:
-      g_value_set_enum (value,
-                        clutter_color_state_get_colorspace (color_state));
+    case PROP_CONTEXT:
+      g_value_set_object (value, priv->context);
       break;
 
     default:
@@ -138,27 +188,24 @@ clutter_color_state_get_property (GObject    *object,
 static void
 clutter_color_state_class_init (ClutterColorStateClass *klass)
 {
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-  gobject_class->set_property = clutter_color_state_set_property;
-  gobject_class->get_property = clutter_color_state_get_property;
+  object_class->constructed = clutter_color_state_constructed;
+  object_class->set_property = clutter_color_state_set_property;
+  object_class->get_property = clutter_color_state_get_property;
 
   /**
-   * ClutterColorState:colorspace:
+   * ClutterColorState:context:
    *
-   * Colorspace information of the each color state,
-   * defaults to sRGB colorspace
+   * The associated ClutterContext.
    */
-  obj_props[PROP_COLORSPACE] =
-    g_param_spec_enum ("colorspace",
-                       P_("Colorspace"),
-                       P_("Colorspace information of the color state"),
-                       CLUTTER_TYPE_COLORSPACE,
-                       CLUTTER_COLORSPACE_SRGB,
-                       CLUTTER_PARAM_READWRITE |
-                       G_PARAM_CONSTRUCT_ONLY);
+  obj_props[PROP_CONTEXT] = g_param_spec_object ("context", NULL, NULL,
+                                                 CLUTTER_TYPE_CONTEXT,
+                                                 G_PARAM_READWRITE |
+                                                 G_PARAM_STATIC_STRINGS |
+                                                 G_PARAM_CONSTRUCT_ONLY);
 
-  g_object_class_install_properties (gobject_class, N_PROPS, obj_props);
+  g_object_class_install_properties (object_class, N_PROPS, obj_props);
 }
 
 static void
@@ -166,17 +213,171 @@ clutter_color_state_init (ClutterColorState *color_state)
 {
 }
 
-/**
- * clutter_color_state_new:
- *
- * Create a new ClutterColorState object.
- *
- * Return value: A new ClutterColorState object.
- **/
-ClutterColorState*
-clutter_color_state_new (ClutterColorspace colorspace)
+static CoglSnippet *
+clutter_color_state_create_transform_snippet (ClutterColorState *color_state,
+                                              ClutterColorState *target_color_state)
 {
-  return g_object_new (CLUTTER_TYPE_COLOR_STATE,
-                       "colorspace", colorspace,
-                       NULL);
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  return color_state_class->create_transform_snippet (color_state,
+                                                      target_color_state);
+}
+
+static CoglSnippet *
+clutter_color_state_get_transform_snippet (ClutterColorState *color_state,
+                                           ClutterColorState *target_color_state)
+{
+  ClutterColorStatePrivate *priv;
+  ClutterColorManager *color_manager;
+  ClutterColorTransformKey transform_key;
+  CoglSnippet *snippet;
+
+  priv = clutter_color_state_get_instance_private (color_state);
+  color_manager = clutter_context_get_color_manager (priv->context);
+
+  clutter_color_transform_key_init (&transform_key,
+                                    color_state,
+                                    target_color_state);
+  snippet = clutter_color_manager_lookup_snippet (color_manager,
+                                                  &transform_key);
+  if (snippet)
+    return g_object_ref (snippet);
+
+  snippet = clutter_color_state_create_transform_snippet (color_state,
+                                                          target_color_state);
+
+  clutter_color_manager_add_snippet (color_manager,
+                                     &transform_key,
+                                     g_object_ref (snippet));
+  return snippet;
+}
+
+void
+clutter_color_state_update_uniforms (ClutterColorState *color_state,
+                                     ClutterColorState *target_color_state,
+                                     CoglPipeline      *pipeline)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (color_state));
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (target_color_state));
+
+  color_state_class->update_uniforms (color_state,
+                                      target_color_state,
+                                      pipeline);
+}
+
+void
+clutter_color_state_do_transform (ClutterColorState *color_state,
+                                  ClutterColorState *target_color_state,
+                                  const float       *input,
+                                  float             *output,
+                                  int                n_samples)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (color_state));
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (target_color_state));
+
+  color_state_class->do_transform (color_state,
+                                   target_color_state,
+                                   input,
+                                   output,
+                                   n_samples);
+}
+
+void
+clutter_color_state_add_pipeline_transform (ClutterColorState *color_state,
+                                            ClutterColorState *target_color_state,
+                                            CoglPipeline      *pipeline)
+{
+  g_autoptr (CoglSnippet) snippet = NULL;
+
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (color_state));
+  g_return_if_fail (CLUTTER_IS_COLOR_STATE (target_color_state));
+
+  if (clutter_color_state_equals (color_state, target_color_state))
+    return;
+
+  snippet = clutter_color_state_get_transform_snippet (color_state,
+                                                       target_color_state);
+  cogl_pipeline_add_snippet (pipeline, snippet);
+
+  clutter_color_state_update_uniforms (color_state,
+                                       target_color_state,
+                                       pipeline);
+}
+
+gboolean
+clutter_color_state_equals (ClutterColorState *color_state,
+                            ClutterColorState *other_color_state)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  if (color_state == other_color_state)
+    return TRUE;
+
+  if (color_state == NULL || other_color_state == NULL)
+    return FALSE;
+
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state), FALSE);
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (other_color_state), FALSE);
+
+  if (G_OBJECT_TYPE (color_state) != G_OBJECT_TYPE (other_color_state))
+    return FALSE;
+
+  return color_state_class->equals (color_state, other_color_state);
+}
+
+char *
+clutter_color_state_to_string (ClutterColorState *color_state)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state), NULL);
+
+  return color_state_class->to_string (color_state);
+}
+
+ClutterEncodingRequiredFormat
+clutter_color_state_required_format (ClutterColorState *color_state)
+{
+
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state), FALSE);
+
+  return color_state_class->required_format (color_state);
+}
+
+/**
+ * clutter_color_state_get_blending:
+ * @color_state: a #ClutterColorState
+ * @force: if a linear variant should be forced
+ *
+ * Retrieves a variant of @color_state that is suitable for blending. This
+ * usually is a variant with linear transfer characteristics. If @color_state
+ * already is a #ClutterColorState suitable for blending, then @color_state is
+ * returned.
+ *
+ * If @force is TRUE then linear transfer characteristics are used always.
+ *
+ * Returns: (transfer full): the #ClutterColorState suitable for blending
+ */
+ClutterColorState *
+clutter_color_state_get_blending (ClutterColorState *color_state,
+                                  gboolean           force)
+{
+  ClutterColorStateClass *color_state_class =
+    CLUTTER_COLOR_STATE_GET_CLASS (color_state);
+
+  g_return_val_if_fail (CLUTTER_IS_COLOR_STATE (color_state), FALSE);
+
+  return color_state_class->get_blending (color_state, force);
 }

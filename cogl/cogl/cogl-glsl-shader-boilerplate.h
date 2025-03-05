@@ -30,8 +30,7 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_SHADER_BOILERPLATE_H
-#define __COGL_SHADER_BOILERPLATE_H
+#pragma once
 
 #define _COGL_COMMON_SHADER_BOILERPLATE \
   "#define COGL_VERSION 100\n" \
@@ -82,5 +81,11 @@
   "#define coglFragCoord   gl_FragCoord\n"
 #endif
 
-#endif /* __COGL_SHADER_BOILERPLATE_H */
+#define _COGL_VERTEX_SHADER_FALLBACK_BOILERPLATE \
+  "#define attribute in\n" \
+  "#define varying out\n\n"
 
+#define _COGL_FRAGMENT_SHADER_FALLBACK_BOILERPLATE \
+  "#define varying in\n" \
+  "out vec4 _gl_FragColor;\n" \
+  "#define gl_FragColor _gl_FragColor\n\n"

@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
@@ -33,16 +31,16 @@
 #include "backends/x11/meta-backend-x11.h"
 #include "backends/x11/meta-clutter-backend-x11.h"
 #include "backends/x11/meta-renderer-x11.h"
-#include "cogl/cogl-xlib.h"
+#include "cogl/cogl-xlib-renderer.h"
 #include "cogl/cogl.h"
 #include "core/boxes-private.h"
 #include "meta/meta-backend.h"
 #include "meta/util.h"
 
-#ifdef COGL_HAS_EGL_SUPPORT
+#ifdef HAVE_EGL
 #include "cogl/winsys/cogl-winsys-egl-x11-private.h"
 #endif
-#ifdef COGL_HAS_GLX_SUPPORT
+#ifdef HAVE_GLX
 #include "cogl/winsys/cogl-winsys-glx-private.h"
 #endif
 
@@ -51,28 +49,27 @@ G_DEFINE_TYPE (MetaRendererX11, meta_renderer_x11, META_TYPE_RENDERER)
 static const CoglWinsysVtable *
 get_x11_cogl_winsys_vtable (CoglRenderer *renderer)
 {
-#ifdef COGL_HAS_EGL_PLATFORM_XLIB_SUPPORT
+#ifdef HAVE_EGL_PLATFORM_XLIB
   if (meta_is_wayland_compositor ())
     return _cogl_winsys_egl_xlib_get_vtable ();
 #endif
 
-  switch (renderer->driver)
+  switch (renderer->driver_id)
     {
-    case COGL_DRIVER_GLES2:
-#ifdef COGL_HAS_EGL_PLATFORM_XLIB_SUPPORT
+    case COGL_DRIVER_ID_GLES2:
+#ifdef HAVE_EGL_PLATFORM_XLIB
       return _cogl_winsys_egl_xlib_get_vtable ();
 #else
       break;
 #endif
-    case COGL_DRIVER_GL:
-    case COGL_DRIVER_GL3:
-#ifdef COGL_HAS_GLX_SUPPORT
+    case COGL_DRIVER_ID_GL3:
+#ifdef HAVE_GLX
       return _cogl_winsys_glx_get_vtable ();
 #else
       break;
 #endif
-    case COGL_DRIVER_ANY:
-    case COGL_DRIVER_NOP:
+    case COGL_DRIVER_ID_ANY:
+    case COGL_DRIVER_ID_NOP:
       break;
     }
   g_assert_not_reached ();
@@ -91,7 +88,6 @@ meta_renderer_x11_create_cogl_renderer (MetaRenderer *renderer)
   cogl_renderer_set_custom_winsys (cogl_renderer, get_x11_cogl_winsys_vtable,
                                    NULL);
   cogl_xlib_renderer_set_foreign_display (cogl_renderer, xdisplay);
-  cogl_xlib_renderer_request_reset_on_video_memory_purge (cogl_renderer, TRUE);
 
   return cogl_renderer;
 }

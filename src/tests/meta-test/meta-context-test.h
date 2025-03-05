@@ -12,14 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_CONTEXT_TEST_H
-#define META_CONTEXT_TEST_H
+#pragma once
 
 #include <meta/common.h>
 #include <meta/meta-context.h>
@@ -28,7 +25,7 @@ typedef enum _MetaContextTestType
 {
   META_CONTEXT_TEST_TYPE_HEADLESS,
   META_CONTEXT_TEST_TYPE_VKMS,
-  META_CONTEXT_TEST_TYPE_NESTED,
+  META_CONTEXT_TEST_TYPE_TEST,
 } MetaContextTestType;
 
 typedef enum _MetaContextTestFlag
@@ -36,6 +33,7 @@ typedef enum _MetaContextTestFlag
   META_CONTEXT_TEST_FLAG_NONE = 0,
   META_CONTEXT_TEST_FLAG_TEST_CLIENT = 1 << 0,
   META_CONTEXT_TEST_FLAG_NO_X11 = 1 << 1,
+  META_CONTEXT_TEST_FLAG_NO_ANIMATIONS = 1 << 2,
 } MetaContextTestFlag;
 
 typedef enum _MetaTestRunFlags
@@ -61,4 +59,6 @@ int meta_context_test_run_tests (MetaContextTest  *context_test,
 META_EXPORT
 void meta_context_test_wait_for_x11_display (MetaContextTest *context_test);
 
-#endif /* META_CONTEXT_TEST_H */
+META_EXPORT
+void meta_context_test_set_background_color (MetaContextTest *context_test,
+                                             CoglColor        color);

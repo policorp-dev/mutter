@@ -12,16 +12,14 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
-#ifndef META_LAUNCH_CONTEXT_H
-#define META_LAUNCH_CONTEXT_H
 
-#include <meta/workspace.h>
+#pragma once
+
+#include "meta/workspace.h"
 
 META_EXPORT
 G_DECLARE_FINAL_TYPE (MetaLaunchContext, meta_launch_context, META, LAUNCH_CONTEXT, GAppLaunchContext)
@@ -35,5 +33,3 @@ void meta_launch_context_set_timestamp (MetaLaunchContext *context,
 META_EXPORT
 void meta_launch_context_set_workspace (MetaLaunchContext *context,
                                         MetaWorkspace     *workspace);
-
-#endif /* META_LAUNCH_CONTEXT_H */

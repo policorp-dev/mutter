@@ -12,17 +12,15 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
 /**
- * SECTION:gesture-tracker
- * @Title: MetaGestureTracker
- * @Short_Description: Manages gestures on windows/desktop
+ * MetaGestureTracker:
+ *
+ * Manages gestures on windows/desktop
  *
  * Forwards touch events to clutter actors, and accepts/rejects touch sequences
  * based on the outcome of those.
@@ -157,9 +155,7 @@ meta_gesture_tracker_class_init (MetaGestureTrackerClass *klass)
   object_class->set_property = meta_gesture_tracker_set_property;
   object_class->get_property = meta_gesture_tracker_get_property;
 
-  obj_props[PROP_AUTODENY_TIMEOUT] = g_param_spec_uint ("autodeny-timeout",
-                                                        "Auto-deny timeout",
-                                                        "Auto-deny timeout",
+  obj_props[PROP_AUTODENY_TIMEOUT] = g_param_spec_uint ("autodeny-timeout", NULL, NULL,
                                                         0, G_MAXUINT, DEFAULT_AUTODENY_TIMEOUT,
                                                         G_PARAM_STATIC_STRINGS |
                                                         G_PARAM_READWRITE |
@@ -176,7 +172,7 @@ meta_gesture_tracker_class_init (MetaGestureTrackerClass *klass)
                   G_TYPE_NONE, 2, G_TYPE_POINTER, G_TYPE_UINT);
 }
 
-static gboolean
+static void
 autodeny_sequence (gpointer user_data)
 {
   MetaSequenceInfo *info = user_data;
@@ -187,7 +183,6 @@ autodeny_sequence (gpointer user_data)
                                              META_SEQUENCE_REJECTED);
 
   info->autodeny_timeout_id = 0;
-  return G_SOURCE_REMOVE;
 }
 
 static MetaSequenceInfo *
@@ -203,9 +198,9 @@ meta_sequence_info_new (MetaGestureTracker *tracker,
 
   info = g_new0 (MetaSequenceInfo, 1);
   info->tracker = tracker;
-  info->sequence = event->touch.sequence;
+  info->sequence = clutter_event_get_event_sequence (event);
   info->state = META_SEQUENCE_NONE;
-  info->autodeny_timeout_id = g_timeout_add (ms, autodeny_sequence, info);
+  info->autodeny_timeout_id = g_timeout_add_once (ms, autodeny_sequence, info);
 
   clutter_event_get_coords (event, &info->start_x, &info->start_y);
 
@@ -227,17 +222,30 @@ static gboolean
 state_is_applicable (MetaSequenceState prev_state,
                      MetaSequenceState state)
 {
+
+  if (meta_is_wayland_compositor ())
+    {
+      /* Never reject sequences on Wayland, on Wayland we deliver touch events
+       * to clients right away and can cancel them later when accepting a
+       * sequence.
+       */
+      if (state == META_SEQUENCE_REJECTED)
+        return FALSE;
+    }
+  else
+    {
+      /* Sequences must be accepted/denied before PENDING_END */
+      if (prev_state == META_SEQUENCE_NONE &&
+          state == META_SEQUENCE_PENDING_END)
+        return FALSE;
+    }
+
   /* PENDING_END state is final */
   if (prev_state == META_SEQUENCE_PENDING_END)
     return FALSE;
 
   /* Don't allow reverting to none */
   if (state == META_SEQUENCE_NONE)
-    return FALSE;
-
-  /* Sequences must be accepted/denied before PENDING_END */
-  if (prev_state == META_SEQUENCE_NONE &&
-      state == META_SEQUENCE_PENDING_END)
     return FALSE;
 
   /* Make sequences stick to their accepted/denied state */
@@ -319,12 +327,11 @@ gesture_cancel_cb (ClutterGestureAction *gesture,
     }
 }
 
-static gboolean
+static void
 cancel_and_unref_gesture_cb (ClutterGestureAction *action)
 {
   clutter_gesture_action_cancel (action);
   g_object_unref (action);
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -335,7 +342,7 @@ clear_gesture_data (GestureActionData *data)
   g_clear_signal_handler (&data->gesture_cancel_id, data->gesture);
 
   /* Defer cancellation to an idle, as it may happen within event handling */
-  g_idle_add ((GSourceFunc) cancel_and_unref_gesture_cb, data->gesture);
+  g_idle_add_once ((GSourceOnceFunc) cancel_and_unref_gesture_cb, data->gesture);
 }
 
 static void
@@ -370,7 +377,8 @@ meta_gesture_tracker_track_stage (MetaGestureTracker *tracker,
     {
       GestureActionData data;
 
-      if (!CLUTTER_IS_GESTURE_ACTION (l->data))
+      if (!clutter_actor_meta_get_enabled (l->data) ||
+          !CLUTTER_IS_GESTURE_ACTION (l->data))
         continue;
 
       data.gesture = g_object_ref (l->data);
@@ -409,13 +417,13 @@ meta_gesture_tracker_untrack_stage (MetaGestureTracker *tracker)
 
 gboolean
 meta_gesture_tracker_handle_event (MetaGestureTracker *tracker,
-				   const ClutterEvent *event)
+                                   ClutterStage       *stage,
+                                   const ClutterEvent *event)
 {
   MetaGestureTrackerPrivate *priv;
   ClutterEventSequence *sequence;
   MetaSequenceState state;
   MetaSequenceInfo *info;
-  ClutterActor *stage;
   gfloat x, y;
 
   sequence = clutter_event_get_event_sequence (event);
@@ -424,13 +432,12 @@ meta_gesture_tracker_handle_event (MetaGestureTracker *tracker,
     return FALSE;
 
   priv = meta_gesture_tracker_get_instance_private (tracker);
-  stage = CLUTTER_ACTOR (clutter_event_get_stage (event));
 
-  switch (event->type)
+  switch (clutter_event_type (event))
     {
     case CLUTTER_TOUCH_BEGIN:
       if (g_hash_table_size (priv->sequences) == 0)
-        meta_gesture_tracker_track_stage (tracker, stage);
+        meta_gesture_tracker_track_stage (tracker, CLUTTER_ACTOR (stage));
 
       info = meta_sequence_info_new (tracker, event);
       g_hash_table_insert (priv->sequences, sequence, info);
@@ -488,25 +495,8 @@ meta_gesture_tracker_handle_event (MetaGestureTracker *tracker,
       break;
     }
 
-  /* As soon as a sequence is accepted, we replay it to
-   * the stage as a captured event, and make sure it's never
-   * propagated anywhere else. Since ClutterGestureAction does
-   * all its event handling from a captured-event handler on
-   * the stage, this effectively acts as a "sequence grab" on
-   * gesture actions.
-   *
-   * Sequences that aren't (yet or never) in an accepted state
-   * will go through, these events will get processed through
-   * the compositor, and eventually through clutter, still
-   * triggering the gestures capturing events on the stage, and
-   * possibly resulting in MetaSequenceState changes.
-   */
   if (state == META_SEQUENCE_ACCEPTED)
-    {
-      clutter_actor_event (CLUTTER_ACTOR (clutter_event_get_stage (event)),
-                           event, TRUE);
-      return TRUE;
-    }
+    return TRUE;
 
   return FALSE;
 }
@@ -546,24 +536,6 @@ meta_gesture_tracker_set_sequence_state (MetaGestureTracker   *tracker,
     }
 
   return TRUE;
-}
-
-MetaSequenceState
-meta_gesture_tracker_get_sequence_state (MetaGestureTracker   *tracker,
-                                         ClutterEventSequence *sequence)
-{
-  MetaGestureTrackerPrivate *priv;
-  MetaSequenceInfo *info;
-
-  g_return_val_if_fail (META_IS_GESTURE_TRACKER (tracker), META_SEQUENCE_PENDING_END);
-
-  priv = meta_gesture_tracker_get_instance_private (tracker);
-  info = g_hash_table_lookup (priv->sequences, sequence);
-
-  if (!info)
-    return META_SEQUENCE_PENDING_END;
-
-  return info->state;
 }
 
 gint

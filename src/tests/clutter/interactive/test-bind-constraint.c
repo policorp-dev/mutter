@@ -174,18 +174,17 @@ test_bind_constraint_main (int argc, char *argv[])
   ClutterActor *stage, *rect;
   ClutterConstraint *constraint;
   ClutterEffect *effect;
-  ClutterColor rect_color;
+  CoglColor rect_color;
   gint i;
 
   clutter_test_init (&argc, &argv);
 
   stage = clutter_test_get_stage ();
   g_signal_connect (stage, "destroy", G_CALLBACK (clutter_test_quit), NULL);
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Constraints");
   clutter_actor_set_size (stage, 800, 600);
 
   /* main rectangle */
-  clutter_color_from_string (&rect_color, "#3465a4");
+  cogl_color_from_string (&rect_color, "#3465a4");
   rect = clutter_actor_new ();
   g_signal_connect (rect, "button-release-event",
                     G_CALLBACK (on_button_release),
@@ -205,7 +204,7 @@ test_bind_constraint_main (int argc, char *argv[])
    * properties; so we use the ActorMeta:enabled property to toggle
    * the shader
    */
-  effect = clutter_shader_effect_new (CLUTTER_FRAGMENT_SHADER);
+  effect = clutter_shader_effect_new (COGL_SHADER_TYPE_FRAGMENT);
   clutter_shader_effect_set_shader_source (CLUTTER_SHADER_EFFECT (effect),
                                            desaturare_glsl_shader);
   clutter_shader_effect_set_uniform (CLUTTER_SHADER_EFFECT (effect),
@@ -226,7 +225,7 @@ test_bind_constraint_main (int argc, char *argv[])
       if (i == Center)
         continue;
 
-      clutter_color_from_string (&rect_color, colors[i]);
+      cogl_color_from_string (&rect_color, colors[i]);
 
       rect = clutter_actor_new ();
       clutter_actor_set_background_color (rect, &rect_color);

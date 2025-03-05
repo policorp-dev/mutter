@@ -31,28 +31,20 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_PIPELINE_PRIVATE_H
-#define __COGL_PIPELINE_PRIVATE_H
+#pragma once
 
-#include "cogl-node-private.h"
-#include "cogl-pipeline-layer-private.h"
-#include "cogl-pipeline.h"
-#include "cogl-object-private.h"
-#include "cogl-profile.h"
-#include "cogl-list.h"
-#include "cogl-boxed-value.h"
-#include "cogl-pipeline-snippet-private.h"
-#include "cogl-pipeline-state.h"
-#include "cogl-framebuffer.h"
-#include "cogl-bitmask.h"
+#include "cogl/cogl-debug.h"
+#include "cogl/cogl-pipeline-layer-private.h"
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-profile.h"
+#include "cogl/cogl-list.h"
+#include "cogl/cogl-boxed-value.h"
+#include "cogl/cogl-pipeline-snippet-private.h"
+#include "cogl/cogl-pipeline-state.h"
+#include "cogl/cogl-framebuffer.h"
+#include "cogl/cogl-bitmask.h"
 
 #include <glib.h>
-
-#if !(defined(HAVE_COGL_GL) || defined(HAVE_COGL_GLES2))
-
-#error No drivers defined
-
-#endif /* defined(HAVE_COGL_GL) || defined(HAVE_COGL_GLES2) */
 
 /* XXX: should I rename these as
  * COGL_PIPELINE_STATE_INDEX_XYZ... ?
@@ -182,13 +174,11 @@ typedef struct
 typedef struct
 {
   /* Determines how this pipeline is blended with other primitives */
-#if defined(HAVE_COGL_GLES2) || defined(HAVE_COGL_GL)
   GLenum    blend_equation_rgb;
   GLenum    blend_equation_alpha;
   GLint     blend_src_factor_alpha;
   GLint     blend_dst_factor_alpha;
   CoglColor blend_constant;
-#endif
   GLint     blend_src_factor_rgb;
   GLint     blend_dst_factor_rgb;
 } CoglPipelineBlendState;
@@ -217,7 +207,7 @@ typedef struct
 {
   CoglPipelineAlphaFuncState alpha_state;
   CoglPipelineBlendState blend_state;
-  CoglHandle user_program;
+  CoglProgram *user_program;
   CoglDepthState depth_state;
   float point_size;
   unsigned int non_zero_point_size : 1;
@@ -237,7 +227,6 @@ typedef struct
 typedef struct _CoglPipelineHashState
 {
   unsigned long layer_differences;
-  CoglPipelineEvalFlags flags;
   unsigned int hash;
 } CoglPipelineHashState;
 
@@ -268,11 +257,23 @@ struct _CoglPipeline
    * pipelines or if instead it can go under ->big_state.
    */
 
+  GObject parent_instance;
+
   /* Layers represent their state in a tree structure where some of
    * the state relating to a given pipeline or layer may actually be
    * owned by one if is ancestors in the tree. We have a common data
    * type to track the tree hierarchy so we can share code... */
-  CoglNode _parent;
+  CoglPipeline *parent;
+  CoglPipeline *prev_sibling;
+  CoglPipeline *next_sibling;
+  CoglPipeline *first_child;
+  CoglPipeline *last_child;
+
+  /* TRUE if the node took a strong reference on its parent. Weak
+   * pipelines for instance don't take a reference on their parent. */
+  gboolean has_parent_reference;
+
+  CoglContext *context;
 
   /* When weak pipelines are destroyed the user is notified via this
    * callback */
@@ -316,13 +317,6 @@ struct _CoglPipeline
    * be allocated dynamically when required... */
   CoglPipelineBigState *big_state;
 
-#ifdef COGL_DEBUG_ENABLED
-  /* For debugging purposes it's possible to associate a static const
-   * string with a pipeline which can be an aid when trying to trace
-   * where the pipeline originates from */
-  const char      *static_breadcrumb;
-#endif
-
   /* Cached state... */
 
   /* A cached, complete list of the layers this pipeline depends
@@ -337,6 +331,10 @@ struct _CoglPipeline
    * CoglPipeline *authorities_cache[COGL_PIPELINE_N_SPARSE_PROPERTIES];
    * and corresponding authorities_cache_dirty:1 bitfield
    */
+
+  /* Array of opaque capabilities tagged by owners of pipelines.
+   */
+  GArray *capabilities;
 
   /* bitfields */
 
@@ -368,12 +366,20 @@ struct _CoglPipeline
 
   unsigned int          layers_cache_dirty:1;
 
-#ifdef COGL_DEBUG_ENABLED
+  /* Debugging, only used when defined(COGL_ENABLE_DEBUG) */
+
   /* For debugging purposes it's possible to associate a static const
    * string with a pipeline which can be an aid when trying to trace
    * where the pipeline originates from */
   unsigned int          has_static_breadcrumb:1;
-#endif
+
+  /* For debugging purposes it's possible to associate a static const
+   * string with a pipeline which can be an aid when trying to trace
+   * where the pipeline originates from */
+  const char      *static_breadcrumb;
+
+  /* Pointer to a static string with a descriptive name, or NULL. */
+  const char *name;
 };
 
 typedef struct _CoglPipelineFragend
@@ -437,13 +443,12 @@ extern const CoglPipelineVertend *_cogl_pipeline_vertend;
 extern const CoglPipelineProgend *_cogl_pipeline_progend;
 
 void
-_cogl_pipeline_init_default_pipeline (void);
+_cogl_pipeline_init_default_pipeline (CoglContext *ctx);
 
 static inline CoglPipeline *
 _cogl_pipeline_get_parent (CoglPipeline *pipeline)
 {
-  CoglNode *parent_node = COGL_NODE (pipeline)->parent;
-  return COGL_PIPELINE (parent_node);
+  return pipeline->parent;
 }
 
 static inline CoglPipeline *
@@ -491,23 +496,9 @@ _cogl_pipeline_get_layer_with_flags (CoglPipeline *pipeline,
 #define _cogl_pipeline_get_layer(p, l) \
   _cogl_pipeline_get_layer_with_flags (p, l, 0)
 
-gboolean
-_cogl_is_pipeline_layer (void *object);
-
 void
 _cogl_pipeline_prune_empty_layer_difference (CoglPipeline *layers_authority,
                                              CoglPipelineLayer *layer);
-
-/*
- * SECTION:cogl-pipeline-internals
- * @short_description: Functions for creating custom primitives that make use
- *    of Cogl pipelines for filling.
- *
- * Normally you shouldn't need to use this API directly, but if you need to
- * developing a custom/specialised primitive - probably using raw OpenGL - then
- * this API aims to expose enough of the pipeline internals to support being
- * able to fill your geometry according to a given Cogl pipeline.
- */
 
 gboolean
 _cogl_pipeline_get_real_blend_enabled (CoglPipeline *pipeline);
@@ -578,7 +569,7 @@ _cogl_get_n_args_for_combine_func (CoglPipelineCombineFunc func);
  * To understand this better its good to know a bit about the internal
  * design of #CoglPipeline...
  *
- * Internally #CoglPipeline<!-- -->s are represented as a graph of
+ * Internally `CoglPipeline`s are represented as a graph of
  * property diff's, where each node is a diff of properties that gets
  * applied on top of its parent. Copying a pipeline creates an empty
  * diff and a child->parent relationship between the empty diff and
@@ -625,12 +616,12 @@ _cogl_get_n_args_for_combine_func (CoglPipelineCombineFunc func);
  *
  * This is the recommended coding pattern for validating an input
  * pipeline and caching a derived result:
- * |[
- * static CoglUserDataKey _cogl_my_cache_key;
+ * ```c
+ * static GQuark _cogl_my_cache_key = 0;
  *
  * typedef struct {
  *   CoglPipeline *validated_source;
- * } MyValidatedMaterialCache;
+ * } MyValidatedPipelineCache;
  *
  * static void
  * destroy_cache_cb (CoglObject *object, void *user_data)
@@ -641,23 +632,25 @@ _cogl_get_n_args_for_combine_func (CoglPipelineCombineFunc func);
  * static void
  * invalidate_cache_cb (CoglPipeline *destroyed, void *user_data)
  * {
- *   MyValidatedMaterialCache *cache = user_data;
- *   cogl_object_unref (cache->validated_source);
+ *   MyValidatedPipelineCache *cache = user_data;
+ *   g_object_unref (cache->validated_source);
  *   cache->validated_source = NULL;
  * }
  *
  * static CoglPipeline *
  * get_validated_pipeline (CoglPipeline *source)
  * {
- *   MyValidatedMaterialCache *cache =
- *     cogl_object_get_user_data (COGL_OBJECT (source),
- *                                &_cogl_my_cache_key);
+ *   _cogl_my_cache_key = g_quark_from_static_string ("my-cache-key");
+ *   MyValidatedPipelineCache *cache =
+ *     g_object_get_qdata (G_OBJECT (source),
+ *                         _cogl_my_cache_key);
  *   if (G_UNLIKELY (cache == NULL))
  *     {
- *       cache = g_new0 (MyValidatedMaterialCache, 1);
- *       cogl_object_set_user_data (COGL_OBJECT (source),
- *                                  &_cogl_my_cache_key,
- *                                  cache, destroy_cache_cb);
+ *       cache = g_new0 (MyValidatedPipelineCache, 1);
+ *
+ *       g_object_set_qdata_full (G_OBJECT (source),
+ *                                _cogl_my_cache_key,
+ *                                cache, destroy_cache_cb);
  *       cache->validated_source = source;
  *     }
  *
@@ -679,19 +672,12 @@ _cogl_get_n_args_for_combine_func (CoglPipelineCombineFunc func);
  *
  *    return cache->validated_source;
  * }
- * ]|
+ * ```
  */
 CoglPipeline *
 _cogl_pipeline_weak_copy (CoglPipeline *pipeline,
                           CoglPipelineDestroyCallback callback,
                           void *user_data);
-
-void
-_cogl_pipeline_set_progend (CoglPipeline *pipeline, int progend);
-
-void
-_cogl_pipeline_get_colorubv (CoglPipeline *pipeline,
-                             uint8_t       *color);
 
 /* XXX: At some point it could be good for this to accept a mask of
  * the state groups we are interested in comparing since we can
@@ -705,14 +691,12 @@ gboolean
 _cogl_pipeline_equal (CoglPipeline *pipeline0,
                       CoglPipeline *pipeline1,
                       unsigned int differences,
-                      unsigned long layer_differences,
-                      CoglPipelineEvalFlags flags);
+                      unsigned long layer_differences);
 
 unsigned int
 _cogl_pipeline_hash (CoglPipeline *pipeline,
                      unsigned int differences,
-                     unsigned long layer_differences,
-                     CoglPipelineEvalFlags flags);
+                     unsigned long layer_differences);
 
 /* Makes a copy of the given pipeline that is a child of the root
  * pipeline rather than a child of the source pipeline. That way the
@@ -739,13 +723,10 @@ void
 _cogl_pipeline_texture_storage_change_notify (CoglTexture *texture);
 
 void
-_cogl_pipeline_apply_legacy_state (CoglPipeline *pipeline);
-
-void
 _cogl_pipeline_apply_overrides (CoglPipeline *pipeline,
                                 CoglPipelineFlushOptions *options);
 
-#ifdef COGL_DEBUG_ENABLED
+#ifdef COGL_ENABLE_DEBUG
 void
 _cogl_pipeline_set_static_breadcrumb (CoglPipeline *pipeline,
                                       const char *breadcrumb);
@@ -774,7 +755,7 @@ _cogl_pipeline_get_layer_combine_constant (CoglPipeline *pipeline,
                                            int layer_index,
                                            float *constant);
 
-COGL_EXPORT void
+void
 _cogl_pipeline_prune_to_n_layers (CoglPipeline *pipeline, int n);
 
 
@@ -785,7 +766,7 @@ _cogl_pipeline_prune_to_n_layers (CoglPipeline *pipeline, int n);
 typedef gboolean (*CoglPipelineInternalLayerCallback) (CoglPipelineLayer *layer,
                                                        void *user_data);
 
-COGL_EXPORT void
+void
 _cogl_pipeline_foreach_layer_internal (CoglPipeline *pipeline,
                                        CoglPipelineInternalLayerCallback callback,
                                        void *user_data);
@@ -797,10 +778,6 @@ _cogl_pipeline_layer_numbers_equal (CoglPipeline *pipeline0,
 gboolean
 _cogl_pipeline_layer_and_unit_numbers_equal (CoglPipeline *pipeline0,
                                              CoglPipeline *pipeline1);
-
-gboolean
-_cogl_pipeline_need_texture_combine_separate
-                                    (CoglPipelineLayer *combine_authority);
 
 void
 _cogl_pipeline_init_state_hash_functions (void);
@@ -817,5 +794,6 @@ _cogl_pipeline_get_layer_state_for_fragment_codegen (CoglContext *context);
 CoglPipelineState
 _cogl_pipeline_get_state_for_fragment_codegen (CoglContext *context);
 
-#endif /* __COGL_PIPELINE_PRIVATE_H */
-
+void
+cogl_pipeline_add_capability_from_snippet (CoglPipeline *pipeline,
+                                           CoglSnippet  *snippet);

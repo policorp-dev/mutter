@@ -19,17 +19,18 @@
 
 #include "config.h"
 
-#include <gdk/gdkx.h>
+#include "compositor/meta-dnd-private.h"
 
 #include "meta/meta-backend.h"
 #include "compositor/compositor-private.h"
 #include "core/display-private.h"
 #include "backends/meta-dnd-private.h"
+
+#ifdef HAVE_X11
 #include "backends/x11/meta-backend-x11.h"
-#include "backends/x11/meta-clutter-backend-x11.h"
 #include "backends/x11/meta-stage-x11.h"
-#include "meta/meta-dnd.h"
 #include "x11/meta-x11-display-private.h"
+#endif
 
 struct _MetaDndClass
 {
@@ -45,19 +46,16 @@ typedef struct _MetaDndPrivate MetaDndPrivate;
 
 struct _MetaDndPrivate
 {
+  MetaBackend *backend;
+
 #ifdef HAVE_WAYLAND
   gboolean dnd_during_modal;
-#else
-  /* to avoid warnings (g_type_class_add_private: assertion `private_size > 0' failed) */
-  gchar dummy;
 #endif
 };
 
 struct _MetaDnd
 {
   GObject parent;
-
-  MetaDndPrivate *priv;
 };
 
 G_DEFINE_TYPE_WITH_PRIVATE (MetaDnd, meta_dnd, G_TYPE_OBJECT);
@@ -108,10 +106,26 @@ meta_dnd_init (MetaDnd *dnd)
 {
 }
 
+MetaDnd *
+meta_dnd_new (MetaBackend *backend)
+{
+  MetaDnd *dnd;
+  MetaDndPrivate *priv;
+
+  dnd = g_object_new (META_TYPE_DND, NULL);
+  priv = meta_dnd_get_instance_private (dnd);
+  priv->backend = backend;
+
+  return dnd;
+}
+
+#ifdef HAVE_X11
 void
 meta_dnd_init_xdnd (MetaX11Display *x11_display)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
   Display *xdisplay = x11_display->xdisplay;
   Window xwindow, overlay_xwindow;
   long xdnd_version = 5;
@@ -120,12 +134,12 @@ meta_dnd_init_xdnd (MetaX11Display *x11_display)
   xwindow = meta_backend_x11_get_xwindow (META_BACKEND_X11 (backend));
 
   XChangeProperty (xdisplay, xwindow,
-                   XInternAtom (xdisplay, "XdndAware", TRUE), XA_ATOM,
+                   XInternAtom (xdisplay, "XdndAware", False), XA_ATOM,
                    32, PropModeReplace,
                    (const unsigned char *) &xdnd_version, 1);
 
   XChangeProperty (xdisplay, overlay_xwindow,
-                   XInternAtom (xdisplay, "XdndProxy", TRUE), XA_WINDOW,
+                   XInternAtom (xdisplay, "XdndProxy", False), XA_WINDOW,
                    32, PropModeReplace, (const unsigned char *) &xwindow, 1);
 
   /*
@@ -133,9 +147,10 @@ meta_dnd_init_xdnd (MetaX11Display *x11_display)
    * XdndProxy property on the target window isn't a left-over
    */
   XChangeProperty (xdisplay, xwindow,
-                   XInternAtom (xdisplay, "XdndProxy", TRUE), XA_WINDOW,
+                   XInternAtom (xdisplay, "XdndProxy", False), XA_WINDOW,
                    32, PropModeReplace, (const unsigned char *) &xwindow, 1);
 }
+#endif
 
 static void
 meta_dnd_notify_dnd_enter (MetaDnd *dnd)
@@ -165,6 +180,7 @@ meta_dnd_notify_dnd_leave (MetaDnd *dnd)
  *
  * http://www.freedesktop.org/wiki/Specifications/XDND
  */
+#ifdef HAVE_X11
 gboolean
 meta_dnd_handle_xdnd_event (MetaBackend       *backend,
                             MetaCompositorX11 *compositor_x11,
@@ -224,87 +240,35 @@ meta_dnd_handle_xdnd_event (MetaBackend       *backend,
 
   return FALSE;
 }
+#endif
 
 #ifdef HAVE_WAYLAND
-static void
+void
 meta_dnd_wayland_on_motion_event (MetaDnd            *dnd,
                                   const ClutterEvent *event)
 {
-  MetaWaylandDragGrab *current_grab;
   gfloat event_x, event_y;
-  MetaWaylandCompositor *wl_compositor = meta_wayland_compositor_get_default ();
 
   g_return_if_fail (event != NULL);
 
   clutter_event_get_coords (event, &event_x, &event_y);
   meta_dnd_notify_dnd_position_change (dnd, (int)event_x, (int)event_y);
-
-  current_grab = meta_wayland_data_device_get_current_grab (&wl_compositor->seat->data_device);
-  if (current_grab)
-    meta_wayland_drag_grab_update_feedback_actor (current_grab, event);
-}
-
-static void
-meta_dnd_wayland_end_notify (MetaDnd *dnd)
-{
-  MetaDndPrivate *priv = meta_dnd_get_instance_private (dnd);
-  MetaWaylandCompositor *wl_compositor = meta_wayland_compositor_get_default ();
-
-  meta_wayland_data_device_end_drag (&wl_compositor->seat->data_device);
-
-  priv->dnd_during_modal = FALSE;
-
-  meta_dnd_notify_dnd_leave (dnd);
-}
-
-static void
-meta_dnd_wayland_on_button_released (MetaDnd            *dnd,
-                                     const ClutterEvent *event)
-{
-  meta_dnd_wayland_end_notify (dnd);
-}
-
-static void
-meta_dnd_wayland_on_key_pressed (MetaDnd            *dnd,
-                                 const ClutterEvent *event)
-{
-  guint key = clutter_event_get_key_symbol (event);
-
-  if (key != CLUTTER_KEY_Escape)
-    return;
-
-  meta_dnd_wayland_end_notify (dnd);
-}
-
-void
-meta_dnd_wayland_maybe_handle_event (MetaDnd            *dnd,
-                                     const ClutterEvent *event)
-{
-  MetaWaylandCompositor *wl_compositor = meta_wayland_compositor_get_default ();
-  MetaDndPrivate *priv = meta_dnd_get_instance_private (dnd);
-
-  if (!meta_wayland_data_device_get_current_grab (&wl_compositor->seat->data_device))
-    return;
-
-  g_warn_if_fail (priv->dnd_during_modal);
-
-  if (event->type == CLUTTER_MOTION)
-    meta_dnd_wayland_on_motion_event (dnd, event);
-  else if (event->type == CLUTTER_BUTTON_RELEASE)
-    meta_dnd_wayland_on_button_released (dnd, event);
-  else if (event->type == CLUTTER_KEY_PRESS)
-    meta_dnd_wayland_on_key_pressed (dnd, event);
 }
 
 void
 meta_dnd_wayland_handle_begin_modal (MetaCompositor *compositor)
 {
-  MetaWaylandCompositor *wl_compositor = meta_wayland_compositor_get_default ();
-  MetaDnd *dnd = meta_backend_get_dnd (meta_get_backend ());
+  MetaDisplay *display = meta_compositor_get_display (compositor);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *wayland_compositor =
+    meta_context_get_wayland_compositor (context);
+  MetaWaylandDataDevice *data_device = &wayland_compositor->seat->data_device;
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaDnd *dnd = meta_backend_get_dnd (backend);
   MetaDndPrivate *priv = meta_dnd_get_instance_private (dnd);
 
   if (!priv->dnd_during_modal &&
-      meta_wayland_data_device_get_current_grab (&wl_compositor->seat->data_device) != NULL)
+      meta_wayland_data_device_get_current_grab (data_device))
     {
       priv->dnd_during_modal = TRUE;
 
@@ -315,7 +279,10 @@ meta_dnd_wayland_handle_begin_modal (MetaCompositor *compositor)
 void
 meta_dnd_wayland_handle_end_modal (MetaCompositor *compositor)
 {
-  MetaDnd *dnd = meta_backend_get_dnd (meta_get_backend ());
+  MetaDisplay *display = meta_compositor_get_display (compositor);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  MetaDnd *dnd = meta_backend_get_dnd (backend);
   MetaDndPrivate *priv = meta_dnd_get_instance_private (dnd);
 
   if (!priv->dnd_during_modal)

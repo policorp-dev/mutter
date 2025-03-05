@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -271,17 +269,13 @@ meta_render_device_class_init (MetaRenderDeviceClass *klass)
   object_class->finalize = meta_render_device_finalize;
 
   obj_props[PROP_BACKEND] =
-    g_param_spec_object ("backend",
-                         "backend",
-                         "MetaBackend",
+    g_param_spec_object ("backend", NULL, NULL,
                          META_TYPE_BACKEND,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
   obj_props[PROP_DEVICE_FILE] =
-    g_param_spec_pointer ("device-file",
-                          "device file",
-                          "MetaDeviceFile",
+    g_param_spec_pointer ("device-file", NULL, NULL,
                           G_PARAM_READWRITE |
                           G_PARAM_CONSTRUCT_ONLY |
                           G_PARAM_STATIC_STRINGS);
@@ -346,11 +340,35 @@ meta_render_device_get_name (MetaRenderDevice *render_device)
     return "(device-less)";
 }
 
+GArray *
+meta_render_device_query_drm_modifiers (MetaRenderDevice       *render_device,
+                                        uint32_t                drm_format,
+                                        CoglDrmModifierFilter   filter,
+                                        GError                **error)
+{
+  MetaRenderDeviceClass *klass = META_RENDER_DEVICE_GET_CLASS (render_device);
+
+  if (klass->query_drm_modifiers)
+    {
+      return klass->query_drm_modifiers (render_device,
+                                         drm_format, filter,
+                                         error);
+    }
+
+  g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+               "Render device '%s' doesn't support allocating DMA buffers",
+               meta_render_device_get_name (render_device));
+
+  return NULL;
+}
+
 MetaDrmBuffer *
 meta_render_device_allocate_dma_buf (MetaRenderDevice    *render_device,
                                      int                  width,
                                      int                  height,
                                      uint32_t             format,
+                                     uint64_t            *modifiers,
+                                     int                  n_modifiers,
                                      MetaDrmBufferFlags   flags,
                                      GError             **error)
 {
@@ -359,7 +377,9 @@ meta_render_device_allocate_dma_buf (MetaRenderDevice    *render_device,
   if (klass->allocate_dma_buf)
     {
       return klass->allocate_dma_buf (render_device,
-                                      width, height, format,
+                                      width, height,
+                                      format,
+                                      modifiers, n_modifiers,
                                       flags,
                                       error);
     }

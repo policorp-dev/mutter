@@ -17,15 +17,12 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WINDOW_H
-#define META_WINDOW_H
+#pragma once
 
 #include <glib-object.h>
-#include <cairo.h>
-#include <X11/Xlib.h>
 
-#include <meta/boxes.h>
-#include <meta/types.h>
+#include "meta/boxes.h"
+#include "meta/types.h"
 
 /**
  * MetaWindowType:
@@ -107,16 +104,10 @@ META_EXPORT
 GType meta_window_get_type (void);
 
 META_EXPORT
-MetaFrame *meta_window_get_frame (MetaWindow *window);
-
-META_EXPORT
 gboolean meta_window_has_focus (MetaWindow *window);
 
 META_EXPORT
 gboolean meta_window_appears_focused (MetaWindow *window);
-
-META_EXPORT
-gboolean meta_window_is_shaded (MetaWindow *window);
 
 META_EXPORT
 gboolean meta_window_is_override_redirect (MetaWindow *window);
@@ -125,26 +116,29 @@ META_EXPORT
 gboolean meta_window_is_skip_taskbar (MetaWindow *window);
 
 META_EXPORT
-void meta_window_get_buffer_rect (const MetaWindow *window, MetaRectangle *rect);
+void meta_window_get_buffer_rect (const MetaWindow *window,
+                                  MtkRectangle     *rect);
 
 META_EXPORT
-void meta_window_get_frame_rect (const MetaWindow *window, MetaRectangle *rect);
+void meta_window_get_frame_rect (const MetaWindow *window,
+                                MtkRectangle      *rect);
 
 META_EXPORT
-void meta_window_client_rect_to_frame_rect (MetaWindow    *window,
-                                            MetaRectangle *client_rect,
-                                            MetaRectangle *frame_rect);
+void meta_window_get_client_content_rect (MetaWindow   *window,
+                                          MtkRectangle *rect);
 
 META_EXPORT
-void meta_window_frame_rect_to_client_rect (MetaWindow    *window,
-                                            MetaRectangle *frame_rect,
-                                            MetaRectangle *client_rect);
+void meta_window_client_rect_to_frame_rect (MetaWindow   *window,
+                                            MtkRectangle *client_rect,
+                                            MtkRectangle *frame_rect);
+
+META_EXPORT
+void meta_window_frame_rect_to_client_rect (MetaWindow   *window,
+                                            MtkRectangle *frame_rect,
+                                            MtkRectangle *client_rect);
 
 META_EXPORT
 MetaDisplay *meta_window_get_display (MetaWindow *window);
-
-META_EXPORT
-Window meta_window_get_xwindow (MetaWindow *window);
 
 META_EXPORT
 MetaWindowType meta_window_get_window_type (MetaWindow *window);
@@ -284,12 +278,12 @@ META_EXPORT
 gboolean          meta_window_is_on_primary_monitor (MetaWindow *window);
 
 META_EXPORT
-gboolean meta_window_get_icon_geometry (MetaWindow    *window,
-                                        MetaRectangle *rect);
+gboolean meta_window_get_icon_geometry (MetaWindow   *window,
+                                        MtkRectangle *rect);
 
 META_EXPORT
-void meta_window_set_icon_geometry (MetaWindow    *window,
-                                    MetaRectangle *rect);
+void meta_window_set_icon_geometry (MetaWindow   *window,
+                                    MtkRectangle *rect);
 
 META_EXPORT
 void meta_window_maximize   (MetaWindow        *window,
@@ -316,6 +310,10 @@ void        meta_window_lower_with_transients (MetaWindow *window,
                                                uint32_t    timestamp);
 
 META_EXPORT
+void        meta_window_raise_and_make_recent_on_workspace (MetaWindow    *window,
+                                                            MetaWorkspace *workspace);
+
+META_EXPORT
 const char *meta_window_get_title (MetaWindow *window);
 
 META_EXPORT
@@ -335,9 +333,6 @@ META_EXPORT
 pid_t       meta_window_get_pid (MetaWindow *window);
 
 META_EXPORT
-const char *meta_window_get_client_machine (MetaWindow *window);
-
-META_EXPORT
 gboolean    meta_window_is_remote (MetaWindow *window);
 
 META_EXPORT
@@ -353,9 +348,6 @@ META_EXPORT
 MetaFrameType meta_window_get_frame_type (MetaWindow *window);
 
 META_EXPORT
-cairo_region_t *meta_window_get_frame_bounds (MetaWindow *window);
-
-META_EXPORT
 MetaWindow *meta_window_get_tile_match (MetaWindow *window);
 
 META_EXPORT
@@ -369,14 +361,6 @@ void        meta_window_make_above         (MetaWindow  *window);
 
 META_EXPORT
 void        meta_window_unmake_above       (MetaWindow  *window);
-
-META_EXPORT
-void        meta_window_shade              (MetaWindow  *window,
-                                            guint32      timestamp);
-
-META_EXPORT
-void        meta_window_unshade            (MetaWindow  *window,
-                                            guint32      timestamp);
 
 META_EXPORT
 void        meta_window_stick              (MetaWindow  *window);
@@ -396,32 +380,31 @@ void        meta_window_check_alive        (MetaWindow  *window,
                                             guint32      timestamp);
 
 META_EXPORT
-void meta_window_get_work_area_current_monitor (MetaWindow    *window,
-                                                MetaRectangle *area);
+void meta_window_get_work_area_current_monitor (MetaWindow   *window,
+                                                MtkRectangle *area);
 
 META_EXPORT
-void meta_window_get_work_area_for_monitor     (MetaWindow    *window,
-                                                int            which_monitor,
-                                                MetaRectangle *area);
+void meta_window_get_work_area_for_monitor     (MetaWindow   *window,
+                                                int           which_monitor,
+                                                MtkRectangle *area);
 
 META_EXPORT
-void meta_window_get_work_area_all_monitors    (MetaWindow    *window,
-                                                MetaRectangle *area);
+void meta_window_get_work_area_all_monitors    (MetaWindow   *window,
+                                                MtkRectangle *area);
 
 META_EXPORT
-void meta_window_begin_grab_op (MetaWindow *window,
-                                MetaGrabOp  op,
-                                gboolean    frame_action,
-                                guint32     timestamp);
+gboolean meta_window_begin_grab_op (MetaWindow           *window,
+                                    MetaGrabOp            op,
+                                    ClutterInputDevice   *device,
+                                    ClutterEventSequence *sequence,
+                                    guint32               timestamp,
+                                    graphene_point_t     *pos_hint);
 
 META_EXPORT
 gboolean meta_window_can_maximize (MetaWindow *window);
 
 META_EXPORT
 gboolean meta_window_can_minimize (MetaWindow *window);
-
-META_EXPORT
-gboolean meta_window_can_shade (MetaWindow *window);
 
 META_EXPORT
 gboolean meta_window_can_close (MetaWindow *window);
@@ -439,15 +422,6 @@ META_EXPORT
 gboolean meta_window_allows_resize (MetaWindow *window);
 
 META_EXPORT
-gboolean meta_window_is_client_decorated (MetaWindow *window);
-
-META_EXPORT
-gboolean meta_window_titlebar_is_onscreen    (MetaWindow *window);
-
-META_EXPORT
-void     meta_window_shove_titlebar_onscreen (MetaWindow *window);
-
-META_EXPORT
 uint64_t meta_window_get_id (MetaWindow *window);
 
 META_EXPORT
@@ -456,4 +430,12 @@ MetaWindowClientType meta_window_get_client_type (MetaWindow *window);
 META_EXPORT
 gboolean meta_window_has_pointer (MetaWindow *window);
 
-#endif
+META_EXPORT
+void meta_window_stage_to_protocol_rect (MetaWindow         *window,
+                                         const MtkRectangle *stage_rect,
+                                         MtkRectangle       *protocol_rect);
+
+META_EXPORT
+void meta_window_protocol_to_stage_rect (MetaWindow *window,
+                                         const MtkRectangle *protocol_rect,
+                                         MtkRectangle       *stage_rect);

@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -22,8 +20,10 @@
 
 #include "backends/meta-screen-cast-window-stream.h"
 
+#include "backends/meta-eis.h"
 #include "backends/meta-logical-monitor.h"
 #include "backends/meta-monitor-manager-private.h"
+#include "backends/meta-screen-cast-session.h"
 #include "backends/meta-screen-cast-window.h"
 #include "backends/meta-screen-cast-window-stream-src.h"
 #include "compositor/meta-window-actor-private.h"
@@ -55,11 +55,15 @@ static GInitableIface *initable_parent_iface;
 static void
 meta_screen_cast_window_stream_init_initable_iface (GInitableIface *iface);
 
+static void meta_eis_viewport_iface_init (MetaEisViewportInterface *eis_viewport_iface);
+
 G_DEFINE_TYPE_WITH_CODE (MetaScreenCastWindowStream,
                          meta_screen_cast_window_stream,
                          META_TYPE_SCREEN_CAST_STREAM,
                          G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
-                                                meta_screen_cast_window_stream_init_initable_iface))
+                                                meta_screen_cast_window_stream_init_initable_iface)
+                         G_IMPLEMENT_INTERFACE (META_TYPE_EIS_VIEWPORT,
+                                                meta_eis_viewport_iface_init))
 
 MetaWindow *
 meta_screen_cast_window_stream_get_window (MetaScreenCastWindowStream *window_stream)
@@ -95,6 +99,7 @@ meta_screen_cast_window_stream_new (MetaScreenCastSession     *session,
                          "cursor-mode", cursor_mode,
                          "flags", flags,
                          "window", window,
+                         "is-configured", TRUE,
                          NULL);
 }
 
@@ -221,6 +226,11 @@ meta_screen_cast_window_stream_initable_init (GInitable     *initable,
 {
   MetaScreenCastWindowStream *window_stream =
     META_SCREEN_CAST_WINDOW_STREAM (initable);
+  MetaScreenCastStream *stream = META_SCREEN_CAST_STREAM (initable);
+  MetaScreenCastSession *session = meta_screen_cast_stream_get_session (stream);
+  MetaScreenCast *screen_cast =
+    meta_screen_cast_session_get_screen_cast (session);
+  MetaBackend *backend = meta_screen_cast_get_backend (screen_cast);
   MetaWindow *window = window_stream->window;
   MetaScreenCastWindow *screen_cast_window =
     META_SCREEN_CAST_WINDOW (meta_window_actor_from_window (window));
@@ -240,7 +250,7 @@ meta_screen_cast_window_stream_initable_init (GInitable     *initable,
                               G_CALLBACK (on_window_unmanaged),
                               window_stream);
 
-  if (meta_is_stage_views_scaled ())
+  if (meta_backend_is_stage_views_scaled (backend))
     scale = (int) ceilf (meta_logical_monitor_get_scale (logical_monitor));
   else
     scale = 1;
@@ -267,6 +277,77 @@ meta_screen_cast_window_stream_init_initable_iface (GInitableIface *iface)
   iface->init = meta_screen_cast_window_stream_initable_init;
 }
 
+static gboolean
+meta_screen_cast_window_stream_is_standalone (MetaEisViewport *viewport)
+{
+  return TRUE;
+}
+
+static const char *
+meta_screen_cast_window_stream_get_mapping_id (MetaEisViewport *viewport)
+{
+  MetaScreenCastStream *stream = META_SCREEN_CAST_STREAM (viewport);
+
+  return meta_screen_cast_stream_get_mapping_id (stream);
+}
+
+static gboolean
+meta_screen_cast_window_stream_get_position (MetaEisViewport *viewport,
+                                             int             *out_x,
+                                             int             *out_y)
+{
+  return FALSE;
+}
+
+static void
+meta_screen_cast_window_stream_get_size (MetaEisViewport *viewport,
+                                          int             *out_width,
+                                          int             *out_height)
+{
+  MetaScreenCastWindowStream *window_stream =
+    META_SCREEN_CAST_WINDOW_STREAM (viewport);
+
+  *out_width = window_stream->stream_width;
+  *out_height = window_stream->stream_height;
+}
+
+static double
+meta_screen_cast_window_stream_get_physical_scale (MetaEisViewport *viewport)
+{
+  return 1.0;
+}
+
+static gboolean
+meta_screen_cast_window_stream_transform_coordinate (MetaEisViewport *viewport,
+                                                     double           x,
+                                                     double           y,
+                                                     double          *out_x,
+                                                     double          *out_y)
+{
+  MetaScreenCastWindowStream *window_stream =
+    META_SCREEN_CAST_WINDOW_STREAM (viewport);
+  MetaScreenCastWindow *screen_cast_window =
+    META_SCREEN_CAST_WINDOW (meta_window_actor_from_window (window_stream->window));
+
+  meta_screen_cast_window_transform_relative_position (screen_cast_window,
+                                                       x,
+                                                       y,
+                                                       out_x,
+                                                       out_y);
+  return TRUE;
+}
+
+static void
+meta_eis_viewport_iface_init (MetaEisViewportInterface *eis_viewport_iface)
+{
+  eis_viewport_iface->is_standalone = meta_screen_cast_window_stream_is_standalone;
+  eis_viewport_iface->get_mapping_id = meta_screen_cast_window_stream_get_mapping_id;
+  eis_viewport_iface->get_position = meta_screen_cast_window_stream_get_position;
+  eis_viewport_iface->get_size = meta_screen_cast_window_stream_get_size;
+  eis_viewport_iface->get_physical_scale = meta_screen_cast_window_stream_get_physical_scale;
+  eis_viewport_iface->transform_coordinate = meta_screen_cast_window_stream_transform_coordinate;
+}
+
 static void
 meta_screen_cast_window_stream_init (MetaScreenCastWindowStream *window_stream)
 {
@@ -289,9 +370,7 @@ meta_screen_cast_window_stream_class_init (MetaScreenCastWindowStreamClass *klas
 
   g_object_class_install_property (object_class,
                                    PROP_WINDOW,
-                                   g_param_spec_object ("window",
-                                                        "window",
-                                                        "MetaWindow",
+                                   g_param_spec_object ("window", NULL, NULL,
                                                         META_TYPE_WINDOW,
                                                         G_PARAM_READWRITE |
                                                         G_PARAM_CONSTRUCT_ONLY |

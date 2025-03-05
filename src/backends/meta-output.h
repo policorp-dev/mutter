@@ -13,13 +13,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_OUTPUT_H
-#define META_OUTPUT_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -27,6 +24,63 @@
 #include "backends/meta-backend-types.h"
 #include "backends/meta-gpu.h"
 #include "core/util-private.h"
+
+typedef enum _MetaOutputColorspace
+{
+  META_OUTPUT_COLORSPACE_UNKNOWN = 0,
+  META_OUTPUT_COLORSPACE_DEFAULT,
+  META_OUTPUT_COLORSPACE_BT2020,
+} MetaOutputColorspace;
+
+typedef enum
+{
+  META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR,
+  META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR,
+  META_OUTPUT_HDR_METADATA_EOTF_PQ,
+  META_OUTPUT_HDR_METADATA_EOTF_HLG,
+} MetaOutputHdrMetadataEOTF;
+
+enum _MetaColorMode
+{
+  META_COLOR_MODE_DEFAULT = 0,
+  META_COLOR_MODE_BT2100 = 1,
+};
+
+typedef enum _MetaOutputRGBRange
+{
+  META_OUTPUT_RGB_RANGE_UNKNOWN = 0,
+  META_OUTPUT_RGB_RANGE_AUTO,
+  META_OUTPUT_RGB_RANGE_FULL,
+  META_OUTPUT_RGB_RANGE_LIMITED,
+} MetaOutputRGBRange;
+
+typedef enum
+{
+  META_SUBPIXEL_ORDER_UNKNOWN,
+  META_SUBPIXEL_ORDER_NONE,
+  META_SUBPIXEL_ORDER_HORIZONTAL_RGB,
+  META_SUBPIXEL_ORDER_HORIZONTAL_BGR,
+  META_SUBPIXEL_ORDER_VERTICAL_RGB,
+  META_SUBPIXEL_ORDER_VERTICAL_BGR,
+} MetaSubpixelOrder;
+
+typedef struct _MetaOutputHdrMetadata
+{
+  gboolean active;
+  MetaOutputHdrMetadataEOTF eotf;
+  struct {
+    double x;
+    double y;
+  } mastering_display_primaries[3];
+  struct {
+    double x;
+    double y;
+  } mastering_display_white_point;
+  double mastering_display_max_luminance;
+  double mastering_display_min_luminance;
+  double max_cll;
+  double max_fall;
+} MetaOutputHdrMetadata;
 
 struct _MetaTileInfo
 {
@@ -93,10 +147,10 @@ typedef struct _MetaOutputInfo
 
   int width_mm;
   int height_mm;
-  CoglSubpixelOrder subpixel_order;
+  MetaSubpixelOrder subpixel_order;
 
   MetaConnectorType connector_type;
-  MetaMonitorTransform panel_orientation_transform;
+  MtkMonitorTransform panel_orientation_transform;
 
   MetaCrtcMode *preferred_mode;
   MetaCrtcMode **modes;
@@ -113,6 +167,7 @@ typedef struct _MetaOutputInfo
 
   gboolean supports_underscanning;
   gboolean supports_color_transform;
+  gboolean supports_privacy_screen;
 
   unsigned int max_bpc_min;
   unsigned int max_bpc_max;
@@ -126,11 +181,23 @@ typedef struct _MetaOutputInfo
   int suggested_y;
 
   MetaTileInfo tile_info;
+
+  uint64_t supported_color_spaces;
+  uint64_t supported_hdr_eotfs;
+
+  uint64_t supported_rgb_ranges;
+
+  gboolean supports_vrr;
 } MetaOutputInfo;
 
-gboolean
-meta_tile_info_equal (MetaTileInfo *a,
-                      MetaTileInfo *b);
+gboolean meta_tile_info_equal (MetaTileInfo *a,
+                               MetaTileInfo *b);
+
+META_EXPORT_TEST
+gboolean meta_output_hdr_metadata_equal (MetaOutputHdrMetadata *metadata,
+                                         MetaOutputHdrMetadata *other_metadata);
+
+const char * meta_output_colorspace_get_name (MetaOutputColorspace color_space);
 
 #define META_TYPE_OUTPUT_INFO (meta_output_info_get_type ())
 META_EXPORT_TEST
@@ -149,7 +216,8 @@ META_EXPORT_TEST
 void meta_output_info_parse_edid (MetaOutputInfo *output_info,
                                   GBytes         *edid);
 
-gboolean meta_output_is_laptop  (MetaOutput *output);
+gboolean meta_output_info_get_min_refresh_rate (const MetaOutputInfo *output_info,
+                                                int                  *min_refresh_rate);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaOutputInfo, meta_output_info_unref)
 
@@ -196,16 +264,31 @@ META_EXPORT_TEST
 gboolean meta_output_get_max_bpc (MetaOutput   *output,
                                   unsigned int *max_bpc);
 
+META_EXPORT_TEST
 void meta_output_set_backlight (MetaOutput *output,
                                 int         backlight);
 
+META_EXPORT_TEST
 int meta_output_get_backlight (MetaOutput *output);
 
 MetaPrivacyScreenState meta_output_get_privacy_screen_state (MetaOutput *output);
 
+gboolean meta_output_is_privacy_screen_enabled (MetaOutput *output);
+
 gboolean meta_output_set_privacy_screen_enabled (MetaOutput  *output,
                                                  gboolean     enabled,
                                                  GError     **error);
+
+void meta_output_get_color_metadata (MetaOutput            *output,
+                                     MetaOutputHdrMetadata *hdr_metadata,
+                                     MetaOutputColorspace  *colorspace);
+
+MetaColorMode meta_output_get_color_mode (MetaOutput *output);
+
+META_EXPORT_TEST
+MetaOutputRGBRange meta_output_peek_rgb_range (MetaOutput *output);
+
+gboolean meta_output_is_vrr_enabled (MetaOutput *output);
 
 void meta_output_add_possible_clone (MetaOutput *output,
                                      MetaOutput *possible_clone);
@@ -224,15 +307,13 @@ void meta_output_unassign_crtc (MetaOutput *output);
 META_EXPORT_TEST
 MetaCrtc * meta_output_get_assigned_crtc (MetaOutput *output);
 
-MetaMonitorTransform meta_output_logical_to_crtc_transform (MetaOutput           *output,
-                                                            MetaMonitorTransform  transform);
+MtkMonitorTransform meta_output_logical_to_crtc_transform (MetaOutput          *output,
+                                                           MtkMonitorTransform  transform);
 
-MetaMonitorTransform meta_output_crtc_to_logical_transform (MetaOutput           *output,
-                                                            MetaMonitorTransform  transform);
+MtkMonitorTransform meta_output_crtc_to_logical_transform (MetaOutput          *output,
+                                                           MtkMonitorTransform  transform);
 
 void meta_output_update_modes (MetaOutput    *output,
                                MetaCrtcMode  *preferred_mode,
                                MetaCrtcMode **modes,
                                int            n_modes);
-
-#endif /* META_OUTPUT_H */

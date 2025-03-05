@@ -12,15 +12,15 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "config.h"
 
 #include "backends/meta-remote-access-controller-private.h"
+
+#include "backends/meta-dbus-session-manager.h"
 
 #ifdef HAVE_REMOTE_DESKTOP
 #include "backends/meta-remote-desktop.h"
@@ -73,8 +73,7 @@ struct _MetaRemoteAccessController
 {
   GObject parent;
 
-  MetaRemoteDesktop *remote_desktop;
-  MetaScreenCast *screen_cast;
+  GList *session_managers;
 };
 
 G_DEFINE_TYPE (MetaRemoteAccessController,
@@ -153,10 +152,14 @@ meta_remote_access_controller_notify_new_handle (MetaRemoteAccessController *con
 void
 meta_remote_access_controller_inhibit_remote_access (MetaRemoteAccessController *controller)
 {
-#ifdef HAVE_REMOTE_DESKTOP
-  meta_remote_desktop_inhibit (controller->remote_desktop);
-  meta_screen_cast_inhibit (controller->screen_cast);
-#endif
+  GList *l;
+
+  for (l = controller->session_managers; l; l = l->next)
+    {
+      MetaDbusSessionManager *session_manager = l->data;
+
+      meta_dbus_session_manager_inhibit (session_manager);
+    }
 }
 
 /**
@@ -164,30 +167,34 @@ meta_remote_access_controller_inhibit_remote_access (MetaRemoteAccessController 
  * @controller: a #MetaRemoteAccessController
  *
  * Uninhibits remote access sessions from being created and running. If this was
- * the last inhibitation that was inhibited, new remote access sessions can now
+ * the last inhibition that was inhibited, new remote access sessions can now
  * be created.
  */
 void
 meta_remote_access_controller_uninhibit_remote_access (MetaRemoteAccessController *controller)
 {
-#ifdef HAVE_REMOTE_DESKTOP
-  meta_screen_cast_uninhibit (controller->screen_cast);
-  meta_remote_desktop_uninhibit (controller->remote_desktop);
-#endif
+  GList *l;
+
+  for (l = controller->session_managers; l; l = l->next)
+    {
+      MetaDbusSessionManager *session_manager = l->data;
+
+      meta_dbus_session_manager_uninhibit (session_manager);
+    }
 }
 
 MetaRemoteAccessController *
-meta_remote_access_controller_new (MetaRemoteDesktop *remote_desktop,
-                                   MetaScreenCast    *screen_cast)
+meta_remote_access_controller_new (void)
 {
-  MetaRemoteAccessController *remote_access_controller;
+  return g_object_new (META_TYPE_REMOTE_ACCESS_CONTROLLER, NULL);
+}
 
-  remote_access_controller = g_object_new (META_TYPE_REMOTE_ACCESS_CONTROLLER,
-                                           NULL);
-  remote_access_controller->remote_desktop = remote_desktop;
-  remote_access_controller->screen_cast = screen_cast;
-
-  return remote_access_controller;
+void
+meta_remote_access_controller_add (MetaRemoteAccessController *controller,
+                                   MetaDbusSessionManager     *session_manager)
+{
+  controller->session_managers = g_list_append (controller->session_managers,
+                                                g_object_ref (session_manager));
 }
 
 static void
@@ -254,9 +261,7 @@ meta_remote_access_handle_class_init (MetaRemoteAccessHandleClass *klass)
                   G_TYPE_NONE, 0);
 
   obj_props[PROP_IS_RECORDING] =
-    g_param_spec_boolean ("is-recording",
-                          "is-recording",
-                          "Is a screen recording",
+    g_param_spec_boolean ("is-recording", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE |
                           G_PARAM_CONSTRUCT_ONLY |
@@ -270,8 +275,22 @@ meta_remote_access_controller_init (MetaRemoteAccessController *controller)
 }
 
 static void
+meta_remote_access_handle_finalize (GObject *object)
+{
+  MetaRemoteAccessController *controller = META_REMOTE_ACCESS_CONTROLLER (object);
+
+  g_clear_list (&controller->session_managers, g_object_unref);
+
+  G_OBJECT_CLASS (meta_remote_access_controller_parent_class)->finalize (object);
+}
+
+static void
 meta_remote_access_controller_class_init (MetaRemoteAccessControllerClass *klass)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+  object_class->finalize = meta_remote_access_handle_finalize;
+
   controller_signals[CONTROLLER_NEW_HANDLE] =
     g_signal_new ("new-handle",
                   G_TYPE_FROM_CLASS (klass),

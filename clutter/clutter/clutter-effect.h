@@ -22,33 +22,26 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_EFFECT_H__
-#define __CLUTTER_EFFECT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-actor-meta.h>
-#include <clutter/clutter-paint-context.h>
-#include <clutter/clutter-pick-context.h>
+#include "clutter/clutter-actor-meta.h"
+#include "clutter/clutter-paint-context.h"
+#include "clutter/clutter-pick-context.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_EFFECT             (clutter_effect_get_type ())
-#define CLUTTER_EFFECT(obj)             (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_EFFECT, ClutterEffect))
-#define CLUTTER_IS_EFFECT(obj)          (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_EFFECT))
-#define CLUTTER_EFFECT_CLASS(klass)     (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_EFFECT, ClutterEffectClass))
-#define CLUTTER_IS_EFFECT_CLASS(klass)  (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_EFFECT))
-#define CLUTTER_EFFECT_GET_CLASS(obj)   (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_EFFECT, ClutterEffectClass))
 
-typedef struct _ClutterEffectClass      ClutterEffectClass;
-
-struct _ClutterEffect
-{
-  /*< private >*/
-  ClutterActorMeta parent_instance;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterEffect,
+                          clutter_effect,
+                          CLUTTER,
+                          EFFECT,
+                          ClutterActorMeta)
 
 /**
  * ClutterEffectClass:
@@ -86,15 +79,7 @@ struct _ClutterEffectClass
                                     ClutterEffectPaintFlags  flags);
   void     (* pick)                (ClutterEffect           *effect,
                                     ClutterPickContext      *pick_context);
-
-  /*< private >*/
-  void (* _clutter_effect4) (void);
-  void (* _clutter_effect5) (void);
-  void (* _clutter_effect6) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_effect_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 void    clutter_effect_queue_repaint    (ClutterEffect *effect);
@@ -128,5 +113,3 @@ CLUTTER_EXPORT
 gboolean       clutter_actor_has_effects           (ClutterActor  *self);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_EFFECT_H__ */

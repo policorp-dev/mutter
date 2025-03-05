@@ -23,7 +23,7 @@
 
 /**
  * ClutterTimeline:
- * 
+ *
  * A class for time-based events
  *
  * #ClutterTimeline is a base class for managing time-based event that cause
@@ -35,8 +35,7 @@
  *
  * It is important to note that #ClutterTimeline is not a generic API for
  * calling closures after an interval; each Timeline is tied into a frame
- * clock used to drive the frame cycle. If you need to schedule a closure
- * after an interval, see [func@threads_add_timeout] instead.
+ * clock used to drive the frame cycle.
  *
  * Users of #ClutterTimeline should connect to the [signal@Timeline::new-frame]
  * signal, which is emitted each time a timeline is advanced during the maste
@@ -72,45 +71,24 @@
  *
  * Timelines are used in the Clutter animation framework by classes like
  * [class@Transition].
- *
- * ## Defining Timelines in ClutterScript
- *
- * A #ClutterTimeline can be described in [class@Script] like any
- * other object. Additionally, it is possible to define markers directly
- * inside the JSON definition by using the `markers` JSON object member,
- * such as:
- *
- * ```json
- * {
- *   "type" : "ClutterTimeline",
- *   "duration" : 1000,
- *   "markers" : [
- *     { "name" : "quarter", "time" : 250 },
- *     { "name" : "half-time", "time" : 500 },
- *     { "name" : "three-quarters", "time" : 750 }
- *   ]
- * }
- * ```
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-timeline.h"
-#include "deprecated/clutter-timeline.h"
+#include "clutter/clutter-timeline.h"
 
-#include "clutter-actor-private.h"
-#include "clutter-debug.h"
-#include "clutter-easing.h"
-#include "clutter-enum-types.h"
-#include "clutter-frame-clock.h"
-#include "clutter-main.h"
-#include "clutter-marshal.h"
-#include "clutter-mutter.h"
-#include "clutter-private.h"
-#include "clutter-scriptable.h"
-#include "clutter-timeline-private.h"
+#include "clutter/clutter-actor-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-easing.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-frame-clock.h"
+#include "clutter/clutter-main.h"
+#include "clutter/clutter-marshal.h"
+#include "clutter/clutter-mutter.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-timeline-private.h"
 
-struct _ClutterTimelinePrivate
+typedef struct _ClutterTimelinePrivate
 {
   ClutterTimelineDirection direction;
 
@@ -168,7 +146,7 @@ struct _ClutterTimelinePrivate
    */
   guint waiting_first_tick : 1;
   guint auto_reverse       : 1;
-};
+} ClutterTimelinePrivate;
 
 typedef struct {
   gchar *name;
@@ -216,12 +194,9 @@ static guint timeline_signals[LAST_SIGNAL] = { 0, };
 
 static void update_frame_clock (ClutterTimeline *timeline);
 
-static void clutter_scriptable_iface_init (ClutterScriptableIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (ClutterTimeline, clutter_timeline, G_TYPE_OBJECT,
-                         G_ADD_PRIVATE (ClutterTimeline)
-                         G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_SCRIPTABLE,
-                                                clutter_scriptable_iface_init))
+                         G_ADD_PRIVATE (ClutterTimeline))
 
 static TimelineMarker *
 timeline_marker_new_time (const gchar *name,
@@ -278,7 +253,8 @@ static inline void
 clutter_timeline_add_marker_internal (ClutterTimeline *timeline,
                                       TimelineMarker  *marker)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
   TimelineMarker *old_marker;
 
   /* create the hash table that will hold the markers */
@@ -293,7 +269,7 @@ clutter_timeline_add_marker_internal (ClutterTimeline *timeline,
       guint msecs;
 
       if (old_marker->is_relative)
-        msecs = old_marker->data.progress * priv->duration;
+        msecs = (unsigned int) (old_marker->data.progress * priv->duration);
       else
         msecs = old_marker->data.msecs;
 
@@ -311,7 +287,8 @@ static void
 on_actor_destroyed (ClutterActor    *actor,
                     ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   g_clear_signal_handler (&priv->stage_stage_views_handler_id, priv->stage);
   priv->actor = NULL;
@@ -328,7 +305,8 @@ on_actor_destroyed (ClutterActor    *actor,
 ClutterActor *
 clutter_timeline_get_actor (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   return priv->actor;
 }
@@ -336,7 +314,8 @@ clutter_timeline_get_actor (ClutterTimeline *timeline)
 static void
 maybe_add_timeline (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   if (!priv->frame_clock)
     return;
@@ -347,7 +326,8 @@ maybe_add_timeline (ClutterTimeline *timeline)
 static void
 maybe_remove_timeline (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   if (!priv->frame_clock)
     return;
@@ -359,7 +339,8 @@ static void
 set_frame_clock_internal (ClutterTimeline   *timeline,
                           ClutterFrameClock *frame_clock)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   if (priv->frame_clock == frame_clock)
     return;
@@ -380,7 +361,8 @@ static void
 on_stage_stage_views_changed (ClutterActor    *stage,
                               ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   g_clear_signal_handler (&priv->stage_stage_views_handler_id, priv->stage);
   priv->stage = NULL;
@@ -398,7 +380,8 @@ on_frame_clock_actor_stage_views_changed (ClutterActor    *frame_clock_actor,
 static void
 update_frame_clock (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
   ClutterFrameClock *frame_clock = NULL;
   ClutterActor *stage;
   ClutterActor *frame_clock_actor;
@@ -468,7 +451,8 @@ void
 clutter_timeline_set_actor (ClutterTimeline *timeline,
                             ClutterActor    *actor)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   g_return_if_fail (!actor || (actor && !priv->custom_frame_clock));
 
@@ -498,133 +482,13 @@ clutter_timeline_set_actor (ClutterTimeline *timeline,
   update_frame_clock (timeline);
 }
 
-/* Scriptable */
-typedef struct _ParseClosure {
-  ClutterTimeline *timeline;
-  ClutterScript *script;
-  GValue *value;
-  gboolean result;
-} ParseClosure;
-
-static void
-parse_timeline_markers (JsonArray *array,
-                        guint      index_,
-                        JsonNode  *element,
-                        gpointer   data)
-{
-  ParseClosure *clos = data;
-  JsonObject *object;
-  TimelineMarker *marker;
-  GList *markers;
-
-  if (JSON_NODE_TYPE (element) != JSON_NODE_OBJECT)
-    {
-      g_warning ("The 'markers' member of a ClutterTimeline description "
-                 "should be an array of objects, but the element %d of the "
-                 "array is of type '%s'. The element will be ignored.",
-                 index_,
-                 json_node_type_name (element));
-      return;
-    }
-
-  object = json_node_get_object (element);
-
-  if (!(json_object_has_member (object, "name") &&
-        (json_object_has_member (object, "time") ||
-         json_object_has_member (object, "progress"))))
-    {
-      g_warning ("The marker definition in a ClutterTimeline description "
-                 "must be an object with the 'name' and either the 'time' "
-                 "or the 'progress' members, but the element %d of the "
-                 "'markers' array does not have any of them.",
-                 index_);
-      return;
-    }
-
-  if (G_IS_VALUE (clos->value))
-    markers = g_value_get_pointer (clos->value);
-  else
-    {
-      g_value_init (clos->value, G_TYPE_POINTER);
-      markers = NULL;
-    }
-
-  if (json_object_has_member (object, "time"))
-    marker = timeline_marker_new_time (json_object_get_string_member (object, "name"),
-                                       json_object_get_int_member (object, "time"));
-  else
-    marker = timeline_marker_new_progress (json_object_get_string_member (object, "name"),
-                                           json_object_get_double_member (object, "progress"));
-
-  markers = g_list_prepend (markers, marker);
-
-  g_value_set_pointer (clos->value, markers);
-
-  clos->result = TRUE;
-}
-
-static gboolean
-clutter_timeline_parse_custom_node (ClutterScriptable *scriptable,
-                                    ClutterScript     *script,
-                                    GValue            *value,
-                                    const gchar       *name,
-                                    JsonNode          *node)
-{
-  ParseClosure clos;
-
-  if (strcmp (name, "markers") != 0)
-    return FALSE;
-
-  if (JSON_NODE_TYPE (node) != JSON_NODE_ARRAY)
-    return FALSE;
-
-  clos.timeline = CLUTTER_TIMELINE (scriptable);
-  clos.script = script;
-  clos.value = value;
-  clos.result = FALSE;
-
-  json_array_foreach_element (json_node_get_array (node),
-                              parse_timeline_markers,
-                              &clos);
-
-  return clos.result;
-}
-
-static void
-clutter_timeline_set_custom_property (ClutterScriptable *scriptable,
-                                      ClutterScript     *script,
-                                      const gchar       *name,
-                                      const GValue      *value)
-{
-  if (strcmp (name, "markers") == 0)
-    {
-      ClutterTimeline *timeline = CLUTTER_TIMELINE (scriptable);
-      GList *markers = g_value_get_pointer (value);
-      GList *m;
-
-      /* the list was created through prepend() */
-      markers = g_list_reverse (markers);
-
-      for (m = markers; m != NULL; m = m->next)
-        clutter_timeline_add_marker_internal (timeline, m->data);
-
-      g_list_free (markers);
-    }
-  else
-    g_object_set_property (G_OBJECT (scriptable), name, value);
-}
-
 void
 clutter_timeline_cancel_delay (ClutterTimeline *timeline)
 {
-  g_clear_handle_id (&timeline->priv->delay_id, g_source_remove);
-}
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
-static void
-clutter_scriptable_iface_init (ClutterScriptableIface *iface)
-{
-  iface->parse_custom_node = clutter_timeline_parse_custom_node;
-  iface->set_custom_property = clutter_timeline_set_custom_property;
+  g_clear_handle_id (&priv->delay_id, g_source_remove);
 }
 
 /* Object */
@@ -679,12 +543,13 @@ clutter_timeline_set_property (GObject      *object,
 
 static void
 clutter_timeline_get_property (GObject    *object,
-			       guint       prop_id,
-			       GValue     *value,
-			       GParamSpec *pspec)
+                               guint       prop_id,
+                               GValue     *value,
+                               GParamSpec *pspec)
 {
   ClutterTimeline *timeline = CLUTTER_TIMELINE (object);
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   switch (prop_id)
     {
@@ -730,7 +595,8 @@ static void
 clutter_timeline_finalize (GObject *object)
 {
   ClutterTimeline *self = CLUTTER_TIMELINE (object);
-  ClutterTimelinePrivate *priv = self->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (self);
 
   if (priv->markers_by_name)
     g_hash_table_destroy (priv->markers_by_name);
@@ -746,10 +612,9 @@ clutter_timeline_finalize (GObject *object)
 static void
 clutter_timeline_dispose (GObject *object)
 {
-  ClutterTimeline *self = CLUTTER_TIMELINE(object);
-  ClutterTimelinePrivate *priv;
-
-  priv = self->priv;
+  ClutterTimeline *self = CLUTTER_TIMELINE (object);
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (self);
 
   clutter_timeline_cancel_delay (self);
 
@@ -791,11 +656,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * clock will drive it.
    */
   obj_props[PROP_ACTOR] =
-    g_param_spec_object ("actor",
-                         P_("Actor"),
-                         P_("Associated ClutterActor"),
+    g_param_spec_object ("actor", NULL, NULL,
                          CLUTTER_TYPE_ACTOR,
-                         G_PARAM_CONSTRUCT | CLUTTER_PARAM_READWRITE);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT);
   /**
    * ClutterTimeline:delay:
    *
@@ -803,12 +668,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * timeline before actually starting.
    */
   obj_props[PROP_DELAY] =
-    g_param_spec_uint ("delay",
-                       P_("Delay"),
-                       P_("Delay before start"),
+    g_param_spec_uint ("delay", NULL, NULL,
                        0, G_MAXUINT,
                        0,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:duration:
@@ -817,12 +681,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * [property@Timeline:frame-clock] value.
    */
   obj_props[PROP_DURATION] =
-    g_param_spec_uint ("duration",
-                       P_("Duration"),
-                       P_("Duration of the timeline in milliseconds"),
+    g_param_spec_uint ("duration", NULL, NULL,
                        0, G_MAXUINT,
                        1000,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:direction:
@@ -831,12 +694,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * %CLUTTER_TIMELINE_BACKWARD.
    */
   obj_props[PROP_DIRECTION] =
-    g_param_spec_enum ("direction",
-                       P_("Direction"),
-                       P_("Direction of the timeline"),
+    g_param_spec_enum ("direction", NULL, NULL,
                        CLUTTER_TYPE_TIMELINE_DIRECTION,
                        CLUTTER_TIMELINE_FORWARD,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:auto-reverse:
@@ -845,11 +707,10 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * when reaching the end.
    */
   obj_props[PROP_AUTO_REVERSE] =
-    g_param_spec_boolean ("auto-reverse",
-                          P_("Auto Reverse"),
-                          P_("Whether the direction should be reversed when reaching the end"),
+    g_param_spec_boolean ("auto-reverse", NULL, NULL,
                           FALSE,
-                          CLUTTER_PARAM_READWRITE);
+                          G_PARAM_READWRITE |
+                          G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:repeat-count:
@@ -862,12 +723,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * stopped.
    */
   obj_props[PROP_REPEAT_COUNT] =
-    g_param_spec_int ("repeat-count",
-                      P_("Repeat Count"),
-                      P_("How many times the timeline should repeat"),
+    g_param_spec_int ("repeat-count", NULL, NULL,
                       -1, G_MAXINT,
                       0,
-                      CLUTTER_PARAM_READWRITE);
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:progress-mode:
@@ -875,12 +735,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * Controls the way a #ClutterTimeline computes the normalized progress.
    */
   obj_props[PROP_PROGRESS_MODE] =
-    g_param_spec_enum ("progress-mode",
-                       P_("Progress Mode"),
-                       P_("How the timeline should compute the progress"),
+    g_param_spec_enum ("progress-mode", NULL, NULL,
                        CLUTTER_TYPE_ANIMATION_MODE,
                        CLUTTER_LINEAR,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterTimeline:frame-clock:
@@ -888,11 +747,11 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    * The frame clock driving the timeline.
    */
   obj_props[PROP_FRAME_CLOCK] =
-    g_param_spec_object ("frame-clock",
-                         "Frame clock",
-                         "Frame clock driving the timeline",
+    g_param_spec_object ("frame-clock", NULL, NULL,
                          CLUTTER_TYPE_FRAME_CLOCK,
-                         G_PARAM_CONSTRUCT | CLUTTER_PARAM_READWRITE);
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT);
 
   object_class->dispose = clutter_timeline_dispose;
   object_class->finalize = clutter_timeline_finalize;
@@ -976,9 +835,9 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
    *
    * The signal is emitted each time a timeline
    * reaches a marker set with [method@Timeline.add_marker_at_time].
-   * 
+   *
    * This signal is detailed with the name of the marker as well,
-   * so it is possible to connect a callback to the [signal@Timeline::marker-reached] 
+   * so it is possible to connect a callback to the [signal@Timeline::marker-reached]
    * signal for a specific marker with:
    *
    * ```c
@@ -1037,17 +896,18 @@ clutter_timeline_class_init (ClutterTimelineClass *klass)
 static void
 clutter_timeline_init (ClutterTimeline *self)
 {
-  self->priv = clutter_timeline_get_instance_private (self);
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (self);
 
-  self->priv->progress_mode = CLUTTER_LINEAR;
+  priv->progress_mode = CLUTTER_LINEAR;
 
   /* default steps() parameters are 1, end */
-  self->priv->n_steps = 1;
-  self->priv->step_mode = CLUTTER_STEP_MODE_END;
+  priv->n_steps = 1;
+  priv->step_mode = CLUTTER_STEP_MODE_END;
 
   /* default cubic-bezier() paramereters are (0, 0, 1, 1) */
-  graphene_point_init (&self->priv->cb_1, 0, 0);
-  graphene_point_init (&self->priv->cb_2, 1, 1);
+  graphene_point_init (&priv->cb_1, 0, 0);
+  graphene_point_init (&priv->cb_2, 1, 1);
 }
 
 struct CheckIfMarkerHitClosure
@@ -1105,7 +965,7 @@ check_if_marker_hit (const gchar *name,
   gint msecs;
 
   if (marker->is_relative)
-    msecs = (gdouble) data->duration * marker->data.progress;
+    msecs = (int) ((double) data->duration * marker->data.progress);
   else
     msecs = marker->data.msecs;
 
@@ -1122,9 +982,10 @@ check_if_marker_hit (const gchar *name,
 
 static void
 check_markers (ClutterTimeline *timeline,
-               gint delta)
+               gint             delta)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
   struct CheckIfMarkerHitClosure data;
 
   /* shortcircuit here if we don't have any marker installed */
@@ -1147,7 +1008,10 @@ check_markers (ClutterTimeline *timeline,
 static void
 emit_frame_signal (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
+
+  COGL_TRACE_BEGIN_SCOPED (Emit, "Clutter::Timeline::emit_frame_signal()");
 
   /* see bug https://bugzilla.gnome.org/show_bug.cgi?id=654066 */
   gint elapsed = (gint) priv->elapsed_time;
@@ -1160,7 +1024,8 @@ emit_frame_signal (ClutterTimeline *timeline)
 static gboolean
 is_complete (ClutterTimeline *timeline)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   return (priv->direction == CLUTTER_TIMELINE_FORWARD
           ? priv->elapsed_time >= priv->duration
@@ -1171,7 +1036,8 @@ static void
 set_is_playing (ClutterTimeline *timeline,
                 gboolean         is_playing)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   is_playing = !!is_playing;
 
@@ -1198,7 +1064,7 @@ clutter_timeline_do_frame (ClutterTimeline *timeline)
 {
   ClutterTimelinePrivate *priv;
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   g_object_ref (timeline);
 
@@ -1245,7 +1111,7 @@ clutter_timeline_do_frame (ClutterTimeline *timeline)
         }
       else if (priv->direction == CLUTTER_TIMELINE_BACKWARD)
         {
-          elapsed_time_delta -= - priv->elapsed_time;
+          elapsed_time_delta -= -priv->elapsed_time;
           priv->elapsed_time = 0;
         }
 
@@ -1312,7 +1178,7 @@ clutter_timeline_do_frame (ClutterTimeline *timeline)
                since these are considered equivalent */
             (priv->elapsed_time == 0 && end_msecs == priv->duration) ||
             (priv->elapsed_time == priv->duration && end_msecs == 0)
-          ))
+            ))
         {
           g_object_unref (timeline);
           return TRUE;
@@ -1355,7 +1221,8 @@ static gboolean
 delay_timeout_func (gpointer data)
 {
   ClutterTimeline *timeline = data;
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   priv->delay_id = 0;
   priv->msecs_delta = 0;
@@ -1379,7 +1246,7 @@ clutter_timeline_start (ClutterTimeline *timeline)
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->delay_id || priv->is_playing)
     return;
@@ -1391,9 +1258,11 @@ clutter_timeline_start (ClutterTimeline *timeline)
                   priv->frame_clock);
 
   if (priv->delay)
-    priv->delay_id = clutter_threads_add_timeout (priv->delay,
-                                                  delay_timeout_func,
-                                                  timeline);
+    {
+      priv->delay_id = g_timeout_add (priv->delay,
+                                      delay_timeout_func,
+                                      timeline);
+    }
   else
     {
       priv->msecs_delta = 0;
@@ -1416,7 +1285,7 @@ clutter_timeline_pause (ClutterTimeline *timeline)
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   clutter_timeline_cancel_delay (timeline);
 
@@ -1439,6 +1308,7 @@ void
 clutter_timeline_stop (ClutterTimeline *timeline)
 {
   gboolean was_playing;
+  ClutterTimelinePrivate *priv;
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
@@ -1447,7 +1317,9 @@ clutter_timeline_stop (ClutterTimeline *timeline)
    * stopped, and yet we still don't want to emit a ::stopped signal if
    * the timeline was not playing in the first place.
    */
-  was_playing = timeline->priv->is_playing;
+
+  priv = clutter_timeline_get_instance_private (timeline);
+  was_playing = priv->is_playing;
 
   clutter_timeline_pause (timeline);
   clutter_timeline_rewind (timeline);
@@ -1471,7 +1343,7 @@ clutter_timeline_rewind (ClutterTimeline *timeline)
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->direction == CLUTTER_TIMELINE_FORWARD)
     clutter_timeline_advance (timeline, 0);
@@ -1494,7 +1366,7 @@ clutter_timeline_skip (ClutterTimeline *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->direction == CLUTTER_TIMELINE_FORWARD)
     {
@@ -1534,7 +1406,7 @@ clutter_timeline_advance (ClutterTimeline *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   priv->elapsed_time = CLAMP (msecs, 0, priv->duration);
 }
@@ -1550,9 +1422,13 @@ clutter_timeline_advance (ClutterTimeline *timeline,
 guint
 clutter_timeline_get_elapsed_time (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  return timeline->priv->elapsed_time;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->elapsed_time;
 }
 
 /**
@@ -1566,26 +1442,13 @@ clutter_timeline_get_elapsed_time (ClutterTimeline *timeline)
 gboolean
 clutter_timeline_is_playing (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), FALSE);
 
-  return timeline->priv->is_playing;
-}
+  priv = clutter_timeline_get_instance_private (timeline);
 
-/**
- * clutter_timeline_new:
- * @duration_ms: Duration of the timeline in milliseconds
- *
- * Creates a new #ClutterTimeline with a duration of @duration_ms milli seconds.
- *
- * Return value: the newly created #ClutterTimeline instance. Use
- *   [method@GObject.Object.unref] when done using it
- */
-ClutterTimeline *
-clutter_timeline_new (guint duration_ms)
-{
-  return g_object_new (CLUTTER_TYPE_TIMELINE,
-                       "duration", duration_ms,
-                       NULL);
+  return priv->is_playing;
 }
 
 /**
@@ -1639,9 +1502,13 @@ clutter_timeline_new_for_frame_clock (ClutterFrameClock *frame_clock,
 guint
 clutter_timeline_get_delay (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  return timeline->priv->delay;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->delay;
 }
 
 /**
@@ -1659,7 +1526,7 @@ clutter_timeline_set_delay (ClutterTimeline *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->delay != msecs)
     {
@@ -1684,7 +1551,7 @@ clutter_timeline_get_duration (ClutterTimeline *timeline)
 
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   return priv->duration;
 }
@@ -1706,7 +1573,7 @@ clutter_timeline_set_duration (ClutterTimeline *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (msecs > 0);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->duration != msecs)
     {
@@ -1735,7 +1602,7 @@ clutter_timeline_get_progress (ClutterTimeline *timeline)
 
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0.0);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   /* short-circuit linear progress */
   if (priv->progress_func == NULL)
@@ -1759,10 +1626,14 @@ clutter_timeline_get_progress (ClutterTimeline *timeline)
 ClutterTimelineDirection
 clutter_timeline_get_direction (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline),
                         CLUTTER_TIMELINE_FORWARD);
 
-  return timeline->priv->direction;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->direction;
 }
 
 /**
@@ -1781,7 +1652,7 @@ clutter_timeline_set_direction (ClutterTimeline          *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->direction != direction)
     {
@@ -1811,19 +1682,23 @@ clutter_timeline_set_direction (ClutterTimeline          *timeline,
 guint
 clutter_timeline_get_delta (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
+  priv = clutter_timeline_get_instance_private (timeline);
   if (!clutter_timeline_is_playing (timeline))
     return 0;
 
-  return timeline->priv->msecs_delta;
+  return priv->msecs_delta;
 }
 
 void
 _clutter_timeline_advance (ClutterTimeline *timeline,
                            gint64           tick_time)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   g_object_ref (timeline);
 
@@ -1863,7 +1738,9 @@ _clutter_timeline_do_tick (ClutterTimeline *timeline,
 {
   ClutterTimelinePrivate *priv;
 
-  priv = timeline->priv;
+  COGL_TRACE_BEGIN_SCOPED (DoTick, "Clutter::Timeline::do_tick()");
+
+  priv = clutter_timeline_get_instance_private (timeline);
 
   CLUTTER_NOTE (SCHEDULER,
                 "Timeline [%p] ticked (elapsed_time: %ld, msecs_delta: %ld, "
@@ -1999,7 +1876,7 @@ collect_markers (const gchar *key,
   guint msecs;
 
   if (marker->is_relative)
-    msecs = marker->data.progress * data->duration;
+    msecs = (unsigned int) (marker->data.progress * data->duration);
   else
     msecs = marker->data.msecs;
 
@@ -2035,7 +1912,7 @@ clutter_timeline_list_markers (ClutterTimeline *timeline,
 
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), NULL);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (G_UNLIKELY (priv->markers_by_name == NULL))
     {
@@ -2102,7 +1979,7 @@ clutter_timeline_advance_to_marker (ClutterTimeline *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (marker_name != NULL);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (G_UNLIKELY (priv->markers_by_name == NULL))
     {
@@ -2118,7 +1995,7 @@ clutter_timeline_advance_to_marker (ClutterTimeline *timeline,
     }
 
   if (marker->is_relative)
-    msecs = marker->data.progress * priv->duration;
+    msecs = (unsigned int) (marker->data.progress * priv->duration);
   else
     msecs = marker->data.msecs;
 
@@ -2142,7 +2019,7 @@ clutter_timeline_remove_marker (ClutterTimeline *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (marker_name != NULL);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (G_UNLIKELY (priv->markers_by_name == NULL))
     {
@@ -2174,13 +2051,16 @@ gboolean
 clutter_timeline_has_marker (ClutterTimeline *timeline,
                              const gchar     *marker_name)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), FALSE);
   g_return_val_if_fail (marker_name != NULL, FALSE);
 
-  if (G_UNLIKELY (timeline->priv->markers_by_name == NULL))
+  priv = clutter_timeline_get_instance_private (timeline);
+  if (G_UNLIKELY (priv->markers_by_name == NULL))
     return FALSE;
 
-  return NULL != g_hash_table_lookup (timeline->priv->markers_by_name,
+  return NULL != g_hash_table_lookup (priv->markers_by_name,
                                       marker_name);
 }
 
@@ -2211,7 +2091,7 @@ clutter_timeline_has_marker (ClutterTimeline *timeline,
  *   clutter_timeline_set_direction (timeline, dir);
  * }
  * ...
- *   timeline = clutter_timeline_new (1000);
+ *   timeline = clutter_timeline_new_for_actor (some_actor, 1000);
  *   clutter_timeline_set_repeat_count (timeline, -1);
  *   g_signal_connect (timeline, "completed",
  *                     G_CALLBACK (reverse_timeline),
@@ -2221,7 +2101,7 @@ clutter_timeline_has_marker (ClutterTimeline *timeline,
  * can be effectively replaced by:
  *
  * ```c
- *   timeline = clutter_timeline_new (1000);
+ *   timeline = clutter_timeline_new_for_actor (some_actor, 1000);
  *   clutter_timeline_set_repeat_count (timeline, -1);
  *   clutter_timeline_set_auto_reverse (timeline);
  * ```
@@ -2236,7 +2116,7 @@ clutter_timeline_set_auto_reverse (ClutterTimeline *timeline,
 
   reverse = !!reverse;
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->auto_reverse != reverse)
     {
@@ -2259,9 +2139,13 @@ clutter_timeline_set_auto_reverse (ClutterTimeline *timeline,
 gboolean
 clutter_timeline_get_auto_reverse (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), FALSE);
 
-  return timeline->priv->auto_reverse;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->auto_reverse;
 }
 
 /**
@@ -2285,7 +2169,7 @@ clutter_timeline_set_repeat_count (ClutterTimeline *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (count >= -1);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->repeat_count != count)
     {
@@ -2307,16 +2191,21 @@ clutter_timeline_set_repeat_count (ClutterTimeline *timeline,
 gint
 clutter_timeline_get_repeat_count (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  return timeline->priv->repeat_count;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->repeat_count;
 }
 
 /**
  * clutter_timeline_set_progress_func:
  * @timeline: a #ClutterTimeline
- * @func: (scope notified) (allow-none): a progress function, or %NULL
- * @data: (closure): data to pass to @func
+ * @func: (scope notified) (allow-none) (closure data): a progress function,
+ *        or %NULL
+ * @data: data to pass to @func
  * @notify: a function to be called when the progress function is removed
  *    or the timeline is disposed
  *
@@ -2341,7 +2230,7 @@ clutter_timeline_set_progress_func (ClutterTimeline             *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->progress_notify != NULL)
     priv->progress_notify (priv->progress_data);
@@ -2359,12 +2248,13 @@ clutter_timeline_set_progress_func (ClutterTimeline             *timeline,
 }
 
 static gdouble
-clutter_timeline_progress_func (ClutterTimeline *timeline,
-                                gdouble          elapsed,
-                                gdouble          duration,
-                                gpointer         user_data G_GNUC_UNUSED)
+clutter_timeline_progress_func (ClutterTimeline   *timeline,
+                                gdouble            elapsed,
+                                gdouble            duration,
+                                gpointer user_data G_GNUC_UNUSED)
 {
-  ClutterTimelinePrivate *priv = timeline->priv;
+  ClutterTimelinePrivate *priv =
+    clutter_timeline_get_instance_private (timeline);
 
   /* parametrized easing functions need to be handled separately */
   switch (priv->progress_mode)
@@ -2431,7 +2321,7 @@ clutter_timeline_set_progress_mode (ClutterTimeline      *timeline,
   g_return_if_fail (mode < CLUTTER_ANIMATION_LAST);
   g_return_if_fail (mode != CLUTTER_CUSTOM_MODE);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->progress_mode == mode)
     return;
@@ -2465,9 +2355,13 @@ clutter_timeline_set_progress_mode (ClutterTimeline      *timeline,
 ClutterAnimationMode
 clutter_timeline_get_progress_mode (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), CLUTTER_LINEAR);
 
-  return timeline->priv->progress_mode;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->progress_mode;
 }
 
 /**
@@ -2492,7 +2386,7 @@ clutter_timeline_get_duration_hint (ClutterTimeline *timeline)
 
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->repeat_count == 0)
     return priv->duration;
@@ -2515,9 +2409,13 @@ clutter_timeline_get_duration_hint (ClutterTimeline *timeline)
 gint
 clutter_timeline_get_current_repeat (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), 0);
 
-  return timeline->priv->current_repeat;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->current_repeat;
 }
 
 /**
@@ -2540,7 +2438,7 @@ clutter_timeline_set_step_progress (ClutterTimeline *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (n_steps > 0);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   if (priv->progress_mode == CLUTTER_STEPS &&
       priv->n_steps == n_steps &&
@@ -2569,18 +2467,22 @@ clutter_timeline_get_step_progress (ClutterTimeline *timeline,
                                     gint            *n_steps,
                                     ClutterStepMode *step_mode)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), FALSE);
 
-  if (!(timeline->priv->progress_mode == CLUTTER_STEPS ||
-        timeline->priv->progress_mode == CLUTTER_STEP_START ||
-        timeline->priv->progress_mode == CLUTTER_STEP_END))
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  if (!(priv->progress_mode == CLUTTER_STEPS ||
+        priv->progress_mode == CLUTTER_STEP_START ||
+        priv->progress_mode == CLUTTER_STEP_END))
     return FALSE;
 
   if (n_steps != NULL)
-    *n_steps = timeline->priv->n_steps;
+    *n_steps = priv->n_steps;
 
   if (step_mode != NULL)
-    *step_mode = timeline->priv->step_mode;
+    *step_mode = priv->step_mode;
 
   return TRUE;
 }
@@ -2609,7 +2511,7 @@ clutter_timeline_set_cubic_bezier_progress (ClutterTimeline        *timeline,
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
   g_return_if_fail (c_1 != NULL && c_2 != NULL);
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   priv->cb_1 = *c_1;
   priv->cb_2 = *c_2;
@@ -2639,20 +2541,23 @@ clutter_timeline_get_cubic_bezier_progress (ClutterTimeline  *timeline,
                                             graphene_point_t *c_1,
                                             graphene_point_t *c_2)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), FALSE);
 
-  if (!(timeline->priv->progress_mode == CLUTTER_CUBIC_BEZIER ||
-        timeline->priv->progress_mode == CLUTTER_EASE ||
-        timeline->priv->progress_mode == CLUTTER_EASE_IN ||
-        timeline->priv->progress_mode == CLUTTER_EASE_OUT ||
-        timeline->priv->progress_mode == CLUTTER_EASE_IN_OUT))
+  priv = clutter_timeline_get_instance_private (timeline);
+  if (!(priv->progress_mode == CLUTTER_CUBIC_BEZIER ||
+        priv->progress_mode == CLUTTER_EASE ||
+        priv->progress_mode == CLUTTER_EASE_IN ||
+        priv->progress_mode == CLUTTER_EASE_OUT ||
+        priv->progress_mode == CLUTTER_EASE_IN_OUT))
     return FALSE;
 
   if (c_1 != NULL)
-    *c_1 = timeline->priv->cb_1;
+    *c_1 = priv->cb_1;
 
   if (c_2 != NULL)
-    *c_2 = timeline->priv->cb_2;
+    *c_2 = priv->cb_2;
 
   return TRUE;
 }
@@ -2663,9 +2568,13 @@ clutter_timeline_get_cubic_bezier_progress (ClutterTimeline  *timeline,
 ClutterFrameClock *
 clutter_timeline_get_frame_clock (ClutterTimeline *timeline)
 {
+  ClutterTimelinePrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_TIMELINE (timeline), NULL);
 
-  return timeline->priv->frame_clock;
+  priv = clutter_timeline_get_instance_private (timeline);
+
+  return priv->frame_clock;
 }
 
 void
@@ -2676,7 +2585,7 @@ clutter_timeline_set_frame_clock (ClutterTimeline   *timeline,
 
   g_return_if_fail (CLUTTER_IS_TIMELINE (timeline));
 
-  priv = timeline->priv;
+  priv = clutter_timeline_get_instance_private (timeline);
 
   g_assert (!frame_clock || (frame_clock && !priv->actor));
   g_return_if_fail (!frame_clock || (frame_clock && !priv->actor));

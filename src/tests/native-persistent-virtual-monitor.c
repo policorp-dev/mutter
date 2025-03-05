@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -27,11 +25,13 @@
 #include "tests/meta-test-shell.h"
 #include "tests/meta-test-utils.h"
 
+static MetaContext *test_context;
+
 static gboolean
 wait_for_paint (gpointer user_data)
 {
   MetaContext *context = user_data;
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   ClutterActor *stage = meta_backend_get_stage (backend);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
@@ -39,7 +39,7 @@ wait_for_paint (gpointer user_data)
   GList *monitors;
   GList *logical_monitors;
   MetaLogicalMonitor *logical_monitor;
-  MetaRectangle layout;
+  MtkRectangle layout;
 
   loop = g_main_loop_new (NULL, FALSE);
   g_signal_connect_swapped (stage, "presented",
@@ -55,7 +55,7 @@ wait_for_paint (gpointer user_data)
   g_assert_cmpint (g_list_length (logical_monitors), ==, 1);
 
   logical_monitor = logical_monitors->data;
-  g_assert (meta_logical_monitor_get_monitors (logical_monitor)->data ==
+  g_assert_true (meta_logical_monitor_get_monitors (logical_monitor)->data ==
             monitors->data);
 
   layout = meta_logical_monitor_get_layout (logical_monitor);
@@ -88,14 +88,16 @@ main (int    argc,
   g_autoptr (GError) error = NULL;
 
   context = meta_create_context ("Persistent virtual monitor test");
-  g_assert (meta_context_configure (context, &fake_argc, &fake_argv, &error));
+  g_assert_true (meta_context_configure (context, &fake_argc, &fake_argv, &error));
   meta_context_set_plugin_gtype (context, META_TYPE_TEST_SHELL);
-  g_assert (meta_context_setup (context, &error));
-  g_assert (meta_context_start (context, &error));
+  g_assert_true (meta_context_setup (context, &error));
+  g_assert_true (meta_context_start (context, &error));
 
   g_idle_add (wait_for_paint, context);
 
-  g_assert (meta_context_run_main_loop (context, &error));
+  test_context = context;
+
+  g_assert_true (meta_context_run_main_loop (context, &error));
 
   return EXIT_SUCCESS;
 }

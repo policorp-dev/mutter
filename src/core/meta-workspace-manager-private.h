@@ -20,8 +20,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WORKSPACE_MANAGER_PRIVATE_H
-#define META_WORKSPACE_MANAGER_PRIVATE_H
+#pragma once
 
 #include <glib.h>
 
@@ -48,7 +47,6 @@ struct _MetaWorkspaceManager
 
 MetaWorkspaceManager *meta_workspace_manager_new (MetaDisplay *display);
 
-void meta_workspace_manager_init_workspaces         (MetaWorkspaceManager *workspace_manager);
 void meta_workspace_manager_update_workspace_layout (MetaWorkspaceManager *workspace_manager,
                                                      MetaDisplayCorner     starting_corner,
                                                      gboolean              vertical_layout,
@@ -93,5 +91,3 @@ META_EXPORT_TEST
 void meta_workspace_manager_update_num_workspaces (MetaWorkspaceManager *workspace_manager,
                                                    guint32               timestamp,
                                                    int                   new_num);
-
-#endif /* META_WORKSPACE_MANAGER_PRIVATE_H */

@@ -20,9 +20,9 @@
  */
 
 /**
- * SECTION:input-settings
- * @title: MetaInputSettings
- * @short_description: Mutter input device configuration
+ * MetaInputSettings:
+ *
+ * Mutter input device configuration
  */
 
 #include "config.h"
@@ -38,6 +38,17 @@
 #include "backends/meta-monitor.h"
 #include "core/display-private.h"
 #include "meta/util.h"
+
+enum
+{
+  PROP_0,
+
+  PROP_BACKEND,
+
+  N_PROPS
+};
+
+static GParamSpec *props[N_PROPS] = { 0 };
 
 static GQuark quark_tool_settings = 0;
 
@@ -66,12 +77,15 @@ struct _DeviceMappingInfo
 
 struct _MetaInputSettingsPrivate
 {
+  MetaBackend *backend;
+
   ClutterSeat *seat;
   gulong monitors_changed_id;
 
   GSettings *mouse_settings;
   GSettings *touchpad_settings;
   GSettings *trackball_settings;
+  GSettings *pointing_stick_settings;
   GSettings *keyboard_settings;
   GSettings *keyboard_a11y_settings;
 
@@ -164,10 +178,12 @@ meta_input_settings_dispose (GObject *object)
   g_clear_object (&priv->mouse_settings);
   g_clear_object (&priv->touchpad_settings);
   g_clear_object (&priv->trackball_settings);
+  g_clear_object (&priv->pointing_stick_settings);
   g_clear_object (&priv->keyboard_settings);
   g_clear_object (&priv->keyboard_a11y_settings);
   g_clear_pointer (&priv->mappable_devices, g_hash_table_unref);
   g_clear_pointer (&priv->current_tools, g_hash_table_unref);
+  g_clear_list (&priv->devices, NULL);
 
   g_clear_pointer (&priv->two_finger_devices, g_hash_table_destroy);
 
@@ -375,10 +391,18 @@ do_update_pointer_accel_profile (MetaInputSettings          *input_settings,
     input_settings_class->set_mouse_accel_profile (input_settings,
                                                    device,
                                                    profile);
+  else if (settings == priv->touchpad_settings)
+    input_settings_class->set_touchpad_accel_profile (input_settings,
+                                                      device,
+                                                      profile);
   else if (settings == priv->trackball_settings)
     input_settings_class->set_trackball_accel_profile (input_settings,
                                                        device,
                                                        profile);
+  else if (settings == priv->pointing_stick_settings)
+    input_settings_class->set_pointing_stick_accel_profile (input_settings,
+                                                            device,
+                                                            profile);
 }
 
 static void
@@ -930,12 +954,18 @@ update_trackball_scroll_button (MetaInputSettings  *input_settings,
   MetaInputSettingsPrivate *priv;
   guint button;
   gboolean button_lock;
+  ClutterInputCapabilities caps;
 
   priv = meta_input_settings_get_instance_private (input_settings);
   input_settings_class = META_INPUT_SETTINGS_GET_CLASS (input_settings);
 
-  if (device && !input_settings_class->is_trackball_device (input_settings, device))
-    return;
+  if (device)
+    {
+      caps = clutter_input_device_get_capabilities (device);
+
+      if ((caps & CLUTTER_INPUT_CAPABILITY_TRACKBALL) == 0)
+        return;
+    }
 
   /* This key is 'i' in the schema but it also specifies a minimum
    * range of 0 so the cast here is safe. */
@@ -953,9 +983,55 @@ update_trackball_scroll_button (MetaInputSettings  *input_settings,
       for (l = priv->devices; l; l = l->next)
         {
           device = l->data;
+          caps = clutter_input_device_get_capabilities (device);
 
-          if (input_settings_class->is_trackball_device (input_settings, device))
+          if ((caps & CLUTTER_INPUT_CAPABILITY_TRACKBALL) != 0)
             input_settings_class->set_scroll_button (input_settings, device, button, button_lock);
+        }
+    }
+}
+
+static void
+update_pointing_stick_scroll_method (MetaInputSettings  *input_settings,
+                                     GSettings          *settings,
+                                     ClutterInputDevice *device)
+{
+  MetaInputSettingsPrivate *priv =
+    meta_input_settings_get_instance_private (input_settings);
+  MetaInputSettingsClass *input_settings_class;
+  GDesktopPointingStickScrollMethod method;
+  ClutterInputCapabilities caps;
+
+  method = g_settings_get_enum (settings, "scroll-method");
+  input_settings_class = META_INPUT_SETTINGS_GET_CLASS (input_settings);
+
+  if (device)
+    {
+      caps = clutter_input_device_get_capabilities (device);
+
+      if ((caps & CLUTTER_INPUT_CAPABILITY_TRACKPOINT) == 0)
+        return;
+    }
+
+  if (device)
+    {
+      input_settings_class->set_pointing_stick_scroll_method (input_settings, device, method);
+    }
+  else if (!device)
+    {
+      GList *l;
+
+      for (l = priv->devices; l; l = l->next)
+        {
+          device = l->data;
+          caps = clutter_input_device_get_capabilities (device);
+
+          if ((caps & CLUTTER_INPUT_CAPABILITY_TRACKPOINT) != 0)
+            {
+              input_settings_class->set_pointing_stick_scroll_method (input_settings,
+                                                                      device,
+                                                                      method);
+            }
         }
     }
 }
@@ -1002,19 +1078,6 @@ update_tablet_keep_aspect (MetaInputSettings  *input_settings,
   if (!info)
     return;
 
-#ifdef HAVE_LIBWACOM
-  {
-    WacomDevice *wacom_device;
-
-    wacom_device = meta_input_device_get_wacom_device (META_INPUT_DEVICE (device));
-
-    /* Keep aspect only makes sense in external tablets */
-    if (wacom_device &&
-        libwacom_get_integration_flags (wacom_device) != WACOM_DEVICE_INTEGRATED_NONE)
-      return;
-  }
-#endif
-
   keep_aspect = g_settings_get_boolean (settings, "keep-aspect");
 
   if (keep_aspect)
@@ -1037,19 +1100,6 @@ update_tablet_mapping (MetaInputSettings  *input_settings,
   if ((clutter_input_device_get_capabilities (device) &
        CLUTTER_INPUT_CAPABILITY_TABLET_TOOL) == 0)
     return;
-
-#ifdef HAVE_LIBWACOM
-  {
-    WacomDevice *wacom_device;
-
-    wacom_device = meta_input_device_get_wacom_device (META_INPUT_DEVICE (device));
-
-    /* Tablet mapping only makes sense on external tablets */
-    if (wacom_device &&
-        (libwacom_get_integration_flags (wacom_device) != WACOM_DEVICE_INTEGRATED_NONE))
-      return;
-  }
-#endif
 
   input_settings_class = META_INPUT_SETTINGS_GET_CLASS (input_settings);
   mapping = g_settings_get_enum (settings, "mapping");
@@ -1164,6 +1214,8 @@ meta_input_settings_changed_cb (GSettings  *settings,
         update_device_speed (input_settings, NULL);
       else if (strcmp (key, "natural-scroll") == 0)
         update_device_natural_scroll (input_settings, NULL);
+      else if (strcmp (key, "accel-profile") == 0)
+        update_pointer_accel_profile (input_settings, settings, NULL);
       else if (strcmp (key, "tap-to-click") == 0)
         update_touchpad_tap_enabled (input_settings, NULL);
       else if (strcmp (key, "tap-button-map") == 0)
@@ -1172,7 +1224,7 @@ meta_input_settings_changed_cb (GSettings  *settings,
         update_touchpad_tap_and_drag_enabled (input_settings, NULL);
       else if (strcmp (key, "tap-and-drag-lock") == 0)
         update_touchpad_tap_and_drag_lock_enabled (input_settings, NULL);
-      else if (strcmp(key, "disable-while-typing") == 0)
+      else if (strcmp (key, "disable-while-typing") == 0)
         update_touchpad_disable_while_typing (input_settings, NULL);
       else if (strcmp (key, "send-events") == 0)
         update_touchpad_send_events (input_settings, NULL);
@@ -1194,6 +1246,15 @@ meta_input_settings_changed_cb (GSettings  *settings,
         update_pointer_accel_profile (input_settings, settings, NULL);
       else if (strcmp (key, "middle-click-emulation") == 0)
         update_middle_click_emulation (input_settings, settings, NULL);
+    }
+  else if (settings == priv->pointing_stick_settings)
+    {
+      if (strcmp (key, "speed") == 0)
+        update_device_speed (input_settings, NULL);
+      else if (strcmp (key, "accel-profile") == 0)
+        update_pointer_accel_profile (input_settings, settings, NULL);
+      else if (strcmp (key, "scroll-method") == 0)
+        update_pointing_stick_scroll_method (input_settings, settings, NULL);
     }
   else if (settings == priv->keyboard_settings)
     {
@@ -1478,6 +1539,16 @@ apply_device_settings (MetaInputSettings  *input_settings,
                                 priv->trackball_settings,
                                 device);
 
+  update_pointing_stick_scroll_method (input_settings,
+                                       priv->pointing_stick_settings,
+                                       device);
+
+  update_pointer_accel_profile (input_settings,
+                                priv->pointing_stick_settings,
+                                device);
+
+  load_keyboard_a11y_settings (input_settings);
+
   update_middle_click_emulation (input_settings, priv->mouse_settings, device);
   update_middle_click_emulation (input_settings, priv->touchpad_settings, device);
   update_middle_click_emulation (input_settings, priv->trackball_settings, device);
@@ -1491,6 +1562,8 @@ update_stylus_pressure (MetaInputSettings      *input_settings,
   MetaInputSettingsClass *input_settings_class;
   GSettings *tool_settings;
   const gint32 *curve;
+  const guint32 *percent;
+  gdouble range[2];
   GVariant *variant;
   gsize n_elems;
 
@@ -1513,8 +1586,24 @@ update_stylus_pressure (MetaInputSettings      *input_settings,
   if (n_elems != 4)
     return;
 
+  if (clutter_input_device_tool_get_tool_type (tool) ==
+      CLUTTER_INPUT_DEVICE_TOOL_ERASER)
+    variant = g_settings_get_value (tool_settings, "eraser-pressure-range");
+  else
+    variant = g_settings_get_value (tool_settings, "pressure-range");
+
+  percent = g_variant_get_fixed_array (variant, &n_elems, sizeof (guint32));
+  if (n_elems != 2)
+    return;
+
+  range[0] = CLAMP (percent[0] / 100.0, 0.0, 1.0);
+  range[1] = CLAMP (percent[1] / 100.0, 0.0, 1.0);
+
+  if (range[0] >= range[1])
+    return;
+
   input_settings_class = META_INPUT_SETTINGS_GET_CLASS (input_settings);
-  input_settings_class->set_stylus_pressure (input_settings, device, tool, curve);
+  input_settings_class->set_stylus_pressure (input_settings, device, tool, curve, range);
 }
 
 static void
@@ -1705,12 +1794,41 @@ meta_input_settings_constructed (GObject *object)
 }
 
 static void
+meta_input_settings_set_property (GObject      *object,
+                                  guint         prop_id,
+                                  const GValue *value,
+                                  GParamSpec   *pspec)
+{
+  MetaInputSettings *settings = META_INPUT_SETTINGS (object);
+  MetaInputSettingsPrivate *priv =
+    meta_input_settings_get_instance_private (settings);
+
+  switch (prop_id)
+    {
+    case PROP_BACKEND:
+      priv->backend = g_value_get_object (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void
 meta_input_settings_class_init (MetaInputSettingsClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->dispose = meta_input_settings_dispose;
   object_class->constructed = meta_input_settings_constructed;
+  object_class->set_property = meta_input_settings_set_property;
+
+  props[PROP_BACKEND] =
+    g_param_spec_object ("backend", NULL, NULL,
+                         META_TYPE_BACKEND,
+                         G_PARAM_WRITABLE |
+                         G_PARAM_CONSTRUCT_ONLY |
+                         G_PARAM_STATIC_STRINGS);
+  g_object_class_install_properties (object_class, N_PROPS, props);
 
   quark_tool_settings =
     g_quark_from_static_string ("meta-input-settings-tool-settings");
@@ -1742,6 +1860,10 @@ meta_input_settings_init (MetaInputSettings *settings)
 
   priv->trackball_settings = g_settings_new ("org.gnome.desktop.peripherals.trackball");
   g_signal_connect (priv->trackball_settings, "changed",
+                    G_CALLBACK (meta_input_settings_changed_cb), settings);
+
+  priv->pointing_stick_settings = g_settings_new ("org.gnome.desktop.peripherals.pointingstick");
+  g_signal_connect (priv->pointing_stick_settings, "changed",
                     G_CALLBACK (meta_input_settings_changed_cb), settings);
 
   priv->keyboard_settings = g_settings_new ("org.gnome.desktop.peripherals.keyboard");
@@ -1856,4 +1978,57 @@ meta_input_settings_get_kbd_a11y_settings (MetaInputSettings   *input_settings,
   priv = meta_input_settings_get_instance_private (input_settings);
 
   *a11y_settings = priv->kbd_a11y_settings;
+}
+
+MetaBackend *
+meta_input_settings_get_backend (MetaInputSettings *settings)
+{
+  MetaInputSettingsPrivate *priv =
+    meta_input_settings_get_instance_private (settings);
+
+  return priv->backend;
+}
+
+GDesktopStylusButtonAction
+meta_input_settings_get_tool_button_action (MetaInputSettings       *input_settings,
+                                            ClutterInputDevice      *device,
+                                            ClutterInputDeviceTool  *tool,
+                                            uint32_t                 clutter_button,
+                                            char                   **keybinding)
+{
+  GDesktopStylusButtonAction action;
+  GSettings *settings;
+  const char *prefix = NULL;
+  g_autofree char *key = NULL;
+
+  g_return_val_if_fail (META_IS_INPUT_SETTINGS (input_settings), G_DESKTOP_STYLUS_BUTTON_ACTION_DEFAULT);
+
+  switch (clutter_button)
+    {
+    case CLUTTER_BUTTON_MIDDLE:     /* BTN_STYLUS */
+      prefix = "button";
+      break;
+    case CLUTTER_BUTTON_SECONDARY:  /* BTN_STYLUS2 */
+      prefix = "secondary-button";
+      break;
+    case 8:                         /* BTN_STYLUS3 */
+      prefix = "tertiary-button";
+      break;
+
+    /* BUTTON_PRIMARY is tip down and has no mapping */
+    case CLUTTER_BUTTON_PRIMARY:
+    default:
+      return G_DESKTOP_STYLUS_BUTTON_ACTION_DEFAULT;
+    }
+
+  key = g_strdup_printf ("%s-action", prefix);
+  settings = lookup_tool_settings (tool, device);
+  action = g_settings_get_enum (settings, key);
+  if (keybinding && action == G_DESKTOP_STYLUS_BUTTON_ACTION_KEYBINDING)
+    {
+      g_autofree char *binding_key = g_strdup_printf ("%s-keybinding", prefix);
+      *keybinding = g_settings_get_string (settings, binding_key);
+    }
+
+  return action;
 }

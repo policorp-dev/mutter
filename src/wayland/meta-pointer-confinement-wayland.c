@@ -14,18 +14,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
  */
 
 /**
- * SECTION:meta-pointer-confinement-wayland
- * @title: MetaPointerConfinementWayland
- * @short_description: A #MetaPointerConstraint implementing pointer confinement
+ * MetaPointerConfinementWayland:
+ *
+ * A #MetaPointerConstraint implementing pointer confinement
  *
  * A MetaPointerConfinementConstraint implements the client pointer constraint
  * "pointer confinement": the cursor should not be able to "break out" of a
@@ -37,15 +35,14 @@
 #include "wayland/meta-pointer-confinement-wayland.h"
 
 #include <glib-object.h>
-#include <cairo.h>
 
 #include "backends/meta-backend-private.h"
 #include "backends/meta-pointer-constraint.h"
-#include "compositor/region-utils.h"
 #include "wayland/meta-wayland-pointer-constraints.h"
 #include "wayland/meta-wayland-pointer.h"
 #include "wayland/meta-wayland-seat.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
+#include "wayland/meta-wayland.h"
 
 typedef struct _MetaPointerConfinementWaylandPrivate MetaPointerConfinementWaylandPrivate;
 
@@ -68,6 +65,18 @@ G_DEFINE_TYPE_WITH_PRIVATE (MetaPointerConfinementWayland,
                             meta_pointer_confinement_wayland,
                             G_TYPE_OBJECT)
 
+static MetaBackend *
+backend_from_confinement (MetaPointerConfinementWayland *confinement)
+{
+  MetaPointerConfinementWaylandPrivate *priv =
+    meta_pointer_confinement_wayland_get_instance_private (confinement);
+  MetaWaylandCompositor *compositor =
+    meta_wayland_pointer_constraint_get_compositor (priv->constraint);
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+
+  return meta_context_get_backend (context);
+}
+
 static void
 meta_pointer_confinement_wayland_update (MetaPointerConfinementWayland *self)
 {
@@ -75,7 +84,8 @@ meta_pointer_confinement_wayland_update (MetaPointerConfinementWayland *self)
 
   constraint =
     META_POINTER_CONFINEMENT_WAYLAND_GET_CLASS (self)->create_constraint (self);
-  meta_backend_set_client_pointer_constraint (meta_get_backend (), constraint);
+  meta_backend_set_client_pointer_constraint (backend_from_confinement (self),
+                                              constraint);
   g_object_unref (constraint);
 }
 
@@ -134,6 +144,7 @@ meta_pointer_confinement_wayland_disable (MetaPointerConfinementWayland *confine
   MetaWaylandPointerConstraint *constraint;
   MetaWaylandSurface *surface;
   MetaWindow *window;
+  MetaBackend *backend;
 
   priv = meta_pointer_confinement_wayland_get_instance_private (confinement);
   constraint = priv->constraint;
@@ -151,7 +162,8 @@ meta_pointer_confinement_wayland_disable (MetaPointerConfinementWayland *confine
                                             confinement);
     }
 
-  meta_backend_set_client_pointer_constraint (meta_get_backend (), NULL);
+  backend = backend_from_confinement (confinement);
+  meta_backend_set_client_pointer_constraint (backend, NULL);
 }
 
 static void
@@ -211,7 +223,7 @@ meta_pointer_confinement_wayland_create_constraint (MetaPointerConfinementWaylan
   MetaPointerConfinementWaylandPrivate *priv;
   MetaPointerConstraint *constraint;
   MetaWaylandSurface *surface;
-  cairo_region_t *region;
+  g_autoptr (MtkRegion) region = NULL;
   int geometry_scale;
   float dx, dy;
   double min_edge_distance;
@@ -225,19 +237,19 @@ meta_pointer_confinement_wayland_create_constraint (MetaPointerConfinementWaylan
   geometry_scale = meta_wayland_surface_get_geometry_scale (surface);
   if (geometry_scale != 1)
     {
-      cairo_region_t *scaled_region;
+      g_autoptr (MtkRegion) scaled_region = NULL;
 
-      scaled_region = meta_region_scale (region, geometry_scale);
-      cairo_region_destroy (region);
-      region = scaled_region;
+      scaled_region = mtk_region_scale (region, geometry_scale);
+      g_clear_pointer (&region, mtk_region_unref);
+      region = g_steal_pointer (&scaled_region);
     }
 
   meta_wayland_surface_get_absolute_coordinates (surface, 0, 0, &dx, &dy);
-  cairo_region_translate (region, dx, dy);
 
   min_edge_distance = wl_fixed_to_double (1) * geometry_scale;
-  constraint = meta_pointer_constraint_new (region, min_edge_distance);
-  cairo_region_destroy (region);
+  constraint = meta_pointer_constraint_new (region,
+                                            GRAPHENE_POINT_INIT (dx, dy),
+                                            min_edge_distance);
 
   return constraint;
 }
@@ -253,9 +265,7 @@ meta_pointer_confinement_wayland_class_init (MetaPointerConfinementWaylandClass 
   klass->create_constraint = meta_pointer_confinement_wayland_create_constraint;
 
   props[PROP_WAYLAND_POINTER_CONSTRAINT] =
-    g_param_spec_object ("wayland-pointer-constraint",
-                         "Wayland pointer constraint",
-                         "Wayland pointer constraint",
+    g_param_spec_object ("wayland-pointer-constraint", NULL, NULL,
                          META_TYPE_WAYLAND_POINTER_CONSTRAINT,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |

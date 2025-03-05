@@ -18,8 +18,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_BACKEND_TYPE_H
-#define META_BACKEND_TYPE_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -30,6 +29,8 @@ typedef struct _MetaColorDevice MetaColorDevice;
 typedef struct _MetaColorManager MetaColorManager;
 typedef struct _MetaColorProfile MetaColorProfile;
 typedef struct _MetaColorStore MetaColorStore;
+
+typedef enum _MetaColorMode MetaColorMode;
 
 typedef struct _MetaMonitorManager MetaMonitorManager;
 
@@ -44,8 +45,6 @@ typedef struct _MetaMonitorNormal MetaMonitorNormal;
 typedef struct _MetaMonitorTiled MetaMonitorTiled;
 typedef struct _MetaMonitorSpec MetaMonitorSpec;
 typedef struct _MetaLogicalMonitor MetaLogicalMonitor;
-
-typedef enum _MetaMonitorTransform MetaMonitorTransform;
 
 typedef struct _MetaMonitorMode MetaMonitorMode;
 
@@ -63,6 +62,7 @@ typedef struct _MetaRenderer MetaRenderer;
 typedef struct _MetaRendererView MetaRendererView;
 
 typedef struct _MetaRemoteDesktop MetaRemoteDesktop;
+typedef struct _MetaRemoteDesktopSession MetaRemoteDesktopSession;
 typedef struct _MetaScreenCast MetaScreenCast;
 typedef struct _MetaScreenCastSession MetaScreenCastSession;
 typedef struct _MetaScreenCastStream MetaScreenCastStream;
@@ -76,6 +76,10 @@ typedef struct _MetaBarrierImpl MetaBarrierImpl;
 
 typedef struct _MetaIdleManager MetaIdleManager;
 
+typedef struct _MetaDbusSession MetaDbusSession;
+typedef struct _MetaDbusSessionManager MetaDbusSessionManager;
+typedef struct _MetaDbusSessionWatcher MetaDbusSessionWatcher;
+
 #ifdef HAVE_REMOTE_DESKTOP
 typedef struct _MetaRemoteDesktop MetaRemoteDesktop;
 #endif
@@ -88,4 +92,11 @@ typedef struct _MetaGammaLut
   size_t size;
 } MetaGammaLut;
 
-#endif /* META_BACKEND_TYPE_H */
+typedef struct _MetaInputCapture MetaInputCapture;
+typedef struct _MetaInputCaptureSession MetaInputCaptureSession;
+
+typedef struct _MetaEis MetaEis;
+typedef struct _MetaEisClient MetaEisClient;
+
+typedef struct _MetaLauncher MetaLauncher;
+typedef struct _MetaUdev MetaUdev;

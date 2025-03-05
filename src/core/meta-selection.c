@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -98,8 +96,13 @@ meta_selection_init (MetaSelection *selection)
 MetaSelection *
 meta_selection_new (MetaDisplay *display)
 {
-  return g_object_new (META_TYPE_SELECTION,
-                       NULL);
+  MetaSelection *selection;
+
+  selection = g_object_new (META_TYPE_SELECTION,
+                            NULL);
+  selection->display = display;
+
+  return selection;
 }
 
 /**
@@ -487,4 +490,10 @@ meta_selection_get_current_owner (MetaSelection     *selection,
   g_return_val_if_fail (selection_type < META_N_SELECTION_TYPES, NULL);
 
   return selection->owners[selection_type];
+}
+
+MetaDisplay *
+meta_selection_get_display (MetaSelection *selection)
+{
+  return selection->display;
 }

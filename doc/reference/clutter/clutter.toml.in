@@ -3,7 +3,8 @@ version = "@version@"
 browse_url = "https://gitlab.gnome.org/GNOME/mutter/"
 repository_url = "https://gitlab.gnome.org/GNOME/mutter.git"
 website_url = "https://blogs.gnome.org/shell-dev/"
-docs_url = "https://docs.gtk.org/"
+docs_url = "https://mutter.gnome.org/"
+logo_url = "logo.svg"
 authors = "Mutter Development Team"
 license = "GPL-2.0-or-later"
 description = "An OpenGL based 'interactive canvas' library"
@@ -17,7 +18,7 @@ search_index = true
   docs_url = "https://docs.gtk.org/gobject/"
 
   [dependencies."cairo-1.0"]
-  name = "Cairo"
+  name = "cairo"
   description = "A 2D graphics library with support for multiple output devices"
   docs_url = "https://www.cairographics.org/manual/"
 
@@ -39,6 +40,7 @@ base_url = "https://gitlab.gnome.org/GNOME/mutter/-/blob/@vcs_tag@/"
 content_files = [
 ]
 content_images = [
+  "logo.svg",
 ]
 urlmap_file = "urlmap.js"
 

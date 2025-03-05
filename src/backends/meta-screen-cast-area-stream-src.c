@@ -12,11 +12,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
+
+/* Till https://gitlab.freedesktop.org/pipewire/pipewire/-/issues/4065 is fixed */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfloat-conversion"
 
 #include "config.h"
 
@@ -26,6 +28,7 @@
 
 #include "backends/meta-backend-private.h"
 #include "backends/meta-cursor-tracker-private.h"
+#include "backends/meta-dbus-session-manager.h"
 #include "backends/meta-screen-cast-area-stream.h"
 #include "backends/meta-screen-cast-session.h"
 #include "backends/meta-stage-private.h"
@@ -39,6 +42,12 @@ struct _MetaScreenCastAreaStreamSrc
 
   gboolean cursor_bitmap_invalid;
   gboolean hw_cursor_inhibited;
+
+  struct {
+    gboolean set;
+    int x;
+    int y;
+  } last_cursor_matadata;
 
   GList *watches;
 
@@ -92,7 +101,7 @@ meta_screen_cast_area_stream_src_get_specs (MetaScreenCastStreamSrc *src,
 {
   MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
   MetaScreenCastAreaStream *area_stream = META_SCREEN_CAST_AREA_STREAM (stream);
-  MetaRectangle *area;
+  MtkRectangle *area;
   float scale;
 
   area = meta_screen_cast_area_stream_get_area (area_stream);
@@ -114,12 +123,12 @@ is_cursor_in_stream (MetaScreenCastAreaStreamSrc *area_src)
   MetaBackend *backend = get_backend (area_src);
   MetaCursorRenderer *cursor_renderer =
     meta_backend_get_cursor_renderer (backend);
-  MetaRectangle *area;
+  MtkRectangle *area;
   graphene_rect_t area_rect;
   MetaCursorSprite *cursor_sprite;
 
   area = meta_screen_cast_area_stream_get_area (area_stream);
-  area_rect = meta_rectangle_to_graphene_rect (area);
+  area_rect = mtk_rectangle_to_graphene_rect (area);
 
   cursor_sprite = meta_cursor_renderer_get_cursor (cursor_renderer);
   if (cursor_sprite)
@@ -162,13 +171,17 @@ static void
 sync_cursor_state (MetaScreenCastAreaStreamSrc *area_src)
 {
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (area_src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
 
   if (is_redraw_queued (area_src))
     return;
 
   flags = META_SCREEN_CAST_RECORD_FLAG_CURSOR_ONLY;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_DETACHED;
+  meta_screen_cast_stream_src_maybe_record_frame (src, flags,
+                                                  paint_phase,
+                                                  NULL);
 }
 
 static void
@@ -191,6 +204,7 @@ cursor_changed (MetaCursorTracker           *cursor_tracker,
 static void
 on_prepare_frame (ClutterStage                *stage,
                   ClutterStageView            *stage_view,
+                  ClutterFrame                *frame,
                   MetaScreenCastAreaStreamSrc *area_src)
 {
   sync_cursor_state (area_src);
@@ -226,27 +240,30 @@ uninhibit_hw_cursor (MetaScreenCastAreaStreamSrc *area_src)
   area_src->hw_cursor_inhibited = FALSE;
 }
 
-static gboolean
+static void
 maybe_record_frame_on_idle (gpointer user_data)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (user_data);
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (area_src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
 
   area_src->maybe_record_idle_id = 0;
 
   flags = META_SCREEN_CAST_RECORD_FLAG_NONE;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
-
-  return G_SOURCE_REMOVE;
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_DETACHED;
+  meta_screen_cast_stream_src_maybe_record_frame (src, flags,
+                                                  paint_phase,
+                                                  NULL);
 }
 
 static void
-before_stage_painted (MetaStage           *stage,
-                      ClutterStageView    *view,
-                      ClutterPaintContext *paint_context,
-                      gpointer             user_data)
+before_stage_painted (MetaStage        *stage,
+                      ClutterStageView *view,
+                      const MtkRegion  *redraw_clip,
+                      ClutterFrame     *frame,
+                      gpointer          user_data)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (user_data);
@@ -258,42 +275,41 @@ before_stage_painted (MetaStage           *stage,
   if (!clutter_stage_view_peek_scanout (view))
     return;
 
-  area_src->maybe_record_idle_id = g_idle_add (maybe_record_frame_on_idle, src);
+  area_src->maybe_record_idle_id = g_idle_add_once (maybe_record_frame_on_idle, src);
 }
 
 static void
-stage_painted (MetaStage           *stage,
-               ClutterStageView    *view,
-               ClutterPaintContext *paint_context,
-               gpointer             user_data)
+stage_painted (MetaStage        *stage,
+               ClutterStageView *view,
+               const MtkRegion  *redraw_clip,
+               ClutterFrame     *frame,
+               gpointer          user_data)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (user_data);
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (area_src);
   MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
   MetaScreenCastAreaStream *area_stream = META_SCREEN_CAST_AREA_STREAM (stream);
-  const cairo_region_t *redraw_clip;
-  MetaRectangle *area;
+  MtkRectangle *area;
 
   if (area_src->maybe_record_idle_id)
     return;
 
   area = meta_screen_cast_area_stream_get_area (area_stream);
-  redraw_clip = clutter_paint_context_get_redraw_clip (paint_context);
 
   if (redraw_clip)
     {
-      switch (cairo_region_contains_rectangle (redraw_clip, area))
+      switch (mtk_region_contains_rectangle (redraw_clip, area))
         {
-        case CAIRO_REGION_OVERLAP_IN:
-        case CAIRO_REGION_OVERLAP_PART:
+        case MTK_REGION_OVERLAP_IN:
+        case MTK_REGION_OVERLAP_PART:
           break;
-        case CAIRO_REGION_OVERLAP_OUT:
+        case MTK_REGION_OVERLAP_OUT:
           return;
         }
     }
 
-  area_src->maybe_record_idle_id = g_idle_add (maybe_record_frame_on_idle, src);
+  area_src->maybe_record_idle_id = g_idle_add_once (maybe_record_frame_on_idle, src);
 }
 
 static void
@@ -306,7 +322,7 @@ add_view_painted_watches (MetaScreenCastAreaStreamSrc *area_src)
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
   ClutterStage *stage;
   MetaStage *meta_stage;
-  MetaRectangle *area;
+  MtkRectangle *area;
   GList *l;
 
   stage = get_stage (area_src);
@@ -316,10 +332,10 @@ add_view_painted_watches (MetaScreenCastAreaStreamSrc *area_src)
   for (l = meta_renderer_get_views (renderer); l; l = l->next)
     {
       MetaRendererView *view = l->data;
-      MetaRectangle view_layout;
+      MtkRectangle view_layout;
 
       clutter_stage_view_get_layout (CLUTTER_STAGE_VIEW (view), &view_layout);
-      if (meta_rectangle_overlap (area, &view_layout))
+      if (mtk_rectangle_overlap (area, &view_layout))
         {
           MetaStageWatch *watch;
 
@@ -452,19 +468,20 @@ meta_screen_cast_area_stream_src_disable (MetaScreenCastStreamSrc *src)
 }
 
 static gboolean
-meta_screen_cast_area_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *src,
-                                                   int                       width,
-                                                   int                       height,
-                                                   int                       stride,
-                                                   uint8_t                  *data,
-                                                   GError                  **error)
+meta_screen_cast_area_stream_src_record_to_buffer (MetaScreenCastStreamSrc   *src,
+                                                   MetaScreenCastPaintPhase   paint_phase,
+                                                   int                        width,
+                                                   int                        height,
+                                                   int                        stride,
+                                                   uint8_t                   *data,
+                                                   GError                   **error)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (src);
   MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
   MetaScreenCastAreaStream *area_stream = META_SCREEN_CAST_AREA_STREAM (stream);
   ClutterStage *stage;
-  MetaRectangle *area;
+  MtkRectangle *area;
   float scale;
   ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
 
@@ -486,7 +503,7 @@ meta_screen_cast_area_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *src
   if (!clutter_stage_paint_to_buffer (stage, area, scale,
                                       data,
                                       stride,
-                                      CLUTTER_CAIRO_FORMAT_ARGB32,
+                                      COGL_PIXEL_FORMAT_CAIRO_ARGB32_COMPAT,
                                       paint_flags,
                                       error))
     return FALSE;
@@ -495,9 +512,10 @@ meta_screen_cast_area_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *src
 }
 
 static gboolean
-meta_screen_cast_area_stream_src_record_to_framebuffer (MetaScreenCastStreamSrc  *src,
-                                                        CoglFramebuffer          *framebuffer,
-                                                        GError                  **error)
+meta_screen_cast_area_stream_src_record_to_framebuffer (MetaScreenCastStreamSrc   *src,
+                                                        MetaScreenCastPaintPhase   paint_phase,
+                                                        CoglFramebuffer           *framebuffer,
+                                                        GError                   **error)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (src);
@@ -505,7 +523,7 @@ meta_screen_cast_area_stream_src_record_to_framebuffer (MetaScreenCastStreamSrc 
   MetaScreenCastAreaStream *area_stream = META_SCREEN_CAST_AREA_STREAM (stream);
   MetaBackend *backend = get_backend (area_src);
   ClutterStage *stage;
-  MetaRectangle *area;
+  MtkRectangle *area;
   float scale;
   ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
 
@@ -537,12 +555,82 @@ meta_screen_cast_area_stream_record_follow_up (MetaScreenCastStreamSrc *src)
 {
   MetaScreenCastAreaStreamSrc *area_src =
     META_SCREEN_CAST_AREA_STREAM_SRC (src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
 
   g_clear_handle_id (&area_src->maybe_record_idle_id, g_source_remove);
 
   flags = META_SCREEN_CAST_RECORD_FLAG_NONE;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_DETACHED;
+  meta_screen_cast_stream_src_maybe_record_frame (src, flags,
+                                                  paint_phase,
+                                                  NULL);
+}
+
+static gboolean
+should_cursor_metadata_be_set (MetaScreenCastAreaStreamSrc *area_src)
+{
+  MetaBackend *backend = get_backend (area_src);
+  MetaCursorTracker *cursor_tracker =
+    meta_backend_get_cursor_tracker (backend);
+
+  return (meta_cursor_tracker_get_pointer_visible (cursor_tracker) &&
+          is_cursor_in_stream (area_src));
+}
+
+static void
+get_cursor_position (MetaScreenCastAreaStreamSrc *area_src,
+                     int                         *out_x,
+                     int                         *out_y)
+{
+  MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (area_src);
+  MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
+  MetaScreenCastAreaStream *area_stream = META_SCREEN_CAST_AREA_STREAM (stream);
+  MetaBackend *backend = get_backend (area_src);
+  MetaCursorTracker *cursor_tracker =
+    meta_backend_get_cursor_tracker (backend);
+  MtkRectangle *area;
+  float scale;
+  graphene_point_t cursor_position;
+
+  area = meta_screen_cast_area_stream_get_area (area_stream);
+  scale = meta_screen_cast_area_stream_get_scale (area_stream);
+
+  meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
+  cursor_position.x -= area->x;
+  cursor_position.y -= area->y;
+  cursor_position.x *= scale;
+  cursor_position.y *= scale;
+
+  *out_x = (int) roundf (cursor_position.x);
+  *out_y = (int) roundf (cursor_position.y);
+}
+
+static gboolean
+meta_screen_cast_area_stream_src_is_cursor_metadata_valid (MetaScreenCastStreamSrc *src)
+{
+  MetaScreenCastAreaStreamSrc *area_src =
+    META_SCREEN_CAST_AREA_STREAM_SRC (src);
+
+  if (should_cursor_metadata_be_set (area_src))
+    {
+      int x, y;
+
+      if (!area_src->last_cursor_matadata.set)
+        return FALSE;
+
+      if (area_src->cursor_bitmap_invalid)
+        return FALSE;
+
+      get_cursor_position (area_src, &x, &y);
+
+      return (area_src->last_cursor_matadata.x == x &&
+              area_src->last_cursor_matadata.y == y);
+    }
+  else
+    {
+      return !area_src->last_cursor_matadata.set;
+    }
 }
 
 static void
@@ -556,54 +644,38 @@ meta_screen_cast_area_stream_src_set_cursor_metadata (MetaScreenCastStreamSrc *s
   MetaBackend *backend = get_backend (area_src);
   MetaCursorRenderer *cursor_renderer =
     meta_backend_get_cursor_renderer (backend);
-  MetaCursorTracker *cursor_tracker =
-    meta_backend_get_cursor_tracker (backend);
   MetaCursorSprite *cursor_sprite;
-  MetaRectangle *area;
-  float scale;
-  graphene_point_t cursor_position;
   int x, y;
 
   cursor_sprite = meta_cursor_renderer_get_cursor (cursor_renderer);
 
-  if (!meta_cursor_tracker_get_pointer_visible (cursor_tracker) ||
-      !is_cursor_in_stream (area_src))
+  if (!should_cursor_metadata_be_set (area_src))
     {
+      area_src->last_cursor_matadata.set = FALSE;
       meta_screen_cast_stream_src_unset_cursor_metadata (src,
                                                          spa_meta_cursor);
       return;
     }
 
-  area = meta_screen_cast_area_stream_get_area (area_stream);
-  scale = meta_screen_cast_area_stream_get_scale (area_stream);
+  get_cursor_position (area_src, &x, &y);
 
-  meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
-  cursor_position.x -= area->x;
-  cursor_position.y -= area->y;
-  cursor_position.x *= scale;
-  cursor_position.y *= scale;
-
-  x = (int) roundf (cursor_position.x);
-  y = (int) roundf (cursor_position.y);
+  area_src->last_cursor_matadata.set = TRUE;
+  area_src->last_cursor_matadata.x = x;
+  area_src->last_cursor_matadata.y = y;
 
   if (area_src->cursor_bitmap_invalid)
     {
       if (cursor_sprite)
         {
-          float cursor_scale;
-          float metadata_scale;
-          MetaMonitorTransform transform;
+          float view_scale;
 
-          cursor_scale = meta_cursor_sprite_get_texture_scale (cursor_sprite);
-          metadata_scale = scale * cursor_scale;
-          transform = meta_cursor_sprite_get_texture_transform (cursor_sprite);
+          view_scale = meta_screen_cast_area_stream_get_scale (area_stream);
 
           meta_screen_cast_stream_src_set_cursor_sprite_metadata (src,
                                                                   spa_meta_cursor,
                                                                   cursor_sprite,
                                                                   x, y,
-                                                                  transform,
-                                                                  metadata_scale);
+                                                                  view_scale);
         }
       else
         {
@@ -668,6 +740,10 @@ meta_screen_cast_area_stream_src_class_init (MetaScreenCastAreaStreamSrcClass *k
     meta_screen_cast_area_stream_src_record_to_framebuffer;
   src_class->record_follow_up =
     meta_screen_cast_area_stream_record_follow_up;
+  src_class->is_cursor_metadata_valid =
+    meta_screen_cast_area_stream_src_is_cursor_metadata_valid;
   src_class->set_cursor_metadata =
     meta_screen_cast_area_stream_src_set_cursor_metadata;
 }
+
+#pragma GCC diagnostic pop

@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_DEVICE_H
-#define META_KMS_DEVICE_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -44,6 +41,7 @@ const char * meta_kms_device_get_driver_description (MetaKmsDevice *device);
 
 MetaKmsDeviceFlag meta_kms_device_get_flags (MetaKmsDevice *device);
 
+META_EXPORT_TEST
 gboolean meta_kms_device_get_cursor_size (MetaKmsDevice *device,
                                           uint64_t      *out_cursor_width,
                                           uint64_t      *out_cursor_height);
@@ -62,27 +60,52 @@ GList * meta_kms_device_get_crtcs (MetaKmsDevice *device);
 META_EXPORT_TEST
 GList * meta_kms_device_get_planes (MetaKmsDevice *device);
 
-META_EXPORT_TEST
-MetaKmsPlane * meta_kms_device_get_primary_plane_for (MetaKmsDevice *device,
-                                                      MetaKmsCrtc   *crtc);
-
-META_EXPORT_TEST
-MetaKmsPlane * meta_kms_device_get_cursor_plane_for (MetaKmsDevice *device,
-                                                     MetaKmsCrtc   *crtc);
+gboolean meta_kms_device_has_cursor_plane_for (MetaKmsDevice*device,
+                                               MetaKmsCrtc  *crtc);
 
 GList * meta_kms_device_get_fallback_modes (MetaKmsDevice *device);
 
 META_EXPORT_TEST
 MetaKmsFeedback * meta_kms_device_process_update_sync (MetaKmsDevice     *device,
                                                        MetaKmsUpdate     *update,
-                                                       MetaKmsUpdateFlag  flags);
+                                                       MetaKmsUpdateFlag  flags)
+  G_GNUC_WARN_UNUSED_RESULT;
+
+META_EXPORT_TEST
+void meta_kms_device_post_update (MetaKmsDevice     *device,
+                                  MetaKmsUpdate     *update,
+                                  MetaKmsUpdateFlag  flags);
+
+META_EXPORT_TEST
+void meta_kms_device_await_flush (MetaKmsDevice *device,
+                                  MetaKmsCrtc   *crtc);
+
+gboolean meta_kms_device_handle_flush (MetaKmsDevice *device,
+                                       MetaKmsCrtc   *crtc);
 
 META_EXPORT_TEST
 void meta_kms_device_disable (MetaKmsDevice *device);
+
+gboolean meta_kms_device_lease_objects (MetaKmsDevice  *device,
+                                        GList          *connectors,
+                                        GList          *crtcs,
+                                        GList          *planes,
+                                        int            *out_fd,
+                                        uint32_t       *out_lessee_id,
+                                        GError        **error);
+
+gboolean meta_kms_device_revoke_lease (MetaKmsDevice  *device,
+                                       uint32_t        lessee_id,
+                                       GError        **error);
+
+gboolean meta_kms_device_list_lessees (MetaKmsDevice  *device,
+                                       uint32_t      **out_lessee_ids,
+                                       int            *out_num_lessee_ids,
+                                       GError        **error);
 
 MetaKmsDevice * meta_kms_device_new (MetaKms            *kms,
                                      const char         *path,
                                      MetaKmsDeviceFlag   flags,
                                      GError            **error);
 
-#endif /* META_KMS_DEVICE_H */
+gboolean meta_kms_device_has_connected_builtin_panel (MetaKmsDevice *device);

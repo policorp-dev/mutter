@@ -21,17 +21,17 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-input-device-tool.h"
-#include "clutter-input-pointer-a11y-private.h"
-#include "clutter-marshal.h"
-#include "clutter-mutter.h"
-#include "clutter-private.h"
-#include "clutter-seat.h"
-#include "clutter-seat-private.h"
-#include "clutter-settings-private.h"
-#include "clutter-virtual-input-device.h"
+#include "clutter/clutter-input-device-tool.h"
+#include "clutter/clutter-input-pointer-a11y-private.h"
+#include "clutter/clutter-marshal.h"
+#include "clutter/clutter-mutter.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-seat.h"
+#include "clutter/clutter-seat-private.h"
+#include "clutter/clutter-settings-private.h"
+#include "clutter/clutter-virtual-input-device.h"
 
 enum
 {
@@ -51,7 +51,11 @@ static guint signals[N_SIGNALS] = { 0 };
 enum
 {
   PROP_0,
+
+  PROP_CONTEXT,
+  PROP_NAME,
   PROP_TOUCH_MODE,
+
   N_PROPS
 };
 
@@ -61,10 +65,14 @@ typedef struct _ClutterSeatPrivate ClutterSeatPrivate;
 
 struct _ClutterSeatPrivate
 {
+  ClutterContext *context;
+
   unsigned int inhibit_unfocus_count;
 
   /* Pointer a11y */
   ClutterPointerA11ySettings pointer_a11y_settings;
+
+  char *name;
 };
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (ClutterSeat, clutter_seat, G_TYPE_OBJECT)
@@ -75,8 +83,17 @@ clutter_seat_set_property (GObject      *object,
                            const GValue *value,
                            GParamSpec   *pspec)
 {
+  ClutterSeat *seat = CLUTTER_SEAT (object);
+  ClutterSeatPrivate *priv = clutter_seat_get_instance_private (seat);
+
   switch (prop_id)
     {
+    case PROP_CONTEXT:
+      priv->context = g_value_get_object (value);
+      break;
+    case PROP_NAME:
+      priv->name = g_value_dup_string (value);
+      break;
     case PROP_TOUCH_MODE:
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -89,8 +106,17 @@ clutter_seat_get_property (GObject    *object,
                            GValue     *value,
                            GParamSpec *pspec)
 {
+  ClutterSeat *seat = CLUTTER_SEAT (object);
+  ClutterSeatPrivate *priv = clutter_seat_get_instance_private (seat);
+
   switch (prop_id)
     {
+    case PROP_CONTEXT:
+      g_value_set_object (value, priv->context);
+      break;
+    case PROP_NAME:
+      g_value_set_string (value, priv->name);
+      break;
     case PROP_TOUCH_MODE:
       g_value_set_boolean (value, FALSE);
       break;
@@ -102,11 +128,24 @@ clutter_seat_get_property (GObject    *object,
 static void
 clutter_seat_constructed (GObject *object)
 {
-  ClutterSettings *settings = clutter_settings_get_default ();
+  ClutterContext *context =
+    clutter_seat_get_context (CLUTTER_SEAT (object));
+  ClutterSettings *settings = clutter_context_get_settings (context);
 
   G_OBJECT_CLASS (clutter_seat_parent_class)->constructed (object);
   clutter_settings_ensure_pointer_a11y_settings (settings,
                                                  CLUTTER_SEAT (object));
+}
+
+static void
+clutter_seat_finalize (GObject *object)
+{
+  ClutterSeat *seat = CLUTTER_SEAT (object);
+  ClutterSeatPrivate *priv = clutter_seat_get_instance_private (seat);
+
+  g_clear_pointer (&priv->name, g_free);
+
+  G_OBJECT_CLASS (clutter_seat_parent_class)->finalize (object);
 }
 
 static void
@@ -117,6 +156,7 @@ clutter_seat_class_init (ClutterSeatClass *klass)
   object_class->set_property = clutter_seat_set_property;
   object_class->get_property = clutter_seat_get_property;
   object_class->constructed = clutter_seat_constructed;
+  object_class->finalize = clutter_seat_finalize;
 
   signals[DEVICE_ADDED] =
     g_signal_new (I_("device-added"),
@@ -142,7 +182,7 @@ clutter_seat_class_init (ClutterSeatClass *klass)
    *
    * The signal is emitted each time either the
    * latched modifiers mask or locked modifiers mask are changed as the
-   * result of keyboard accessibilty's sticky keys operations.
+   * result of keyboard accessibility's sticky keys operations.
    */
   signals[KBD_A11Y_MASK_CHANGED] =
     g_signal_new (I_("kbd-a11y-mods-state-changed"),
@@ -251,7 +291,7 @@ clutter_seat_class_init (ClutterSeatClass *klass)
    *
    * The signal is emitted when the property to inhibit the unsetting
    * of the focus-surface of the #ClutterSeat changed.
-   *  
+   *
    * To get the current state of this property, use [method@Seat.is_unfocus_inhibited].
    */
   signals[IS_UNFOCUS_INHIBITED_CHANGED] =
@@ -268,11 +308,29 @@ clutter_seat_class_init (ClutterSeatClass *klass)
    * requirements documented in [method@Seat.get_touch_mode] are fulfilled.
    **/
   props[PROP_TOUCH_MODE] =
-    g_param_spec_boolean ("touch-mode",
-                          P_("Touch mode"),
-                          P_("Touch mode"),
+    g_param_spec_boolean ("touch-mode", NULL, NULL,
                           FALSE,
-                          CLUTTER_PARAM_READABLE);
+                          G_PARAM_READABLE |
+                          G_PARAM_STATIC_STRINGS);
+
+  /**
+   * ClutterSeat::name:
+   *
+   * The name of the seat.
+   **/
+  props[PROP_NAME] =
+    g_param_spec_string ("name", NULL, NULL,
+                         NULL,
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_READWRITE |
+                         G_PARAM_CONSTRUCT_ONLY);
+
+  props[PROP_CONTEXT] =
+    g_param_spec_object ("context", NULL, NULL,
+                         CLUTTER_TYPE_CONTEXT,
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS |
+                         G_PARAM_CONSTRUCT_ONLY);
 
   g_object_class_install_properties (object_class, N_PROPS, props);
 }
@@ -598,9 +656,8 @@ clutter_seat_handle_event_post (ClutterSeat        *seat,
     seat_class->handle_event_post (seat, event);
 
   device = clutter_event_get_source_device (event);
-  g_assert_true (CLUTTER_IS_INPUT_DEVICE (device));
 
-  switch (event->type)
+  switch (clutter_event_type (event))
     {
       case CLUTTER_DEVICE_ADDED:
         g_signal_emit (seat, signals[DEVICE_ADDED], 0, device);
@@ -624,6 +681,16 @@ clutter_seat_warp_pointer (ClutterSeat *seat,
   g_return_if_fail (CLUTTER_IS_SEAT (seat));
 
   CLUTTER_SEAT_GET_CLASS (seat)->warp_pointer (seat, x, y);
+}
+
+void
+clutter_seat_init_pointer_position (ClutterSeat *seat,
+                                    float        x,
+                                    float        y)
+{
+  g_return_if_fail (CLUTTER_IS_SEAT (seat));
+
+  CLUTTER_SEAT_GET_CLASS (seat)->init_pointer_position (seat, x, y);
 }
 
 /**
@@ -679,6 +746,17 @@ clutter_seat_has_touchscreen (ClutterSeat *seat)
   return has_touchscreen;
 }
 
+/**
+ * clutter_seat_query_state:
+ * @seat: a #ClutterSeat
+ * @device: a #ClutterInputDevice
+ * @sequence: (nullable): a #ClutterEventSequence
+ * @coords: (out caller-allocates) (optional): the coordinates of the pointer
+ * @modifiers: (out) (optional): the current #ClutterModifierType of the pointer
+ *
+ * Returns: %TRUE if @device (or the specific @sequence) is on the stage, %FALSE
+ *   otherwise.
+ **/
 gboolean
 clutter_seat_query_state (ClutterSeat          *seat,
                           ClutterInputDevice   *device,
@@ -725,4 +803,25 @@ clutter_seat_ungrab (ClutterSeat *seat,
   seat_class = CLUTTER_SEAT_GET_CLASS (seat);
   if (seat_class->ungrab)
     return seat_class->ungrab (seat, time);
+}
+
+const char *
+clutter_seat_get_name (ClutterSeat *seat)
+{
+  ClutterSeatPrivate *priv = clutter_seat_get_instance_private (seat);
+
+  return priv->name;
+}
+
+/**
+ * clutter_seat_get_context:
+ *
+ * Returns: (transfer none): The %ClutterContext
+ */
+ClutterContext *
+clutter_seat_get_context (ClutterSeat *seat)
+{
+  ClutterSeatPrivate *priv = clutter_seat_get_instance_private (seat);
+
+  return priv->context;
 }

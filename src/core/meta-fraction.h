@@ -17,8 +17,9 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_FRACTION_H
-#define META_FRACTION_H
+#pragma once
+
+#include "core/util-private.h"
 
 typedef struct _MetaFraction
 {
@@ -26,6 +27,5 @@ typedef struct _MetaFraction
   int denom;
 } MetaFraction;
 
+META_EXPORT_TEST
 MetaFraction meta_fraction_from_double (double src);
-
-#endif /* META_FRACTION_H */

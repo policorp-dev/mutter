@@ -14,27 +14,26 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_SETTINGS_PRIVATE_H
-#define META_SETTINGS_PRIVATE_H
+#pragma once
 
 #include <glib-object.h>
 
+#include "backends/meta-backend-types.h"
+#include "core/util-private.h"
 #include "meta/meta-settings.h"
 #include "meta/types.h"
-#include "core/util-private.h"
 
 typedef enum _MetaExperimentalFeature
 {
   META_EXPERIMENTAL_FEATURE_NONE = 0,
   META_EXPERIMENTAL_FEATURE_SCALE_MONITOR_FRAMEBUFFER = (1 << 0),
   META_EXPERIMENTAL_FEATURE_KMS_MODIFIERS  = (1 << 1),
-  META_EXPERIMENTAL_FEATURE_RT_SCHEDULER = (1 << 2),
-  META_EXPERIMENTAL_FEATURE_AUTOCLOSE_XWAYLAND  = (1 << 3),
+  META_EXPERIMENTAL_FEATURE_AUTOCLOSE_XWAYLAND  = (1 << 2),
+  META_EXPERIMENTAL_FEATURE_VARIABLE_REFRESH_RATE = (1 << 3),
+  META_EXPERIMENTAL_FEATURE_XWAYLAND_NATIVE_SCALING  = (1 << 4),
 } MetaExperimentalFeature;
 
 typedef enum _MetaXwaylandExtension
@@ -60,8 +59,6 @@ META_EXPORT_TEST
 gboolean meta_settings_is_experimental_feature_enabled (MetaSettings           *settings,
                                                         MetaExperimentalFeature feature);
 
-MetaExperimentalFeature meta_settings_get_experimental_features (MetaSettings *settings);
-
 META_EXPORT_TEST
 void meta_settings_override_experimental_features (MetaSettings *settings);
 
@@ -77,9 +74,30 @@ gboolean meta_settings_are_xwayland_grabs_allowed (MetaSettings *settings);
 
 int meta_settings_get_xwayland_disable_extensions (MetaSettings *settings);
 
+gboolean meta_settings_are_xwayland_byte_swapped_clients_allowed (MetaSettings *settings);
+
 gboolean meta_settings_is_privacy_screen_enabled (MetaSettings *settings);
 
 void meta_settings_set_privacy_screen_enabled (MetaSettings *settings,
                                                gboolean      enabled);
 
-#endif /* META_SETTINGS_PRIVATE_H */
+gboolean meta_settings_has_output_luminance (MetaSettings          *settings,
+                                             const MetaMonitorSpec *monitor_spec,
+                                             MetaColorMode          color_mode);
+
+double meta_settings_get_output_luminance (MetaSettings          *settings,
+                                           const MetaMonitorSpec *monitor_spec,
+                                           MetaColorMode          color_mode);
+
+double meta_settings_get_default_output_luminance (MetaSettings          *settings,
+                                                   const MetaMonitorSpec *monitor_spec,
+                                                   MetaColorMode          color_mode);
+
+void meta_settings_set_output_luminance (MetaSettings          *settings,
+                                         const MetaMonitorSpec *monitor_spec,
+                                         MetaColorMode          color_mode,
+                                         double                 luminance);
+
+void meta_settings_reset_output_luminance (MetaSettings          *settings,
+                                           const MetaMonitorSpec *monitor_spec,
+                                           MetaColorMode          color_mode);

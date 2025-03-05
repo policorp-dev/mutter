@@ -31,12 +31,10 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_FRAMEBUFFER_GL_PRIVATE_H__
-#define __COGL_FRAMEBUFFER_GL_PRIVATE_H__
+#pragma once
 
-#include "cogl-attribute-private.h"
-#include "cogl-framebuffer-driver.h"
-#include "cogl-gl-header.h"
+#include "cogl/cogl-attribute-private.h"
+#include "cogl/cogl-framebuffer-driver.h"
 
 #define COGL_TYPE_GL_FRAMEBUFFER (cogl_gl_framebuffer_get_type ())
 G_DECLARE_DERIVABLE_TYPE (CoglGlFramebuffer, cogl_gl_framebuffer,
@@ -49,8 +47,6 @@ struct _CoglGlFramebufferClass
 
   void (* bind) (CoglGlFramebuffer *gl_framebuffer,
                  GLenum             target);
-
-  void (* flush_stereo_mode_state) (CoglGlFramebuffer *gl_framebuffer);
 };
 
 void
@@ -60,7 +56,3 @@ cogl_gl_framebuffer_bind (CoglGlFramebuffer *gl_framebuffer,
 void
 cogl_gl_framebuffer_flush_state_differences (CoglGlFramebuffer *gl_framebuffer,
                                              unsigned long      differences);
-
-#endif /* __COGL_FRAMEBUFFER_GL_PRIVATE_H__ */
-
-

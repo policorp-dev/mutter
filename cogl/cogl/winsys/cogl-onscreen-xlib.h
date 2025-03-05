@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011,2013 Intel Corporation.
- * Copyrigth (C) 2020 Red Hat
+ * Copyright (C) 2020 Red Hat
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -24,30 +24,20 @@
  *
  */
 
-#ifndef COGL_ONSCREEN_XLIB_H
-#define COGL_ONSCREEN_XLIB_H
+#pragma once
 
-#include "cogl-onscreen.h"
-#include "winsys/cogl-onscreen-egl.h"
-#include "winsys/cogl-winsys-egl-private.h"
+#include "cogl/cogl-onscreen.h"
+#include "cogl/winsys/cogl-onscreen-egl.h"
 
 #define COGL_TYPE_ONSCREEN_XLIB (cogl_onscreen_xlib_get_type ())
 G_DECLARE_FINAL_TYPE (CoglOnscreenXlib, cogl_onscreen_xlib,
                       COGL, ONSCREEN_XLIB,
                       CoglOnscreenEgl)
 
-gboolean
-_cogl_winsys_egl_onscreen_xlib_init (CoglOnscreen  *onscreen,
-                                     EGLConfig      egl_config,
-                                     GError       **error);
-
 COGL_EXPORT CoglOnscreenXlib *
 cogl_onscreen_xlib_new (CoglContext *context,
                         int          width,
                         int          height);
-
-void
-_cogl_winsys_egl_onscreen_xlib_deinit (CoglOnscreen *onscreen);
 
 gboolean
 cogl_onscreen_xlib_is_for_window (CoglOnscreen *onscreen,
@@ -57,5 +47,3 @@ void
 cogl_onscreen_xlib_resize (CoglOnscreen *onscreen,
                            int           width,
                            int           height);
-
-#endif /* COGL_ONSCREEN_XLIB_H */

@@ -22,14 +22,13 @@
  *   Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef CLUTTER_ACTION_PRIVATE_H
-#define CLUTTER_ACTION_PRIVATE_H
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-action.h>
+#include "clutter/clutter-action.h"
 
 G_BEGIN_DECLS
 
@@ -39,6 +38,16 @@ void clutter_action_set_phase (ClutterAction     *action,
 gboolean clutter_action_handle_event (ClutterAction      *action,
                                       const ClutterEvent *event);
 
-G_END_DECLS
+void clutter_action_sequence_cancelled (ClutterAction        *action,
+                                        ClutterInputDevice   *device,
+                                        ClutterEventSequence *sequence);
 
-#endif /* CLUTTER_ACTION_PRIVATE_H */
+gboolean clutter_action_register_sequence (ClutterAction      *self,
+                                           const ClutterEvent *event);
+
+int clutter_action_setup_sequence_relationship (ClutterAction        *action_1,
+                                                ClutterAction        *action_2,
+                                                ClutterInputDevice   *device,
+                                                ClutterEventSequence *sequence);
+
+G_END_DECLS

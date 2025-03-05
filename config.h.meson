@@ -28,6 +28,17 @@
 /* Defined if EGLDevice support is enabled */
 #mesondefine HAVE_EGL_DEVICE
 
+/* Have GLX for rendering */
+#mesondefine HAVE_GLX
+
+#mesondefine HAVE_EGL_PLATFORM_XLIB
+
+/* Have GL for rendering */
+#mesondefine HAVE_GL
+
+/* Have GLES 2.0 for rendering */
+#mesondefine HAVE_GLES2
+
 /* Defined if EGLStream support is enabled */
 #mesondefine HAVE_WAYLAND_EGLSTREAM
 
@@ -37,8 +48,11 @@
 /* Building with libwacom for advanced tablet management */
 #mesondefine HAVE_LIBWACOM
 
-/* Building with libsystemd */
-#mesondefine HAVE_LIBSYSTEMD
+/* libwacom has get_num_rings() */
+#mesondefine HAVE_LIBWACOM_GET_NUM_RINGS
+
+/* Building with logind */
+#mesondefine HAVE_LOGIND
 
 /* Define if you want to enable the native (KMS) backend based on systemd */
 #mesondefine HAVE_NATIVE_BACKEND
@@ -95,9 +109,6 @@
 /* Whether Xwayland has -listenfd option */
 #mesondefine HAVE_XWAYLAND_LISTENFD
 
-/* Whether libX11 has XSetIOErrorExitHandler */
-#mesondefine HAVE_XSETIOERROREXITHANDLER
-
 /* Whether the mkostemp function exists */
 #mesondefine HAVE_MKOSTEMP
 
@@ -109,3 +120,24 @@
 
 /* Whether the Xwayland -terminate supports a delay */
 #mesondefine HAVE_XWAYLAND_TERMINATE_DELAY
+
+/* Whether the Xwayland supports +/-byteswappedclients */
+#mesondefine HAVE_XWAYLAND_BYTE_SWAPPED_CLIENTS
+
+/* Whether the Xwayland has -enable-ei-portal option */
+#mesondefine HAVE_XWAYLAND_ENABLE_EI_PORTAL
+
+/* Supports timerfd_create/timerfd_settime */
+#mesondefine HAVE_TIMERFD
+
+/* Supports malloc_trim */
+#mesondefine HAVE_MALLOC_TRIM
+
+/* Supports eventfd */
+#mesondefine HAVE_EVENTFD
+
+/* libdrm defines struct drm_plane_size_hint */
+#mesondefine HAVE_DRM_PLANE_SIZE_HINT
+
+/* Building with font rendering integration support */
+#mesondefine HAVE_FONTS

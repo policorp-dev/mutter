@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_DEVICE_POOL_H
-#define META_DEVICE_POOL_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
@@ -68,6 +65,6 @@ MetaDeviceFile * meta_device_pool_open (MetaDevicePool       *pool,
                                         MetaDeviceFileFlags   flags,
                                         GError              **error);
 
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaDeviceFile, meta_device_file_release)
+MetaBackend * meta_device_pool_get_backend (MetaDevicePool *pool);
 
-#endif /* META_DEVICE_FILE_POOL_H */
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaDeviceFile, meta_device_file_release)

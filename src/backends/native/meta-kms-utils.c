@@ -13,22 +13,14 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
 
 #include "backends/native/meta-kms-utils.h"
 
-#include <drm_fourcc.h>
 #include <glib.h>
-
-/* added in libdrm 2.4.95 */
-#ifndef DRM_FORMAT_INVALID
-#define DRM_FORMAT_INVALID 0
-#endif
 
 float
 meta_calculate_drm_mode_refresh_rate (const drmModeModeInfo *drm_mode)
@@ -44,7 +36,7 @@ meta_calculate_drm_mode_refresh_rate (const drmModeModeInfo *drm_mode)
   if (drm_mode->vscan > 1)
     denominator *= drm_mode->vscan;
 
-  return numerator / denominator;
+  return (float) (numerator / denominator);
 }
 
 int64_t
@@ -68,36 +60,4 @@ meta_calculate_drm_mode_vblank_duration_us (const drmModeModeInfo *drm_mode)
   return value;
 }
 
-/**
- * meta_drm_format_to_string:
- * @tmp: temporary buffer
- * @drm_format: DRM fourcc pixel format
- *
- * Returns a pointer to a string naming the given pixel format,
- * usually a pointer to the temporary buffer but not always.
- * Invalid formats may return nonsense names.
- *
- * When calling this, allocate one MetaDrmFormatBuf on the stack to
- * be used as the temporary buffer.
- */
-const char *
-meta_drm_format_to_string (MetaDrmFormatBuf *tmp,
-                           uint32_t          drm_format)
-{
-  int i;
-
-  if (drm_format == DRM_FORMAT_INVALID)
-    return "INVALID";
-
-  G_STATIC_ASSERT (sizeof (tmp->s) == 5);
-  for (i = 0; i < 4; i++)
-    {
-      char c = (drm_format >> (i * 8)) & 0xff;
-      tmp->s[i] = g_ascii_isgraph (c) ? c : '.';
-    }
-
-  tmp->s[i] = 0;
-
-  return tmp->s;
-}
 

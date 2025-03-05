@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
@@ -35,8 +33,6 @@
 #include "backends/x11/nested/meta-renderer-x11-nested.h"
 #include "clutter/clutter-mutter.h"
 
-static ClutterStageWindowInterface *clutter_stage_window_parent_iface = NULL;
-
 struct _MetaStageX11Nested
 {
   MetaStageX11 parent;
@@ -44,13 +40,7 @@ struct _MetaStageX11Nested
   CoglPipeline *pipeline;
 };
 
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface);
-
-G_DEFINE_TYPE_WITH_CODE (MetaStageX11Nested, meta_stage_x11_nested,
-                         META_TYPE_STAGE_X11,
-                         G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_STAGE_WINDOW,
-                                                clutter_stage_window_iface_init))
+G_DEFINE_FINAL_TYPE (MetaStageX11Nested, meta_stage_x11_nested, META_TYPE_STAGE_X11)
 
 typedef struct _MetaStageX11View
 {
@@ -63,7 +53,8 @@ meta_stage_x11_nested_resize (ClutterStageWindow *stage_window,
                               gint                width,
                               gint                height)
 {
-  clutter_stage_window_parent_iface->resize (stage_window, width, height);
+  CLUTTER_STAGE_WINDOW_CLASS (meta_stage_x11_nested_parent_class)->
+      resize (stage_window, width, height);
 }
 
 static gboolean
@@ -75,7 +66,8 @@ meta_stage_x11_nested_can_clip_redraws (ClutterStageWindow *stage_window)
 static GList *
 meta_stage_x11_nested_get_views (ClutterStageWindow *stage_window)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
   return meta_renderer_get_views (renderer);
@@ -153,7 +145,8 @@ meta_stage_x11_nested_finish_frame (ClutterStageWindow *stage_window,
 {
   MetaStageX11Nested *stage_nested = META_STAGE_X11_NESTED (stage_window);
   MetaStageX11 *stage_x11 = META_STAGE_X11 (stage_window);
-  MetaBackend *backend = meta_get_backend ();
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
   ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
   CoglFramebuffer *onscreen = COGL_FRAMEBUFFER (stage_x11->onscreen);
@@ -186,6 +179,8 @@ meta_stage_x11_nested_finish_frame (ClutterStageWindow *stage_window,
     }
 
   frame_info = cogl_frame_info_new (context, 0);
+  cogl_onscreen_egl_maybe_create_timestamp_query (stage_x11->onscreen,
+                                                  frame_info);
   cogl_onscreen_swap_buffers (stage_x11->onscreen, frame_info, frame);
 
   if (!clutter_frame_has_result (frame))
@@ -197,9 +192,10 @@ meta_stage_x11_nested_unrealize (ClutterStageWindow *stage_window)
 {
   MetaStageX11Nested *stage_nested = META_STAGE_X11_NESTED (stage_window);
 
-  g_clear_pointer (&stage_nested->pipeline, cogl_object_unref);
+  g_clear_object (&stage_nested->pipeline);
 
-  clutter_stage_window_parent_iface->unrealize (stage_window);
+  CLUTTER_STAGE_WINDOW_CLASS (meta_stage_x11_nested_parent_class)->
+      unrealize (stage_window);
 }
 
 static void
@@ -210,16 +206,11 @@ meta_stage_x11_nested_init (MetaStageX11Nested *stage_x11_nested)
 static void
 meta_stage_x11_nested_class_init (MetaStageX11NestedClass *klass)
 {
-}
+  ClutterStageWindowClass *window_class = CLUTTER_STAGE_WINDOW_CLASS (klass);
 
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface)
-{
-  clutter_stage_window_parent_iface = g_type_interface_peek_parent (iface);
-
-  iface->resize = meta_stage_x11_nested_resize;
-  iface->can_clip_redraws = meta_stage_x11_nested_can_clip_redraws;
-  iface->unrealize = meta_stage_x11_nested_unrealize;
-  iface->get_views = meta_stage_x11_nested_get_views;
-  iface->finish_frame = meta_stage_x11_nested_finish_frame;
+  window_class->resize = meta_stage_x11_nested_resize;
+  window_class->can_clip_redraws = meta_stage_x11_nested_can_clip_redraws;
+  window_class->unrealize = meta_stage_x11_nested_unrealize;
+  window_class->get_views = meta_stage_x11_nested_get_views;
+  window_class->finish_frame = meta_stage_x11_nested_finish_frame;
 }

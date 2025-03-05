@@ -26,7 +26,7 @@ do_test (gboolean check_orientation,
   int fb_height = cogl_framebuffer_get_height (test_fb);
   CoglPrimitive *prim;
   GError *error = NULL;
-  CoglTexture2D *tex_2d;
+  CoglTexture *tex_2d;
   CoglPipeline *pipeline, *solid_pipeline;
   int tex_height;
 
@@ -54,8 +54,8 @@ do_test (gboolean check_orientation,
                                           6, /* row stride */
                                           tex_data,
                                           &error);
-  g_assert (tex_2d != NULL);
-  g_assert (error == NULL);
+  g_assert_nonnull (tex_2d);
+  g_assert_null (error);
 
   pipeline = cogl_pipeline_new (test_ctx);
   cogl_pipeline_set_layer_texture (pipeline, 0, tex_2d);
@@ -87,7 +87,7 @@ do_test (gboolean check_orientation,
 
       cogl_pipeline_add_layer_snippet (pipeline, 0, snippet);
 
-      cogl_object_unref (snippet);
+      g_object_unref (snippet);
     }
   else
     {
@@ -98,8 +98,8 @@ do_test (gboolean check_orientation,
                                                              /* enable */
                                                              TRUE,
                                                              &error);
-      g_assert (res == TRUE);
-      g_assert (error == NULL);
+      g_assert_true (res);
+      g_assert_null (error);
 
       solid_pipeline = cogl_pipeline_copy (pipeline);
 
@@ -111,8 +111,8 @@ do_test (gboolean check_orientation,
                                                              FALSE,
                                                              &error);
 
-      g_assert (res == TRUE);
-      g_assert (error == NULL);
+      g_assert_true (res);
+      g_assert_null (error);
     }
 
   prim = cogl_primitive_new_p2t2 (test_ctx,
@@ -133,10 +133,10 @@ do_test (gboolean check_orientation,
   cogl_primitive_draw (prim, test_fb, solid_pipeline);
   cogl_framebuffer_pop_matrix (test_fb);
 
-  cogl_object_unref (prim);
-  cogl_object_unref (solid_pipeline);
-  cogl_object_unref (pipeline);
-  cogl_object_unref (tex_2d);
+  g_object_unref (prim);
+  g_object_unref (solid_pipeline);
+  g_object_unref (pipeline);
+  g_object_unref (tex_2d);
 
   test_utils_check_pixel (test_fb,
                           POINT_SIZE - POINT_SIZE / 4,

@@ -29,12 +29,11 @@
  *   Neil Roberts <neil@linux.intel.com>
  */
 
-#ifndef __COGL_FLAGS_H
-#define __COGL_FLAGS_H
+#pragma once
 
 #include <glib.h>
 
-#include "cogl-util.h"
+#include "cogl/cogl-util.h"
 
 G_BEGIN_DECLS
 
@@ -112,7 +111,7 @@ G_BEGIN_DECLS
                                                         \
       while (_mask)                                     \
         {                                               \
-          int _next_bit = _cogl_util_ffsl (_mask);      \
+          int _next_bit = __builtin_ffsl (_mask);      \
           (bit) += _next_bit;                           \
           /* This odd two-part shift is to avoid */     \
           /* shifting by sizeof (long)*8 which has */   \
@@ -125,6 +124,3 @@ G_BEGIN_DECLS
   } } } G_STMT_END
 
 G_END_DECLS
-
-#endif /* __COGL_FLAGS_H */
-

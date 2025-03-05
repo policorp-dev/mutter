@@ -31,12 +31,12 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-context-private.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-pipeline-layer-private.h"
-#include "cogl-node-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-debug.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-pipeline-layer-private.h"
 
 #include <glib.h>
 
@@ -48,10 +48,10 @@ typedef struct
   int indent;
 } PrintDebugState;
 
-static gboolean
-dump_layer_cb (CoglNode *node, void *user_data)
+static void
+dump_layer_cb (CoglPipelineLayer *layer,
+               gpointer           user_data)
 {
-  CoglPipelineLayer *layer = COGL_PIPELINE_LAYER (node);
   PrintDebugState *state = user_data;
   int layer_id = *state->node_id_ptr;
   PrintDebugState state_out;
@@ -61,7 +61,7 @@ dump_layer_cb (CoglNode *node, void *user_data)
   if (state->parent_id >= 0)
     g_string_append_printf (state->graph, "%*slayer%p -> layer%p;\n",
                             state->indent, "",
-                            layer->_parent.parent,
+                            layer->parent,
                             layer);
 
   g_string_append_printf (state->graph,
@@ -71,7 +71,7 @@ dump_layer_cb (CoglNode *node, void *user_data)
                           state->indent, "",
                           layer,
                           layer,
-                          COGL_OBJECT (layer)->ref_count);
+                          G_OBJECT (layer)->ref_count);
 
   changes_label = g_string_new ("");
   g_string_append_printf (changes_label,
@@ -115,11 +115,12 @@ dump_layer_cb (CoglNode *node, void *user_data)
   state_out.graph = state->graph;
   state_out.indent = state->indent + 2;
 
-  _cogl_pipeline_node_foreach_child (COGL_NODE (layer),
-                                     dump_layer_cb,
-                                     &state_out);
-
-  return TRUE;
+  for (CoglPipelineLayer *child = layer->first_child;
+       child != NULL;
+       child = child->next_sibling)
+    {
+      dump_layer_cb (child, &state_out);
+    }
 }
 
 static gboolean
@@ -137,10 +138,10 @@ dump_layer_ref_cb (CoglPipelineLayer *layer, void *data)
   return TRUE;
 }
 
-static gboolean
-dump_pipeline_cb (CoglNode *node, void *user_data)
+static void
+dump_pipeline_cb (CoglPipeline *pipeline,
+                  gpointer      user_data)
 {
-  CoglPipeline *pipeline = COGL_PIPELINE (node);
   PrintDebugState *state = user_data;
   int pipeline_id = *state->node_id_ptr;
   PrintDebugState state_out;
@@ -161,9 +162,9 @@ dump_pipeline_cb (CoglNode *node, void *user_data)
                           state->indent, "",
                           pipeline_id,
                           pipeline,
-                          COGL_OBJECT (pipeline)->ref_count,
+                          G_OBJECT (pipeline)->ref_count,
+#ifdef COGL_ENABLE_DEBUG
                           pipeline->has_static_breadcrumb ?
-#ifdef COGL_DEBUG_ENABLED
                           pipeline->static_breadcrumb : "NULL"
 #else
                           "NULL"
@@ -183,13 +184,12 @@ dump_pipeline_cb (CoglNode *node, void *user_data)
 
   if (pipeline->differences & COGL_PIPELINE_STATE_COLOR)
     {
+      g_autofree char *color = NULL;
+
       changes = TRUE;
+      color = cogl_color_to_string (&pipeline->color);
       g_string_append_printf (changes_label,
-                              "\\lcolor=0x%02X%02X%02X%02X\\n",
-                              cogl_color_get_red_byte (&pipeline->color),
-                              cogl_color_get_green_byte (&pipeline->color),
-                              cogl_color_get_blue_byte (&pipeline->color),
-                              cogl_color_get_alpha_byte (&pipeline->color));
+                              "\\lcolor=%s\\n", color);
     }
 
   if (pipeline->differences & COGL_PIPELINE_STATE_BLEND)
@@ -230,29 +230,30 @@ dump_pipeline_cb (CoglNode *node, void *user_data)
   state_out.graph = state->graph;
   state_out.indent = state->indent + 2;
 
-  _cogl_pipeline_node_foreach_child (COGL_NODE (pipeline),
-                                     dump_pipeline_cb,
-                                     &state_out);
-
-  return TRUE;
+  for (CoglPipeline *child = pipeline->first_child;
+       child != NULL;
+       child = child->next_sibling)
+    {
+      dump_pipeline_cb (child, &state_out);
+    }
 }
 
 /* This function is just here to be called from GDB so we don't really
    want to put a declaration in a header and we just add it here to
    avoid a warning */
 void
-_cogl_debug_dump_pipelines_dot_file (const char *filename);
+_cogl_debug_dump_pipelines_dot_file (const char  *filename,
+                                     CoglContext *ctx);
 
 void
-_cogl_debug_dump_pipelines_dot_file (const char *filename)
+_cogl_debug_dump_pipelines_dot_file (const char  *filename,
+                                     CoglContext *ctx)
 {
   GString *graph;
   PrintDebugState layer_state;
   PrintDebugState pipeline_state;
   int layer_id = 0;
   int pipeline_id = 0;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
 
   if (!ctx->default_pipeline)
     return;
@@ -264,13 +265,13 @@ _cogl_debug_dump_pipelines_dot_file (const char *filename)
   layer_state.parent_id = -1;
   layer_state.node_id_ptr = &layer_id;
   layer_state.indent = 0;
-  dump_layer_cb ((CoglNode *)ctx->default_layer_0, &layer_state);
+  dump_layer_cb (ctx->default_layer_0, &layer_state);
 
   pipeline_state.graph = graph;
   pipeline_state.parent_id = -1;
   pipeline_state.node_id_ptr = &pipeline_id;
   pipeline_state.indent = 0;
-  dump_pipeline_cb ((CoglNode *)ctx->default_pipeline, &pipeline_state);
+  dump_pipeline_cb (ctx->default_pipeline, &pipeline_state);
 
   g_string_append_printf (graph, "}\n");
 

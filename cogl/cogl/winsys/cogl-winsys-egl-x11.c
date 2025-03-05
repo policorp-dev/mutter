@@ -31,25 +31,24 @@
  *   Neil Roberts <neil@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <X11/Xlib.h>
 
-#include "cogl-xlib-renderer-private.h"
-#include "cogl-xlib-renderer.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-onscreen-private.h"
-#include "cogl-display-private.h"
-#include "cogl-renderer-private.h"
-#include "cogl-texture-pixmap-x11-private.h"
-#include "cogl-texture-2d-private.h"
-#include "driver/gl/cogl-texture-2d-gl-private.h"
-#include "cogl-texture-2d.h"
-#include "cogl-poll-private.h"
-#include "winsys/cogl-onscreen-egl.h"
-#include "winsys/cogl-onscreen-xlib.h"
-#include "winsys/cogl-winsys-egl-x11-private.h"
-#include "winsys/cogl-winsys-egl-private.h"
+#include "cogl/cogl-xlib-renderer-private.h"
+#include "cogl/cogl-xlib-renderer.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-onscreen-private.h"
+#include "cogl/cogl-display-private.h"
+#include "cogl/cogl-renderer-private.h"
+#include "cogl/winsys/cogl-texture-pixmap-x11-private.h"
+#include "cogl/cogl-texture-2d-private.h"
+#include "cogl/driver/gl/cogl-texture-2d-gl-private.h"
+#include "cogl/cogl-texture-2d.h"
+#include "cogl/winsys/cogl-onscreen-egl.h"
+#include "cogl/winsys/cogl-onscreen-xlib.h"
+#include "cogl/winsys/cogl-winsys-egl-x11-private.h"
+#include "cogl/winsys/cogl-winsys-egl-private.h"
 
 static const CoglWinsysEGLVtable _cogl_winsys_egl_vtable;
 
@@ -122,7 +121,7 @@ event_filter_cb (XEvent *xevent, void *data)
 
       if (onscreen)
         {
-          CoglOnscreenDirtyInfo info;
+          MtkRectangle info;
 
           info.x = xevent->xexpose.x;
           info.y = xevent->xexpose.y;
@@ -243,6 +242,8 @@ _cogl_winsys_renderer_connect (CoglRenderer *renderer,
   xlib_renderer = _cogl_xlib_renderer_get_data (renderer);
 
   egl_renderer->platform_vtable = &_cogl_winsys_egl_vtable;
+  egl_renderer->sync = EGL_NO_SYNC_KHR;
+  egl_renderer->needs_config = TRUE;
 
   if (!_cogl_xlib_renderer_connect (renderer, error))
     goto error;
@@ -260,9 +261,8 @@ error:
 }
 
 static int
-_cogl_winsys_egl_add_config_attributes (CoglDisplay                 *display,
-                                        const CoglFramebufferConfig *config,
-                                        EGLint                      *attributes)
+_cogl_winsys_egl_add_config_attributes (CoglDisplay *display,
+                                        EGLint      *attributes)
 {
   int i = 0;
 
@@ -323,9 +323,9 @@ static gboolean
 _cogl_winsys_egl_context_init (CoglContext *context,
                                GError **error)
 {
-  cogl_xlib_renderer_add_filter (context->display->renderer,
-                                 event_filter_cb,
-                                 context);
+  _cogl_renderer_add_native_filter (context->display->renderer,
+                                    (CoglNativeFilterFunc)event_filter_cb,
+                                    context);
 
   /* We'll manually handle queueing dirty events in response to
    * Expose events from X */
@@ -339,9 +339,9 @@ _cogl_winsys_egl_context_init (CoglContext *context,
 static void
 _cogl_winsys_egl_context_deinit (CoglContext *context)
 {
-  cogl_xlib_renderer_remove_filter (context->display->renderer,
-                                    event_filter_cb,
-                                    context);
+  _cogl_renderer_remove_native_filter (context->display->renderer,
+                                       (CoglNativeFilterFunc)event_filter_cb,
+                                       context);
 }
 
 static gboolean
@@ -403,7 +403,7 @@ _cogl_winsys_egl_context_created (CoglDisplay *display,
         }
     }
 
-  xlib_renderer->xvisinfo = xvisinfo;
+  g_clear_pointer (&xvisinfo, XFree);
 
   if (!_cogl_winsys_egl_make_current (display,
                                       egl_display->dummy_surface,
@@ -455,7 +455,7 @@ static gboolean
 _cogl_winsys_texture_pixmap_x11_create (CoglTexturePixmapX11 *tex_pixmap)
 {
   CoglTexture *tex = COGL_TEXTURE (tex_pixmap);
-  CoglContext *ctx = tex->context;
+  CoglContext *ctx = cogl_texture_get_context (tex);
   CoglTexturePixmapEGL *egl_tex_pixmap;
   EGLint attribs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
   CoglPixelFormat texture_format;
@@ -489,14 +489,14 @@ _cogl_winsys_texture_pixmap_x11_create (CoglTexturePixmapX11 *tex_pixmap)
                     COGL_PIXEL_FORMAT_RGBA_8888_PRE :
                     COGL_PIXEL_FORMAT_RGB_888);
 
-  egl_tex_pixmap->texture = COGL_TEXTURE (
-    cogl_egl_texture_2d_new_from_image (ctx,
-                                        tex->width,
-                                        tex->height,
+  egl_tex_pixmap->texture =
+    cogl_texture_2d_new_from_egl_image (ctx,
+                                        cogl_texture_get_width (tex),
+                                        cogl_texture_get_height (tex),
                                         texture_format,
                                         egl_tex_pixmap->image,
                                         COGL_EGL_IMAGE_FLAG_NONE,
-                                        NULL));
+                                        NULL);
 
   /* The image is initially bound as part of the creation */
   egl_tex_pixmap->bind_tex_image_queued = FALSE;
@@ -510,10 +510,9 @@ static void
 _cogl_winsys_texture_pixmap_x11_free (CoglTexturePixmapX11 *tex_pixmap)
 {
   CoglTexturePixmapEGL *egl_tex_pixmap;
+  CoglContext *ctx;
 
-  /* FIXME: It should be possible to get to a CoglContext from any
-   * CoglTexture pointer. */
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
 
   if (!tex_pixmap->winsys)
     return;
@@ -521,7 +520,7 @@ _cogl_winsys_texture_pixmap_x11_free (CoglTexturePixmapX11 *tex_pixmap)
   egl_tex_pixmap = tex_pixmap->winsys;
 
   if (egl_tex_pixmap->texture)
-    cogl_object_unref (egl_tex_pixmap->texture);
+    g_object_unref (egl_tex_pixmap->texture);
 
   if (egl_tex_pixmap->image != EGL_NO_IMAGE_KHR)
     _cogl_egl_destroy_image (ctx, egl_tex_pixmap->image);

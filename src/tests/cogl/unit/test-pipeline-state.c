@@ -1,4 +1,4 @@
-#include "cogl-config.h"
+#include "config.h"
 
 #include "cogl/cogl.h"
 #include "cogl/cogl-pipeline-state.h"
@@ -8,7 +8,6 @@ static void
 test_pipeline_state_blend_constant_ancestry (void)
 {
   CoglPipeline *pipeline;
-  CoglNode *node;
   int pipeline_length = 0;
   int i;
 
@@ -27,18 +26,18 @@ test_pipeline_state_blend_constant_ancestry (void)
       cogl_color_init_from_4f (&color, i / 20.0f, 0.0f, 0.0f, 1.0f);
 
       tmp_pipeline = cogl_pipeline_copy (pipeline);
-      cogl_object_unref (pipeline);
+      g_object_unref (pipeline);
       pipeline = tmp_pipeline;
 
       cogl_pipeline_set_blend_constant (pipeline, &color);
     }
 
-  for (node = (CoglNode *) pipeline; node; node = node->parent)
+  for (CoglPipeline *p = pipeline; p; p = p->parent)
     pipeline_length++;
 
   g_assert_cmpint (pipeline_length, <=, 2);
 
-  cogl_object_unref (pipeline);
+  g_object_unref (pipeline);
 }
 
 COGL_TEST_SUITE (

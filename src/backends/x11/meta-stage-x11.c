@@ -39,24 +39,14 @@
 #include "cogl/cogl.h"
 #include "core/display-private.h"
 #include "meta/meta-context.h"
-#include "meta/meta-x11-errors.h"
 
 #define STAGE_X11_IS_MAPPED(s)  ((((MetaStageX11 *) (s))->wm_state & STAGE_X11_WITHDRAWN) == 0)
-
-static ClutterStageWindowInterface *clutter_stage_window_parent_iface = NULL;
-
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface);
 
 static MetaStageImpl *meta_x11_get_stage_window_from_window (Window win);
 
 static GHashTable *clutter_stages_by_xid = NULL;
 
-G_DEFINE_TYPE_WITH_CODE (MetaStageX11,
-                         meta_stage_x11,
-                         META_TYPE_STAGE_IMPL,
-                         G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_STAGE_WINDOW,
-                                                clutter_stage_window_iface_init));
+G_DEFINE_TYPE (MetaStageX11, meta_stage_x11, META_TYPE_STAGE_IMPL)
 
 #define _NET_WM_STATE_REMOVE        0    /* remove/unset property */
 #define _NET_WM_STATE_ADD           1    /* add/set property */
@@ -136,8 +126,8 @@ meta_stage_x11_set_wm_protocols (MetaStageX11 *stage_x11)
 }
 
 static void
-meta_stage_x11_get_geometry (ClutterStageWindow    *stage_window,
-                             cairo_rectangle_int_t *geometry)
+meta_stage_x11_get_geometry (ClutterStageWindow *stage_window,
+                             MtkRectangle       *geometry)
 {
   MetaStageX11 *stage_x11 = META_STAGE_X11 (stage_window);
 
@@ -227,27 +217,19 @@ set_wm_title (MetaStageX11 *stage_x11)
   MetaClutterBackendX11 *clutter_backend_x11 =
     clutter_backend_x11_from_stage (stage_x11);
   Display *xdisplay = xdisplay_from_stage (stage_x11);
+  const char *title = g_get_prgname ();
 
-  if (stage_x11->xwin == None)
+  if (stage_x11->xwin == None || title == NULL)
     return;
 
-  if (stage_x11->title == NULL)
-    {
-      XDeleteProperty (xdisplay,
-                       stage_x11->xwin,
-                       clutter_backend_x11->atom_NET_WM_NAME);
-    }
-  else
-    {
-      XChangeProperty (xdisplay,
-                       stage_x11->xwin,
-                       clutter_backend_x11->atom_NET_WM_NAME,
-                       clutter_backend_x11->atom_UTF8_STRING,
-                       8,
-                       PropModeReplace,
-                       (unsigned char *) stage_x11->title,
-                       (int) strlen (stage_x11->title));
-    }
+  XChangeProperty (xdisplay,
+                   stage_x11->xwin,
+                   clutter_backend_x11->atom_NET_WM_NAME,
+                   clutter_backend_x11->atom_UTF8_STRING,
+                   8,
+                   PropModeReplace,
+                   (unsigned char *) title,
+                   (int) strlen (title));
 }
 
 static void
@@ -261,7 +243,8 @@ meta_stage_x11_unrealize (ClutterStageWindow *stage_window)
                            GINT_TO_POINTER (stage_x11->xwin));
     }
 
-  clutter_stage_window_parent_iface->unrealize (stage_window);
+  CLUTTER_STAGE_WINDOW_CLASS (meta_stage_x11_parent_class)->
+      unrealize (stage_window);
 
   g_clear_object (&stage_x11->onscreen);
 }
@@ -277,7 +260,7 @@ create_onscreen (CoglContext *cogl_context,
   switch (cogl_renderer_get_winsys_id (cogl_renderer))
     {
     case COGL_WINSYS_ID_GLX:
-#ifdef COGL_HAS_GLX_SUPPORT
+#ifdef HAVE_GLX
       return COGL_ONSCREEN (cogl_onscreen_glx_new (cogl_context,
                                                    width, height));
 #else
@@ -285,7 +268,7 @@ create_onscreen (CoglContext *cogl_context,
       break;
 #endif
     case COGL_WINSYS_ID_EGL_XLIB:
-#ifdef COGL_HAS_EGL_SUPPORT
+#ifdef HAVE_EGL
       return COGL_ONSCREEN (cogl_onscreen_xlib_new (cogl_context,
                                                     width, height));
 #else
@@ -315,7 +298,7 @@ meta_stage_x11_realize (ClutterStageWindow *stage_window)
   clutter_actor_get_size (CLUTTER_ACTOR (stage_impl->wrapper), &width, &height);
 
   stage_x11->onscreen = create_onscreen (clutter_backend->cogl_context,
-                                         width, height);
+                                         (int) width, (int) height);
 
   if (META_IS_BACKEND_X11_CM (backend))
     {
@@ -330,8 +313,8 @@ meta_stage_x11_realize (ClutterStageWindow *stage_window)
 
   /* We just created a window of the size of the actor. No need to fix
      the size of the stage, just update it. */
-  stage_x11->xwin_width = width;
-  stage_x11->xwin_height = height;
+  stage_x11->xwin_width = (int) width;
+  stage_x11->xwin_height = (int) height;
 
   if (!cogl_framebuffer_allocate (COGL_FRAMEBUFFER (stage_x11->onscreen), &error))
     {
@@ -341,7 +324,7 @@ meta_stage_x11_realize (ClutterStageWindow *stage_window)
       abort();
     }
 
-  if (!(clutter_stage_window_parent_iface->realize (stage_window)))
+  if (!CLUTTER_STAGE_WINDOW_CLASS (meta_stage_x11_parent_class)->realize (stage_window))
     return FALSE;
 
   stage_x11->xwin =
@@ -384,17 +367,6 @@ meta_stage_x11_realize (ClutterStageWindow *stage_window)
   meta_stage_x11_set_wm_protocols (stage_x11);
 
   return TRUE;
-}
-
-static void
-meta_stage_x11_set_title (ClutterStageWindow *stage_window,
-                          const char         *title)
-{
-  MetaStageX11 *stage_x11 = META_STAGE_X11 (stage_window);
-
-  g_free (stage_x11->title);
-  stage_x11->title = g_strdup (title);
-  set_wm_title (stage_x11);
 }
 
 static inline void
@@ -498,8 +470,9 @@ meta_stage_x11_can_clip_redraws (ClutterStageWindow *stage_window)
 static GList *
 meta_stage_x11_get_views (ClutterStageWindow *stage_window)
 {
-  MetaStageX11 *stage_x11 = META_STAGE_X11 (stage_window);
-  MetaRenderer *renderer = meta_backend_get_renderer (stage_x11->backend);
+  MetaStageImpl *stage_impl = META_STAGE_IMPL (stage_window);
+  MetaBackend *backend = meta_stage_impl_get_backend (stage_impl);
+  MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
   return meta_renderer_get_views (renderer);
 }
@@ -509,26 +482,24 @@ meta_stage_x11_redraw_view (ClutterStageWindow *stage_window,
                             ClutterStageView   *view,
                             ClutterFrame       *frame)
 {
-  clutter_stage_window_parent_iface->redraw_view (stage_window, view, frame);
+  CLUTTER_STAGE_WINDOW_CLASS (meta_stage_x11_parent_class)->redraw_view (stage_window, view, frame);
   clutter_frame_set_result (frame, CLUTTER_FRAME_RESULT_PENDING_PRESENTED);
-}
-
-static void
-meta_stage_x11_finalize (GObject *object)
-{
-  MetaStageX11 *stage_x11 = META_STAGE_X11 (object);
-
-  g_free (stage_x11->title);
-
-  G_OBJECT_CLASS (meta_stage_x11_parent_class)->finalize (object);
 }
 
 static void
 meta_stage_x11_class_init (MetaStageX11Class *klass)
 {
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  ClutterStageWindowClass *window_class = CLUTTER_STAGE_WINDOW_CLASS (klass);
 
-  gobject_class->finalize = meta_stage_x11_finalize;
+  window_class->show = meta_stage_x11_show;
+  window_class->hide = meta_stage_x11_hide;
+  window_class->resize = meta_stage_x11_resize;
+  window_class->get_geometry = meta_stage_x11_get_geometry;
+  window_class->realize = meta_stage_x11_realize;
+  window_class->unrealize = meta_stage_x11_unrealize;
+  window_class->can_clip_redraws = meta_stage_x11_can_clip_redraws;
+  window_class->get_views = meta_stage_x11_get_views;
+  window_class->redraw_view = meta_stage_x11_redraw_view;
 }
 
 static void
@@ -539,28 +510,6 @@ meta_stage_x11_init (MetaStageX11 *stage)
   stage->xwin_height = 480;
 
   stage->wm_state = STAGE_X11_WITHDRAWN;
-
-  stage->title = NULL;
-
-  stage->backend = meta_get_backend ();
-  g_assert (stage->backend);
-}
-
-static void
-clutter_stage_window_iface_init (ClutterStageWindowInterface *iface)
-{
-  clutter_stage_window_parent_iface = g_type_interface_peek_parent (iface);
-
-  iface->set_title = meta_stage_x11_set_title;
-  iface->show = meta_stage_x11_show;
-  iface->hide = meta_stage_x11_hide;
-  iface->resize = meta_stage_x11_resize;
-  iface->get_geometry = meta_stage_x11_get_geometry;
-  iface->realize = meta_stage_x11_realize;
-  iface->unrealize = meta_stage_x11_unrealize;
-  iface->can_clip_redraws = meta_stage_x11_can_clip_redraws;
-  iface->get_views = meta_stage_x11_get_views;
-  iface->redraw_view = meta_stage_x11_redraw_view;
 }
 
 static inline void
@@ -620,31 +569,27 @@ handle_wm_protocols_event (MetaStageX11 *stage_x11,
   return FALSE;
 }
 
-static gboolean
+static void
 clipped_redraws_cool_off_cb (void *data)
 {
   MetaStageX11 *stage_x11 = data;
 
   stage_x11->clipped_redraws_cool_off = 0;
-
-  return G_SOURCE_REMOVE;
 }
 
-gboolean
-meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
-                                XEvent       *xevent,
-                                ClutterEvent *event)
+void
+meta_stage_x11_handle_event (MetaStageX11 *stage_x11,
+                             XEvent       *xevent)
 {
   MetaClutterBackendX11 *clutter_backend_x11 =
     clutter_backend_x11_from_stage (stage_x11);
   MetaBackend *backend;
   MetaStageImpl *stage_impl;
-  gboolean res = FALSE;
   ClutterStage *stage;
 
   stage_impl = meta_x11_get_stage_window_from_window (xevent->xany.window);
   if (stage_impl == NULL)
-    return FALSE;
+    return;
 
   backend = meta_stage_impl_get_backend (stage_impl);
   stage = stage_impl->wrapper;
@@ -718,9 +663,9 @@ meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
                                  g_source_remove);
 
               stage_x11->clipped_redraws_cool_off =
-                clutter_threads_add_timeout (1000,
-                                             clipped_redraws_cool_off_cb,
-                                             stage_x11);
+                g_timeout_add_once (1000,
+                                    clipped_redraws_cool_off_cb,
+                                    stage_x11);
 
               /* Queue a relayout - we want glViewport to be called
                * with the correct values, and this is done in ClutterStage
@@ -759,17 +704,17 @@ meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
       break;
 
     case FocusIn:
-      meta_stage_set_active ((MetaStage *) stage_impl->wrapper, TRUE);
+      clutter_stage_set_active (stage_impl->wrapper, TRUE);
       break;
 
     case FocusOut:
-      meta_stage_set_active ((MetaStage *) stage_impl->wrapper, FALSE);
+      clutter_stage_set_active (stage_impl->wrapper, FALSE);
       break;
 
     case Expose:
       {
         XExposeEvent *expose = (XExposeEvent *) xevent;
-        cairo_rectangle_int_t clip;
+        MtkRectangle clip;
 
         g_debug ("expose for stage: win:0x%x - "
                  "redrawing area (x: %d, y: %d, width: %d, height: %d)",
@@ -791,10 +736,8 @@ meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
       g_debug ("Destroy notification received for stage, win:0x%x",
                (unsigned int) xevent->xany.window);
 
-      g_return_val_if_fail (META_IS_STAGE_X11_NESTED (stage_x11),
-                            FALSE);
+      g_return_if_fail (META_IS_STAGE_X11_NESTED (stage_x11));
       meta_context_terminate (meta_backend_get_context (backend));
-      res = FALSE;
       break;
 
     case ClientMessage:
@@ -805,21 +748,16 @@ meta_stage_x11_translate_event (MetaStageX11 *stage_x11,
         {
           if (handle_wm_protocols_event (stage_x11, xevent))
             {
-              g_return_val_if_fail (META_IS_STAGE_X11_NESTED (stage_x11),
-                                    FALSE);
+              g_return_if_fail (META_IS_STAGE_X11_NESTED (stage_x11));
               meta_context_terminate (meta_backend_get_context (backend));
-              res = FALSE;
             }
         }
 
       break;
 
     default:
-      res = FALSE;
       break;
     }
-
-  return res;
 }
 
 Window

@@ -15,19 +15,35 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_FRAME_PRIVATE_H
-#define CLUTTER_FRAME_PRIVATE_H
+#pragma once
 
 #include "clutter/clutter-frame.h"
 
+typedef void (* ClutterFrameRelease) (ClutterFrame *frame);
+
 struct _ClutterFrame
 {
+  grefcount ref_count;
+  ClutterFrameRelease release;
+
+  int64_t frame_count;
+
+  gboolean has_target_presentation_time;
+  int64_t target_presentation_time_us;
+
+  gboolean has_frame_deadline;
+  int64_t frame_deadline_us;
+
   gboolean has_result;
   ClutterFrameResult result;
 };
 
-#define CLUTTER_FRAME_INIT ((ClutterFrame) { 0 })
+CLUTTER_EXPORT
+gpointer clutter_frame_new (size_t              size,
+                            ClutterFrameRelease release);
 
+#define clutter_frame_new(FrameType, release) \
+  ((FrameType *) (clutter_frame_new (sizeof (FrameType), release)))
+
+CLUTTER_EXPORT
 ClutterFrameResult clutter_frame_get_result (ClutterFrame *frame);
-
-#endif /* CLUTTER_FRAME_PRIVATE_H */

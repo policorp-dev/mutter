@@ -130,18 +130,18 @@ key_group_action_activate (KeyGroup            *self,
 }
 
 static gboolean
-key_group_key_press (ClutterActor    *actor,
-                     ClutterKeyEvent *event)
+key_group_key_press (ClutterActor *actor,
+                     ClutterEvent *event)
 {
   ClutterBindingPool *pool;
   gboolean res;
 
   pool = clutter_binding_pool_find (G_OBJECT_TYPE_NAME (actor));
-  g_assert (pool != NULL);
+  g_assert_nonnull (pool);
 
   res = clutter_binding_pool_activate (pool,
-                                       event->keyval,
-                                       event->modifier_state,
+                                       clutter_event_get_key_symbol (event),
+                                       clutter_event_get_state (event),
                                        G_OBJECT (actor));
 
   /* if we activate a key binding, redraw the actor */
@@ -173,6 +173,7 @@ key_group_paint (ClutterActor        *actor,
       if (i == self->selected_index)
         {
           ClutterActorBox box = { 0, };
+          CoglColor color;
 
           clutter_actor_get_allocation_box (child, &box);
 
@@ -181,7 +182,8 @@ key_group_paint (ClutterActor        *actor,
           box.x2 += 2;
           box.y2 += 2;
 
-          cogl_pipeline_set_color4ub (pipeline, 255, 255, 0, 224);
+          cogl_color_init_from_4f (&color, 1.0f, 1.0f, 0.0f, 224.0f / 255.0f);
+          cogl_pipeline_set_color (pipeline, &color);
 
           cogl_framebuffer_draw_rectangle (framebuffer, pipeline,
                                            box.x1, box.y1, box.x2, box.y2);
@@ -259,7 +261,6 @@ test_binding_pool_main (int argc, char *argv[])
   clutter_test_init (&argc, &argv);
 
   stage = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Key Binding Pool");
   g_signal_connect (stage,
                     "button-press-event", G_CALLBACK (clutter_test_quit),
                     NULL);
@@ -269,43 +270,44 @@ test_binding_pool_main (int argc, char *argv[])
   clutter_actor_add_child (stage, key_group);
 
   /* add three rectangles to the key group */
-  clutter_container_add (CLUTTER_CONTAINER (key_group),
-                         g_object_new (CLUTTER_TYPE_ACTOR,
-                                       "background-color", CLUTTER_COLOR_Red,
-                                       "name", "Red Rectangle",
-                                       "width", 100.0,
-                                       "height", 100.0,
-                                       "x", 0.0,
-                                       "y", 0.0,
-                                       NULL),
-                         g_object_new (CLUTTER_TYPE_ACTOR,
-                                       "background-color", CLUTTER_COLOR_Green,
-                                       "name", "Green Rectangle",
-                                       "width", 100.0,
-                                       "height", 100.0,
-                                       "x", 125.0,
-                                       "y", 0.0,
-                                       NULL),
-                         g_object_new (CLUTTER_TYPE_ACTOR,
-                                       "background-color", CLUTTER_COLOR_Blue,
-                                       "name", "Blue Rectangle",
-                                       "width", 100.0,
-                                       "height", 100.0,
-                                       "x", 250.0,
-                                       "y", 0.0,
-                                       NULL),
-                         NULL);
+  clutter_actor_add_child (key_group,
+                           g_object_new (CLUTTER_TYPE_ACTOR,
+                                         "background-color", &COGL_COLOR_INIT (255, 0, 0, 255),
+                                         "name", "Red Rectangle",
+                                         "width", 100.0,
+                                         "height", 100.0,
+                                         "x", 0.0,
+                                         "y", 0.0,
+                                         NULL));
+  clutter_actor_add_child (key_group,
+                           g_object_new (CLUTTER_TYPE_ACTOR,
+                                         "background-color", &COGL_COLOR_INIT (0, 255, 0, 255),
+                                         "name", "Green Rectangle",
+                                         "width", 100.0,
+                                         "height", 100.0,
+                                         "x", 125.0,
+                                         "y", 0.0,
+                                         NULL));
+  clutter_actor_add_child (key_group,
+                           g_object_new (CLUTTER_TYPE_ACTOR,
+                                         "background-color", &COGL_COLOR_INIT (0, 0, 255, 255),
+                                         "name", "Blue Rectangle",
+                                         "width", 100.0,
+                                         "height", 100.0,
+                                         "x", 250.0,
+                                         "y", 0.0,
+                                         NULL));
 
   g_signal_connect (key_group,
                     "activate", G_CALLBACK (on_key_group_activate),
                     NULL);
 
   group_x =
-    (clutter_actor_get_width (stage) - clutter_actor_get_width (key_group))
-    / 2;
+    (int) ((clutter_actor_get_width (stage) - clutter_actor_get_width (key_group)) /
+           2);
   group_y =
-    (clutter_actor_get_height (stage) - clutter_actor_get_height (key_group))
-    / 2;
+    (int) ((clutter_actor_get_height (stage) - clutter_actor_get_height (key_group)) /
+           2);
 
   clutter_actor_set_position (key_group, group_x, group_y);
   clutter_actor_set_reactive (key_group, TRUE);

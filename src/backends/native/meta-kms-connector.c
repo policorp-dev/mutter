@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -31,6 +29,23 @@
 #include "backends/native/meta-kms-mode-private.h"
 #include "backends/native/meta-kms-update-private.h"
 
+/* CTA-861.3 HDR Static Metadata Extension, Table 3,
+ * Electro-Optical Transfer Function */
+typedef enum
+{
+  HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR = 0,
+  HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR = 1,
+  HDR_METADATA_EOTF_PERCEPTUAL_QUANTIZER = 2,
+  HDR_METADATA_EOTF_HYBRID_LOG_GAMMA = 3,
+} HdrMetadataEotf;
+
+/* CTA-861.3 HDR Static Metadata Extension, Table 4,
+ * Static_Metadata_Descriptor_ID */
+typedef enum
+{
+  HDR_STATIC_METADATA_TYPE_1 = 0,
+} HdrStaticMetadataType;
+
 typedef struct _MetaKmsConnectorPropTable
 {
   MetaKmsProp props[META_KMS_CONNECTOR_N_PROPS];
@@ -40,13 +55,15 @@ typedef struct _MetaKmsConnectorPropTable
   MetaKmsEnum privacy_screen_hw_enum[META_KMS_CONNECTOR_PRIVACY_SCREEN_N_PROPS];
   MetaKmsEnum scaling_mode_enum[META_KMS_CONNECTOR_SCALING_MODE_N_PROPS];
   MetaKmsEnum panel_orientation_enum[META_KMS_CONNECTOR_PANEL_ORIENTATION_N_PROPS];
+  MetaKmsEnum colorspace_enum[META_KMS_CONNECTOR_COLORSPACE_N_PROPS];
+  MetaKmsEnum broadcast_rgb_enum[META_KMS_CONNECTOR_BROADCAST_RGB_N_PROPS];
 } MetaKmsConnectorPropTable;
 
 struct _MetaKmsConnector
 {
   GObject parent;
 
-  MetaKmsDevice *device;
+  MetaKmsImplDevice *impl_device;
 
   uint32_t id;
   uint32_t type;
@@ -77,7 +94,14 @@ typedef enum _MetaKmsPrivacyScreenHwState
 MetaKmsDevice *
 meta_kms_connector_get_device (MetaKmsConnector *connector)
 {
-  return connector->device;
+  return meta_kms_impl_device_get_device (connector->impl_device);
+}
+
+static gboolean
+meta_kms_connector_has_prop (MetaKmsConnector     *connector,
+                             MetaKmsConnectorProp  prop)
+{
+  return connector->prop_table.props[prop].prop_id > 0;
 }
 
 uint32_t
@@ -121,23 +145,6 @@ meta_kms_connector_get_name (MetaKmsConnector *connector)
   return connector->name;
 }
 
-gboolean
-meta_kms_connector_can_clone (MetaKmsConnector *connector,
-                              MetaKmsConnector *other_connector)
-{
-  MetaKmsConnectorState *state = connector->current_state;
-  MetaKmsConnectorState *other_state = other_connector->current_state;
-
-  if (state->common_possible_clones == 0 ||
-      other_state->common_possible_clones == 0)
-    return FALSE;
-
-  if (state->encoder_device_idxs != other_state->encoder_device_idxs)
-    return FALSE;
-
-  return TRUE;
-}
-
 MetaKmsMode *
 meta_kms_connector_get_preferred_mode (MetaKmsConnector *connector)
 {
@@ -165,22 +172,42 @@ meta_kms_connector_get_current_state (MetaKmsConnector *connector)
 }
 
 gboolean
-meta_kms_connector_is_underscanning_supported (MetaKmsConnector *connector)
+meta_kms_connector_is_non_desktop (MetaKmsConnector *connector)
 {
-  uint32_t underscan_prop_id;
+  const char *lease_connectors_str;
 
-  underscan_prop_id =
-    meta_kms_connector_get_prop_id (connector,
-                                    META_KMS_CONNECTOR_PROP_UNDERSCAN);
+  if (!connector->current_state)
+    return FALSE;
 
-  return underscan_prop_id != 0;
+  lease_connectors_str = getenv ("MUTTER_DEBUG_LEASE_CONNECTORS");
+  if (lease_connectors_str && *lease_connectors_str != '\0')
+    {
+      int n;
+      g_auto (GStrv) names;
+
+      names = g_strsplit (lease_connectors_str, ":", -1);
+      for (n = 0; n < g_strv_length (names); n++)
+        {
+          if (g_str_equal (meta_kms_connector_get_name (connector), names[n]))
+            return TRUE;
+        }
+    }
+
+  return connector->current_state->non_desktop;
 }
 
 gboolean
-meta_kms_connector_is_privacy_screen_supported (MetaKmsConnector *connector)
+meta_kms_connector_supports_colorspace (MetaKmsConnector *connector)
 {
-  return meta_kms_connector_get_prop_id (connector,
-    META_KMS_CONNECTOR_PROP_PRIVACY_SCREEN_HW_STATE) != 0;
+  return meta_kms_connector_has_prop (connector,
+                                      META_KMS_CONNECTOR_PROP_COLORSPACE);
+}
+
+gboolean
+meta_kms_connector_supports_hdr_metadata (MetaKmsConnector *connector)
+{
+  return meta_kms_connector_has_prop (connector,
+                                      META_KMS_CONNECTOR_PROP_HDR_OUTPUT_METADATA);
 }
 
 static gboolean
@@ -188,19 +215,6 @@ has_privacy_screen_software_toggle (MetaKmsConnector *connector)
 {
   return meta_kms_connector_get_prop_id (connector,
     META_KMS_CONNECTOR_PROP_PRIVACY_SCREEN_SW_STATE) != 0;
-}
-
-const MetaKmsRange *
-meta_kms_connector_get_max_bpc (MetaKmsConnector *connector)
-{
-  const MetaKmsRange *range = NULL;
-
-  if (connector->current_state &&
-      meta_kms_connector_get_prop_id (connector,
-                                      META_KMS_CONNECTOR_PROP_MAX_BPC))
-    range = &connector->current_state->max_bpc;
-
-  return range;
 }
 
 static void
@@ -228,61 +242,133 @@ static void
 set_panel_orientation (MetaKmsConnectorState *state,
                        MetaKmsProp           *panel_orientation)
 {
-  MetaMonitorTransform transform;
+  MtkMonitorTransform transform;
   MetaKmsConnectorPanelOrientation orientation = panel_orientation->value;
 
   switch (orientation)
     {
     case META_KMS_CONNECTOR_PANEL_ORIENTATION_UPSIDE_DOWN:
-      transform = META_MONITOR_TRANSFORM_180;
+      transform = MTK_MONITOR_TRANSFORM_180;
       break;
     case META_KMS_CONNECTOR_PANEL_ORIENTATION_LEFT_SIDE_UP:
-      transform = META_MONITOR_TRANSFORM_90;
+      transform = MTK_MONITOR_TRANSFORM_90;
       break;
     case META_KMS_CONNECTOR_PANEL_ORIENTATION_RIGHT_SIDE_UP:
-      transform = META_MONITOR_TRANSFORM_270;
+      transform = MTK_MONITOR_TRANSFORM_270;
       break;
     default:
-      transform = META_MONITOR_TRANSFORM_NORMAL;
+      transform = MTK_MONITOR_TRANSFORM_NORMAL;
       break;
     }
 
   state->panel_orientation_transform = transform;
 }
 
-static void
-set_privacy_screen (MetaKmsConnectorState *state,
-                    MetaKmsConnector      *connector,
-                    MetaKmsProp           *hw_state)
+static MetaPrivacyScreenState
+privacy_screen_state_hw (MetaKmsConnectorPrivacyScreen privacy_screen)
 {
-  MetaKmsConnectorPrivacyScreen privacy_screen = hw_state->value;
-
-  if (!meta_kms_connector_is_privacy_screen_supported (connector))
-    return;
-
   switch (privacy_screen)
     {
     case META_KMS_PRIVACY_SCREEN_HW_STATE_DISABLED:
-      state->privacy_screen_state = META_PRIVACY_SCREEN_DISABLED;
-      break;
+      return META_PRIVACY_SCREEN_DISABLED;
     case META_KMS_PRIVACY_SCREEN_HW_STATE_DISABLED_LOCKED:
-      state->privacy_screen_state = META_PRIVACY_SCREEN_DISABLED;
-      state->privacy_screen_state |= META_PRIVACY_SCREEN_LOCKED;
-      break;
+      return META_PRIVACY_SCREEN_DISABLED | META_PRIVACY_SCREEN_LOCKED;
     case META_KMS_PRIVACY_SCREEN_HW_STATE_ENABLED:
-      state->privacy_screen_state = META_PRIVACY_SCREEN_ENABLED;
-      break;
+      return META_PRIVACY_SCREEN_ENABLED;
     case META_KMS_PRIVACY_SCREEN_HW_STATE_ENABLED_LOCKED:
-      state->privacy_screen_state = META_PRIVACY_SCREEN_ENABLED;
-      state->privacy_screen_state |= META_PRIVACY_SCREEN_LOCKED;
-      break;
+      return META_PRIVACY_SCREEN_ENABLED | META_PRIVACY_SCREEN_LOCKED;
     default:
-      state->privacy_screen_state = META_PRIVACY_SCREEN_DISABLED;
       g_warning ("Unknown privacy screen state: %u", privacy_screen);
+      return META_PRIVACY_SCREEN_DISABLED;
     }
+}
 
-  if (!has_privacy_screen_software_toggle (connector))
-    state->privacy_screen_state |= META_PRIVACY_SCREEN_LOCKED;
+static MetaOutputColorspace
+drm_color_spaces_to_output_color_spaces (uint64_t drm_color_space)
+{
+  switch (drm_color_space)
+    {
+    case META_KMS_CONNECTOR_COLORSPACE_DEFAULT:
+      return META_OUTPUT_COLORSPACE_DEFAULT;
+    case META_KMS_CONNECTOR_COLORSPACE_BT2020_RGB:
+      return META_OUTPUT_COLORSPACE_BT2020;
+    default:
+      return META_OUTPUT_COLORSPACE_UNKNOWN;
+    }
+}
+
+static uint64_t
+supported_drm_color_spaces_to_output_color_spaces (uint64_t drm_support)
+{
+  uint64_t supported = 0;
+
+  if (drm_support & (1 << META_KMS_CONNECTOR_COLORSPACE_DEFAULT))
+    supported |= (1 << META_OUTPUT_COLORSPACE_DEFAULT);
+  if (drm_support & (1 << META_KMS_CONNECTOR_COLORSPACE_BT2020_RGB))
+    supported |= (1 << META_OUTPUT_COLORSPACE_BT2020);
+
+  return supported;
+}
+
+uint64_t
+meta_output_color_space_to_drm_color_space (MetaOutputColorspace color_space)
+{
+  switch (color_space)
+    {
+    case META_OUTPUT_COLORSPACE_BT2020:
+      return META_KMS_CONNECTOR_COLORSPACE_BT2020_RGB;
+    case META_OUTPUT_COLORSPACE_UNKNOWN:
+    case META_OUTPUT_COLORSPACE_DEFAULT:
+    default:
+      return META_KMS_CONNECTOR_COLORSPACE_DEFAULT;
+    }
+}
+
+static MetaOutputRGBRange
+drm_broadcast_rgb_to_output_rgb_range (uint64_t drm_broadcast_rgb)
+{
+  switch (drm_broadcast_rgb)
+    {
+    case META_KMS_CONNECTOR_BROADCAST_RGB_AUTOMATIC:
+      return META_OUTPUT_RGB_RANGE_AUTO;
+    case META_KMS_CONNECTOR_BROADCAST_RGB_FULL:
+      return META_OUTPUT_RGB_RANGE_FULL;
+    case META_KMS_CONNECTOR_BROADCAST_RGB_LIMITED_16_235:
+      return META_OUTPUT_RGB_RANGE_LIMITED;
+    default:
+      return META_OUTPUT_RGB_RANGE_UNKNOWN;
+    }
+}
+
+static uint64_t
+supported_drm_broadcast_rgb_to_output_rgb_range (uint64_t drm_support)
+{
+  uint64_t supported = 0;
+
+  if (drm_support & (1 << META_KMS_CONNECTOR_BROADCAST_RGB_AUTOMATIC))
+    supported |= (1 << META_OUTPUT_RGB_RANGE_AUTO);
+  if (drm_support & (1 << META_KMS_CONNECTOR_BROADCAST_RGB_FULL))
+    supported |= (1 << META_OUTPUT_RGB_RANGE_FULL);
+  if (drm_support & (1 << META_KMS_CONNECTOR_BROADCAST_RGB_LIMITED_16_235))
+    supported |= (1 << META_OUTPUT_RGB_RANGE_LIMITED);
+
+  return supported;
+}
+
+uint64_t
+meta_output_rgb_range_to_drm_broadcast_rgb (MetaOutputRGBRange rgb_range)
+{
+  switch (rgb_range)
+    {
+    case META_OUTPUT_RGB_RANGE_FULL:
+      return META_KMS_CONNECTOR_BROADCAST_RGB_FULL;
+    case META_OUTPUT_RGB_RANGE_LIMITED:
+      return META_KMS_CONNECTOR_BROADCAST_RGB_LIMITED_16_235;
+    case META_OUTPUT_RGB_RANGE_UNKNOWN:
+    case META_OUTPUT_RGB_RANGE_AUTO:
+    default:
+      return META_KMS_CONNECTOR_BROADCAST_RGB_AUTOMATIC;
+    }
 }
 
 static void
@@ -320,41 +406,73 @@ state_set_properties (MetaKmsConnectorState *state,
 
   prop = &props[META_KMS_CONNECTOR_PROP_PRIVACY_SCREEN_HW_STATE];
   if (prop->prop_id)
-    set_privacy_screen (state, connector, prop);
+    {
+      state->privacy_screen_state = privacy_screen_state_hw (prop->value);
+
+      if (!has_privacy_screen_software_toggle (connector))
+        state->privacy_screen_state |= META_PRIVACY_SCREEN_LOCKED;
+    }
 
   prop = &props[META_KMS_CONNECTOR_PROP_MAX_BPC];
   if (prop->prop_id)
     {
+      state->max_bpc.supported = TRUE;
       state->max_bpc.value = prop->value;
       state->max_bpc.min_value = prop->range_min;
       state->max_bpc.max_value = prop->range_max;
     }
+
+  prop = &props[META_KMS_CONNECTOR_PROP_COLORSPACE];
+  if (prop->prop_id)
+    {
+      state->colorspace.value =
+        drm_color_spaces_to_output_color_spaces (prop->value);
+      state->colorspace.supported =
+        supported_drm_color_spaces_to_output_color_spaces (prop->supported_variants);
+    }
+
+  prop = &props[META_KMS_CONNECTOR_PROP_BROADCAST_RGB];
+  if (prop->prop_id)
+    {
+      state->broadcast_rgb.value =
+        drm_broadcast_rgb_to_output_rgb_range (prop->value);
+      state->broadcast_rgb.supported =
+        supported_drm_broadcast_rgb_to_output_rgb_range (prop->supported_variants);
+    }
+
+  prop = &props[META_KMS_CONNECTOR_PROP_UNDERSCAN];
+  if (prop->prop_id)
+    state->underscan.supported = TRUE;
+
+  prop = &props[META_KMS_CONNECTOR_PROP_VRR_CAPABLE];
+  if (prop->prop_id)
+    state->vrr_capable = !!prop->value;
 }
 
-static CoglSubpixelOrder
-drm_subpixel_order_to_cogl_subpixel_order (drmModeSubPixel subpixel)
+static MetaSubpixelOrder
+drm_subpixel_order_to_meta_subpixel_order (drmModeSubPixel subpixel)
 {
   switch (subpixel)
     {
     case DRM_MODE_SUBPIXEL_NONE:
-      return COGL_SUBPIXEL_ORDER_NONE;
+      return META_SUBPIXEL_ORDER_NONE;
       break;
     case DRM_MODE_SUBPIXEL_HORIZONTAL_RGB:
-      return COGL_SUBPIXEL_ORDER_HORIZONTAL_RGB;
+      return META_SUBPIXEL_ORDER_HORIZONTAL_RGB;
       break;
     case DRM_MODE_SUBPIXEL_HORIZONTAL_BGR:
-      return COGL_SUBPIXEL_ORDER_HORIZONTAL_BGR;
+      return META_SUBPIXEL_ORDER_HORIZONTAL_BGR;
       break;
     case DRM_MODE_SUBPIXEL_VERTICAL_RGB:
-      return COGL_SUBPIXEL_ORDER_VERTICAL_RGB;
+      return META_SUBPIXEL_ORDER_VERTICAL_RGB;
       break;
     case DRM_MODE_SUBPIXEL_VERTICAL_BGR:
-      return COGL_SUBPIXEL_ORDER_VERTICAL_BGR;
+      return META_SUBPIXEL_ORDER_VERTICAL_BGR;
       break;
     case DRM_MODE_SUBPIXEL_UNKNOWN:
-      return COGL_SUBPIXEL_ORDER_UNKNOWN;
+      return META_SUBPIXEL_ORDER_UNKNOWN;
     }
-  return COGL_SUBPIXEL_ORDER_UNKNOWN;
+  return META_SUBPIXEL_ORDER_UNKNOWN;
 }
 
 static void
@@ -423,21 +541,234 @@ state_set_tile_info (MetaKmsConnectorState *state,
   drmModeFreePropertyBlob (tile_blob);
 }
 
+static double
+decode_u16_chromaticity (uint16_t value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  return MIN (value * 0.00002, 1.0);
+}
+
+static double
+decode_u16_min_luminance (uint16_t value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  return value * 0.0001;
+}
+
+gboolean
+set_output_hdr_metadata (struct hdr_output_metadata *drm_metadata,
+                         MetaOutputHdrMetadata      *metadata)
+{
+  struct hdr_metadata_infoframe *infoframe;
+
+  if (drm_metadata->metadata_type != HDR_STATIC_METADATA_TYPE_1)
+    return FALSE;
+
+  infoframe = &drm_metadata->hdmi_metadata_type1;
+
+  if (infoframe->metadata_type != HDR_STATIC_METADATA_TYPE_1)
+    return FALSE;
+
+  switch (infoframe->eotf)
+    {
+    case HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR:
+      metadata->eotf = META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR;
+      break;
+    case HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR:
+      metadata->eotf = META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR;
+      break;
+    case HDR_METADATA_EOTF_PERCEPTUAL_QUANTIZER:
+      metadata->eotf = META_OUTPUT_HDR_METADATA_EOTF_PQ;
+      break;
+    case HDR_METADATA_EOTF_HYBRID_LOG_GAMMA:
+      metadata->eotf = META_OUTPUT_HDR_METADATA_EOTF_HLG;
+      break;
+    }
+
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  metadata->mastering_display_primaries[0].x =
+    decode_u16_chromaticity (infoframe->display_primaries[0].x);
+  metadata->mastering_display_primaries[0].y =
+    decode_u16_chromaticity (infoframe->display_primaries[0].y);
+  metadata->mastering_display_primaries[1].x =
+    decode_u16_chromaticity (infoframe->display_primaries[1].x);
+  metadata->mastering_display_primaries[1].y =
+    decode_u16_chromaticity (infoframe->display_primaries[1].y);
+  metadata->mastering_display_primaries[2].x =
+    decode_u16_chromaticity (infoframe->display_primaries[2].x);
+  metadata->mastering_display_primaries[2].y =
+    decode_u16_chromaticity (infoframe->display_primaries[2].y);
+  metadata->mastering_display_white_point.x =
+    decode_u16_chromaticity (infoframe->white_point.x);
+  metadata->mastering_display_white_point.y =
+    decode_u16_chromaticity (infoframe->white_point.y);
+
+  metadata->mastering_display_max_luminance =
+    infoframe->max_display_mastering_luminance;
+  metadata->mastering_display_min_luminance =
+    decode_u16_min_luminance (infoframe->min_display_mastering_luminance);
+
+  metadata->max_cll = infoframe->max_cll;
+  metadata->max_fall = infoframe->max_fall;
+
+  return TRUE;
+}
+
+static uint16_t
+encode_u16_chromaticity (double value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  value = MAX (MIN (value, 1.0), 0.0);
+  return (uint16_t) round (value / 0.00002);
+}
+
+static uint16_t
+encode_u16_max_luminance (double value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  return (uint16_t) round (MAX (MIN (value, 65535.0), 0.0));
+}
+
+static uint16_t
+encode_u16_min_luminance (double value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  value = MAX (MIN (value, 6.5535), 0.0);
+  return (uint16_t) round (value / 0.0001);
+}
+
+static uint16_t
+encode_u16_max_cll (double value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  return (uint16_t) round (MAX (MIN (value, 65535.0), 0.0));
+}
+
+static uint16_t
+encode_u16_max_fall (double value)
+{
+  /* CTA-861.3 HDR Static Metadata Extension, 3.2.1 Static Metadata Type 1 */
+  return (uint16_t) round (MAX (MIN (value, 65535.0), 0.0));
+}
+
+void
+meta_set_drm_hdr_metadata (MetaOutputHdrMetadata      *metadata,
+                           struct hdr_output_metadata *drm_metadata)
+{
+  struct hdr_metadata_infoframe *infoframe = &drm_metadata->hdmi_metadata_type1;
+
+  drm_metadata->metadata_type = HDR_STATIC_METADATA_TYPE_1;
+  infoframe->metadata_type = HDR_STATIC_METADATA_TYPE_1;
+
+  switch (metadata->eotf)
+    {
+    case META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR:
+      infoframe->eotf = HDR_METADATA_EOTF_TRADITIONAL_GAMMA_SDR;
+      break;
+    case META_OUTPUT_HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR:
+      infoframe->eotf = HDR_METADATA_EOTF_TRADITIONAL_GAMMA_HDR;
+      break;
+    case META_OUTPUT_HDR_METADATA_EOTF_PQ:
+      infoframe->eotf = HDR_METADATA_EOTF_PERCEPTUAL_QUANTIZER;
+      break;
+    case META_OUTPUT_HDR_METADATA_EOTF_HLG:
+      infoframe->eotf = HDR_METADATA_EOTF_HYBRID_LOG_GAMMA;
+      break;
+    }
+
+  infoframe->display_primaries[0].x =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[0].x);
+  infoframe->display_primaries[0].y =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[0].y);
+  infoframe->display_primaries[1].x =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[1].x);
+  infoframe->display_primaries[1].y =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[1].y);
+  infoframe->display_primaries[2].x =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[2].x);
+  infoframe->display_primaries[2].y =
+    encode_u16_chromaticity (metadata->mastering_display_primaries[2].y);
+  infoframe->white_point.x =
+    encode_u16_chromaticity (metadata->mastering_display_white_point.x);
+  infoframe->white_point.y =
+    encode_u16_chromaticity (metadata->mastering_display_white_point.y);
+
+  infoframe->max_display_mastering_luminance =
+    encode_u16_max_luminance (metadata->mastering_display_max_luminance);
+  infoframe->min_display_mastering_luminance =
+    encode_u16_min_luminance (metadata->mastering_display_min_luminance);
+
+  infoframe->max_cll = encode_u16_max_cll (metadata->max_cll);
+  infoframe->max_fall = encode_u16_max_fall (metadata->max_fall);
+}
+
+static void
+state_set_hdr_output_metadata (MetaKmsConnectorState *state,
+                               MetaKmsConnector      *connector,
+                               MetaKmsImplDevice     *impl_device,
+                               uint32_t               blob_id)
+{
+  int fd;
+  drmModePropertyBlobPtr hdr_blob;
+  MetaOutputHdrMetadata *metadata = &state->hdr.value;
+  struct hdr_output_metadata *drm_metadata;
+
+  state->hdr.supported = TRUE;
+  state->hdr.unknown = FALSE;
+  metadata->active = TRUE;
+
+  if (!blob_id)
+    {
+      metadata->active = FALSE;
+      return;
+    }
+
+  fd = meta_kms_impl_device_get_fd (impl_device);
+  hdr_blob = drmModeGetPropertyBlob (fd, blob_id);
+  if (!hdr_blob)
+    {
+      metadata->active = FALSE;
+      return;
+    }
+
+  if (hdr_blob->length < sizeof (*drm_metadata))
+    {
+      g_warning ("HDR_OUTPUT_METADATA smaller than expected for type 1");
+      state->hdr.unknown = TRUE;
+      goto out;
+    }
+
+  drm_metadata = hdr_blob->data;
+  if (!set_output_hdr_metadata (drm_metadata, metadata))
+    {
+      state->hdr.unknown = TRUE;
+      goto out;
+    }
+
+out:
+  drmModeFreePropertyBlob (hdr_blob);
+}
+
 static void
 state_set_blobs (MetaKmsConnectorState *state,
                  MetaKmsConnector      *connector,
                  MetaKmsImplDevice     *impl_device,
                  drmModeConnector      *drm_connector)
 {
+  MetaKmsProp *props = connector->prop_table.props;
   MetaKmsProp *prop;
 
-  prop = &connector->prop_table.props[META_KMS_CONNECTOR_PROP_EDID];
+  prop = &props[META_KMS_CONNECTOR_PROP_EDID];
   if (prop->prop_id && prop->value)
     state_set_edid (state, connector, impl_device, prop->value);
 
-  prop = &connector->prop_table.props[META_KMS_CONNECTOR_PROP_TILE];
+  prop = &props[META_KMS_CONNECTOR_PROP_TILE];
   if (prop->prop_id && prop->value)
     state_set_tile_info (state, connector, impl_device, prop->value);
+
+  prop = &props[META_KMS_CONNECTOR_PROP_HDR_OUTPUT_METADATA];
+  if (prop->prop_id)
+    state_set_hdr_output_metadata (state, connector, impl_device, prop->value);
 }
 
 static void
@@ -548,6 +879,7 @@ meta_kms_connector_state_new (void)
   state = g_new0 (MetaKmsConnectorState, 1);
   state->suggested_x = -1;
   state->suggested_y = -1;
+  state->vrr_capable = FALSE;
 
   return state;
 }
@@ -564,6 +896,16 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaKmsConnectorState,
                                meta_kms_connector_state_free);
 
 static gboolean
+edid_equal (GBytes *old_edid,
+            GBytes *new_edid)
+{
+  if (old_edid && new_edid)
+    return g_bytes_equal (old_edid, new_edid);
+
+  return !old_edid && !new_edid;
+}
+
+static gboolean
 kms_modes_equal (GList *modes,
                  GList *other_modes)
 {
@@ -576,14 +918,21 @@ kms_modes_equal (GList *modes,
     {
       GList *k;
       MetaKmsMode *mode = l->data;
+      gboolean found_match = FALSE;
 
       for (k = other_modes; k; k = k->next)
         {
           MetaKmsMode *other_mode = k->data;
 
           if (!meta_kms_mode_equal (mode, other_mode))
-            return FALSE;
+            continue;
+
+          found_match = TRUE;
+          break;
         }
+
+      if (!found_match)
+        return FALSE;
     }
 
   return TRUE;
@@ -594,62 +943,144 @@ meta_kms_connector_state_changes (MetaKmsConnectorState *state,
                                   MetaKmsConnectorState *new_state)
 {
   if (state->current_crtc_id != new_state->current_crtc_id)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "current CRTC ID changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->common_possible_crtcs != new_state->common_possible_crtcs)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "common possible CRTCs changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->common_possible_clones != new_state->common_possible_clones)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "common possible clones changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->encoder_device_idxs != new_state->encoder_device_idxs)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "encoder device idxs changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->width_mm != new_state->width_mm)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "width_mm changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->height_mm != new_state->height_mm)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "height_mm changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->has_scaling != new_state->has_scaling)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "has_scaling changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->non_desktop != new_state->non_desktop)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "non_desktop changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->subpixel_order != new_state->subpixel_order)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "subpixel order changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->suggested_x != new_state->suggested_x)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "suggested_x changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->suggested_y != new_state->suggested_y)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "suggested_y changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->hotplug_mode_update != new_state->hotplug_mode_update)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "hotplug_mode_update changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->panel_orientation_transform !=
       new_state->panel_orientation_transform)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "panel orientation transform changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (!meta_tile_info_equal (&state->tile_info, &new_state->tile_info))
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "tile info changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
-  if ((state->edid_data && !new_state->edid_data) || !state->edid_data ||
-      !g_bytes_equal (state->edid_data, new_state->edid_data))
-    return META_KMS_RESOURCE_CHANGE_FULL;
+  if (!edid_equal (state->edid_data, new_state->edid_data))
+    {
+      meta_topic (META_DEBUG_KMS, "EDID changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (!kms_modes_equal (state->modes, new_state->modes))
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "modes changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
-  if (state->max_bpc.value != new_state->max_bpc.value ||
+  if (state->max_bpc.supported != new_state->max_bpc.supported ||
+      state->max_bpc.value != new_state->max_bpc.value ||
       state->max_bpc.min_value != new_state->max_bpc.min_value ||
       state->max_bpc.max_value != new_state->max_bpc.max_value)
-    return META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS, "max_bpc changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
+
+  if (state->colorspace.value != new_state->colorspace.value ||
+      state->colorspace.supported != new_state->colorspace.supported)
+    {
+      meta_topic (META_DEBUG_KMS, "colorspace changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
+
+  if (state->hdr.supported != new_state->hdr.supported ||
+      state->hdr.unknown != new_state->hdr.unknown ||
+      !meta_output_hdr_metadata_equal (&state->hdr.value, &new_state->hdr.value))
+    {
+      meta_topic (META_DEBUG_KMS, "HDR changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
+
+  if (state->broadcast_rgb.value != new_state->broadcast_rgb.value ||
+      state->broadcast_rgb.supported != new_state->broadcast_rgb.supported)
+    {
+      meta_topic (META_DEBUG_KMS, "broadcast_rgb changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
+
+  if (state->vrr_capable != new_state->vrr_capable)
+    {
+      meta_topic (META_DEBUG_KMS, "vrr_capable changed");
+      return META_KMS_RESOURCE_CHANGE_FULL;
+    }
 
   if (state->privacy_screen_state != new_state->privacy_screen_state)
-    return META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
+    {
+      meta_topic (META_DEBUG_KMS, "privacy screen state changed");
+      return META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
+    }
 
   return META_KMS_RESOURCE_CHANGE_NONE;
 }
@@ -700,6 +1131,9 @@ meta_kms_connector_read_state (MetaKmsConnector  *connector,
       if (drm_connector->connection != connector->connection)
         {
           connector->connection = drm_connector->connection;
+          meta_topic (META_DEBUG_KMS,
+                      "%s: connector status changed",
+                      __func__);
           changes |= META_KMS_RESOURCE_CHANGE_FULL;
         }
 
@@ -713,7 +1147,7 @@ meta_kms_connector_read_state (MetaKmsConnector  *connector,
   state_set_properties (state, impl_device, connector, drm_connector);
 
   state->subpixel_order =
-    drm_subpixel_order_to_cogl_subpixel_order (drm_connector->subpixel);
+    drm_subpixel_order_to_meta_subpixel_order (drm_connector->subpixel);
 
   state_set_physical_dimensions (state, drm_connector);
 
@@ -724,13 +1158,31 @@ meta_kms_connector_read_state (MetaKmsConnector  *connector,
   if (drm_connector->connection != connector->connection)
     {
       connector->connection = drm_connector->connection;
+      meta_topic (META_DEBUG_KMS,
+                  "%s: connector status changed",
+                  __func__);
       changes |= META_KMS_RESOURCE_CHANGE_FULL;
     }
 
   if (!current_state)
-    connector_changes = META_KMS_RESOURCE_CHANGE_FULL;
+    {
+      meta_topic (META_DEBUG_KMS,
+                  "%s: no current connector state for reference",
+                  __func__);
+      connector_changes = META_KMS_RESOURCE_CHANGE_FULL;
+    }
   else
-    connector_changes = meta_kms_connector_state_changes (current_state, state);
+    {
+      connector_changes = meta_kms_connector_state_changes (current_state, state);
+
+      if (connector_changes & META_KMS_RESOURCE_CHANGE_FULL)
+        {
+          meta_topic (META_DEBUG_KMS,
+                      "%s: meta_kms_connector_state_changes triggered "
+                      "returned META_KMS_RESOURCE_CHANGE_FULL",
+                      __func__);
+        }
+    }
 
   changes |= connector_changes;
 
@@ -753,23 +1205,18 @@ out:
 }
 
 MetaKmsResourceChanges
-meta_kms_connector_update_state (MetaKmsConnector *connector,
-                                 drmModeRes       *drm_resources,
-                                 drmModeConnector *drm_connector)
+meta_kms_connector_update_state_in_impl (MetaKmsConnector *connector,
+                                         drmModeRes       *drm_resources,
+                                         drmModeConnector *drm_connector)
 {
-  MetaKmsImplDevice *impl_device;
-  MetaKmsResourceChanges changes;
-
-  impl_device = meta_kms_device_get_impl_device (connector->device);
-  changes = meta_kms_connector_read_state (connector, impl_device,
-                                           drm_connector,
-                                           drm_resources);
-
-  return changes;
+  return meta_kms_connector_read_state (connector,
+                                        connector->impl_device,
+                                        drm_connector,
+                                        drm_resources);
 }
 
 void
-meta_kms_connector_disable (MetaKmsConnector *connector)
+meta_kms_connector_disable_in_impl (MetaKmsConnector *connector)
 {
   MetaKmsConnectorState *current_state;
 
@@ -781,14 +1228,14 @@ meta_kms_connector_disable (MetaKmsConnector *connector)
 }
 
 MetaKmsResourceChanges
-meta_kms_connector_predict_state (MetaKmsConnector *connector,
-                                  MetaKmsUpdate    *update)
+meta_kms_connector_predict_state_in_impl (MetaKmsConnector *connector,
+                                          MetaKmsUpdate    *update)
 {
-  MetaKmsImplDevice *impl_device;
   MetaKmsConnectorState *current_state;
   GList *mode_sets;
   GList *l;
   MetaKmsResourceChanges changes = META_KMS_RESOURCE_CHANGE_NONE;
+  GList *connector_updates;
 
   current_state = connector->current_state;
   if (!current_state)
@@ -817,46 +1264,61 @@ meta_kms_connector_predict_state (MetaKmsConnector *connector,
         }
     }
 
-  if (has_privacy_screen_software_toggle (connector))
+  connector_updates = meta_kms_update_get_connector_updates (update);
+  for (l = connector_updates; l; l = l->next)
     {
-      GList *connector_updates;
+      MetaKmsConnectorUpdate *connector_update = l->data;
 
-      connector_updates = meta_kms_update_get_connector_updates (update);
-      for (l = connector_updates; l; l = l->next)
+      if (connector_update->connector != connector)
+        continue;
+
+      if (has_privacy_screen_software_toggle (connector) &&
+          connector_update->privacy_screen.has_update &&
+          !(current_state->privacy_screen_state &
+            META_PRIVACY_SCREEN_LOCKED))
         {
-          MetaKmsConnectorUpdate *connector_update = l->data;
-
-          if (connector_update->connector != connector)
-            continue;
-
-          if (connector_update->privacy_screen.has_update &&
-              !(current_state->privacy_screen_state &
-                META_PRIVACY_SCREEN_LOCKED))
+          if (connector_update->privacy_screen.is_enabled)
             {
-              if (connector_update->privacy_screen.is_enabled)
-                {
-                  if (current_state->privacy_screen_state !=
-                      META_PRIVACY_SCREEN_ENABLED)
-                    changes |= META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
+              if (current_state->privacy_screen_state !=
+                  META_PRIVACY_SCREEN_ENABLED)
+                changes |= META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
 
-                  current_state->privacy_screen_state =
-                    META_PRIVACY_SCREEN_ENABLED;
-                }
-              else
-                {
-                  if (current_state->privacy_screen_state !=
-                      META_PRIVACY_SCREEN_DISABLED)
-                    changes |= META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
-
-                  current_state->privacy_screen_state =
-                    META_PRIVACY_SCREEN_DISABLED;
-                }
+              current_state->privacy_screen_state =
+                META_PRIVACY_SCREEN_ENABLED;
             }
+          else
+            {
+              if (current_state->privacy_screen_state !=
+                  META_PRIVACY_SCREEN_DISABLED)
+                changes |= META_KMS_RESOURCE_CHANGE_PRIVACY_SCREEN;
+
+              current_state->privacy_screen_state =
+                META_PRIVACY_SCREEN_DISABLED;
+            }
+        }
+
+      if (connector_update->colorspace.has_update)
+        {
+          g_warn_if_fail (current_state->colorspace.supported &
+                          (1 << connector_update->colorspace.value));
+          current_state->colorspace.value = connector_update->colorspace.value;
+        }
+
+      if (connector_update->hdr.has_update)
+        {
+          g_warn_if_fail (current_state->hdr.supported);
+          current_state->hdr.value = connector_update->hdr.value;
+        }
+
+      if (connector_update->broadcast_rgb.has_update)
+        {
+          g_warn_if_fail (current_state->broadcast_rgb.supported &
+                          (1 << connector_update->broadcast_rgb.value));
+          current_state->broadcast_rgb.value = connector_update->broadcast_rgb.value;
         }
     }
 
-  impl_device = meta_kms_device_get_impl_device (connector->device);
-  sync_fd_held (connector, impl_device);
+  sync_fd_held (connector, connector->impl_device);
 
   return changes;
 }
@@ -967,6 +1429,32 @@ init_properties (MetaKmsConnector  *connector,
           .name = "max bpc",
           .type = DRM_MODE_PROP_RANGE,
         },
+      [META_KMS_CONNECTOR_PROP_COLORSPACE] =
+        {
+          .name = "Colorspace",
+          .type = DRM_MODE_PROP_ENUM,
+          .enum_values = prop_table->colorspace_enum,
+          .num_enum_values = META_KMS_CONNECTOR_COLORSPACE_N_PROPS,
+          .default_value = META_KMS_CONNECTOR_COLORSPACE_UNKNOWN,
+        },
+      [META_KMS_CONNECTOR_PROP_HDR_OUTPUT_METADATA] =
+        {
+          .name = "HDR_OUTPUT_METADATA",
+          .type = DRM_MODE_PROP_BLOB,
+        },
+      [META_KMS_CONNECTOR_PROP_BROADCAST_RGB] =
+        {
+          .name = "Broadcast RGB",
+          .type = DRM_MODE_PROP_ENUM,
+          .enum_values = prop_table->broadcast_rgb_enum,
+          .num_enum_values = META_KMS_CONNECTOR_BROADCAST_RGB_N_PROPS,
+          .default_value = META_KMS_CONNECTOR_BROADCAST_RGB_UNKNOWN,
+        },
+      [META_KMS_CONNECTOR_PROP_VRR_CAPABLE] =
+        {
+          .name = "vrr_capable",
+          .type = DRM_MODE_PROP_RANGE,
+        },
     },
     .dpms_enum = {
       [META_KMS_CONNECTOR_DPMS_ON] =
@@ -1071,7 +1559,87 @@ init_properties (MetaKmsConnector  *connector,
         {
           .name = "Right Side Up",
         },
-    }
+    },
+    .colorspace_enum = {
+      [META_KMS_CONNECTOR_COLORSPACE_DEFAULT] =
+        {
+          .name = "Default",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_RGB_WIDE_GAMUT_FIXED_POINT] =
+        {
+          .name = "RGB_Wide_Gamut_Fixed_Point",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_RGB_WIDE_GAMUT_FLOATING_POINT] =
+        {
+          .name = "RGB_Wide_Gamut_Floating_Point",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_RGB_OPRGB] =
+        {
+          .name = "opRGB",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_RGB_DCI_P3_RGB_D65] =
+        {
+          .name = "DCI-P3_RGB_D65",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_BT2020_RGB] =
+        {
+          .name = "BT2020_RGB",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_BT601_YCC] =
+        {
+          .name = "BT601_YCC",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_BT709_YCC] =
+        {
+          .name = "BT709_YCC",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_XVYCC_601] =
+        {
+          .name = "XVYCC_601",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_XVYCC_709] =
+        {
+          .name = "XVYCC_709",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_SYCC_601] =
+        {
+          .name = "SYCC_601",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_OPYCC_601] =
+        {
+          .name = "opYCC_601",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_BT2020_CYCC] =
+        {
+          .name = "BT2020_CYCC",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_BT2020_YCC] =
+        {
+          .name = "BT2020_YCC",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_SMPTE_170M_YCC] =
+        {
+          .name = "SMPTE_170M_YCC",
+        },
+      [META_KMS_CONNECTOR_COLORSPACE_DCI_P3_RGB_THEATER] =
+        {
+          .name = "DCI-P3_RGB_Theater",
+        },
+    },
+    .broadcast_rgb_enum = {
+      [META_KMS_CONNECTOR_BROADCAST_RGB_AUTOMATIC] =
+        {
+          .name = "Automatic",
+        },
+      [META_KMS_CONNECTOR_BROADCAST_RGB_FULL] =
+        {
+          .name = "Full",
+        },
+      [META_KMS_CONNECTOR_BROADCAST_RGB_LIMITED_16_235] =
+        {
+          .name = "Limited 16:235",
+        }
+    },
   };
 }
 
@@ -1096,6 +1664,7 @@ make_connector_name (drmModeConnector *drm_connector)
     "eDP",
     "Virtual",
     "DSI",
+    "DPI",
   };
 
   if (drm_connector->connector_type < G_N_ELEMENTS (connector_type_names))
@@ -1126,11 +1695,17 @@ meta_kms_connector_new (MetaKmsImplDevice *impl_device,
 
   g_assert (drm_connector);
   connector = g_object_new (META_TYPE_KMS_CONNECTOR, NULL);
-  connector->device = meta_kms_impl_device_get_device (impl_device);
+  connector->impl_device = impl_device;
   connector->id = drm_connector->connector_id;
   connector->type = drm_connector->connector_type;
   connector->type_id = drm_connector->connector_type_id;
   connector->name = make_connector_name (drm_connector);
+
+  meta_topic (META_DEBUG_KMS,
+              "Adding connector %s (%u, %s)",
+              connector->name,
+              connector->id,
+              meta_kms_impl_device_get_path (impl_device));
 
   init_properties (connector, impl_device, drm_connector);
 
@@ -1147,12 +1722,7 @@ meta_kms_connector_finalize (GObject *object)
   MetaKmsConnector *connector = META_KMS_CONNECTOR (object);
 
   if (connector->fd_held)
-    {
-      MetaKmsImplDevice *impl_device;
-
-      impl_device = meta_kms_device_get_impl_device (connector->device);
-      meta_kms_impl_device_unhold_fd (impl_device);
-    }
+    meta_kms_impl_device_unhold_fd (connector->impl_device);
 
   g_clear_pointer (&connector->current_state, meta_kms_connector_state_free);
   g_free (connector->name);

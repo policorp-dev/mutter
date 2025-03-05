@@ -22,15 +22,14 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_PAINT_NODES_H__
-#define __CLUTTER_PAINT_NODES_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <cogl/cogl.h>
-#include <clutter/clutter-types.h>
+#include "cogl/cogl.h"
+#include "clutter/clutter-types.h"
 
 G_BEGIN_DECLS
 
@@ -45,7 +44,7 @@ CLUTTER_EXPORT
 GType clutter_color_node_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
-ClutterPaintNode *      clutter_color_node_new          (const ClutterColor    *color);
+ClutterPaintNode *      clutter_color_node_new          (const CoglColor    *color);
 
 #define CLUTTER_TYPE_TEXTURE_NODE               (clutter_texture_node_get_type ())
 #define CLUTTER_TEXTURE_NODE(obj)               (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TEXTURE_NODE, ClutterTextureNode))
@@ -59,7 +58,7 @@ GType clutter_texture_node_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterPaintNode *      clutter_texture_node_new        (CoglTexture           *texture,
-                                                         const ClutterColor    *color,
+                                                         const CoglColor       *color,
                                                          ClutterScalingFilter   min_filter,
                                                          ClutterScalingFilter   mag_filter);
 
@@ -89,20 +88,6 @@ GType clutter_pipeline_node_get_type (void) G_GNUC_CONST;
 CLUTTER_EXPORT
 ClutterPaintNode *      clutter_pipeline_node_new       (CoglPipeline          *pipeline);
 
-#define CLUTTER_TYPE_TEXT_NODE                  (clutter_text_node_get_type ())
-#define CLUTTER_TEXT_NODE(obj)                  (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TEXT_NODE, ClutterTextNode))
-#define CLUTTER_IS_TEXT_NODE(obj)               (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_TEXT_NODE))
-
-typedef struct _ClutterTextNode                 ClutterTextNode;
-typedef struct _ClutterTextNodeClass            ClutterTextNodeClass;
-
-CLUTTER_EXPORT
-GType clutter_text_node_get_type (void) G_GNUC_CONST;
-
-CLUTTER_EXPORT
-ClutterPaintNode *      clutter_text_node_new           (PangoLayout           *layout,
-                                                         const ClutterColor    *color);
-
 #define CLUTTER_TYPE_ACTOR_NODE                 (clutter_actor_node_get_type ())
 #define CLUTTER_ACTOR_NODE(obj)                 (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_ACTOR_NODE, ClutterActorNode))
 #define CLUTTER_IS_ACTOR_NODE(obj)              (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_ACTOR_NODE))
@@ -129,7 +114,8 @@ GType clutter_root_node_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterPaintNode *      clutter_root_node_new           (CoglFramebuffer       *framebuffer,
-                                                         const ClutterColor    *clear_color,
+                                                         ClutterColorState     *color_state,
+                                                         const CoglColor       *clear_color,
                                                          CoglBufferBit          clear_flags);
 
 #define CLUTTER_TYPE_LAYER_NODE                 (clutter_layer_node_get_type ())
@@ -141,13 +127,6 @@ typedef struct _ClutterLayerNodeClass           ClutterLayerNodeClass;
 
 CLUTTER_EXPORT
 GType clutter_layer_node_get_type (void) G_GNUC_CONST;
-
-CLUTTER_EXPORT
-ClutterPaintNode *      clutter_layer_node_new          (const graphene_matrix_t *projection,
-                                                         const cairo_rectangle_t *viewport,
-                                                         float                    width,
-                                                         float                    height,
-                                                         guint8                   opacity);
 
 CLUTTER_EXPORT
 ClutterPaintNode * clutter_layer_node_new_to_framebuffer (CoglFramebuffer *framebuffer,
@@ -202,8 +181,6 @@ GType clutter_blur_node_get_type (void) G_GNUC_CONST;
 CLUTTER_EXPORT
 ClutterPaintNode * clutter_blur_node_new (unsigned int width,
                                           unsigned int height,
-                                          float        sigma);
+                                          float        radius);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_PAINT_NODES_H__ */

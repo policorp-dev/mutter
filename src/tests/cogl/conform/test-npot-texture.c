@@ -106,7 +106,7 @@ make_texture (void)
     }
 
   /* The texture should be sliced unless NPOTs are supported, which they are */
-  g_assert (!cogl_texture_is_sliced (tex));
+  g_assert_false (cogl_texture_is_sliced (tex));
 
   return tex;
 }
@@ -137,8 +137,8 @@ paint (void)
                                                 (x + 1) / 2.0f,
                                                 (y + 1) / 2.0f);
 
-  cogl_object_unref (pipeline);
-  cogl_object_unref (texture);
+  g_object_unref (pipeline);
+  g_object_unref (texture);
 }
 
 static void

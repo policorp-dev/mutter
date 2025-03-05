@@ -14,14 +14,22 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * MetaOrientationManager:
+ *
+ * A screen orientation manager
+ *
+ * #MetaOrientationManager is a final class which contains methods to
+ * read the current screen orientation, as well as a signal that is
+ * triggered whenever a screen changes its orientation.
  */
 
 #include "config.h"
 
-#include "backends/meta-orientation-manager.h"
+#include "meta/meta-orientation-manager.h"
 
 #include <gio/gio.h>
 
@@ -56,6 +64,7 @@ struct _MetaOrientationManager
   GDBusProxy *iio_proxy;
   MetaOrientation prev_orientation;
   MetaOrientation curr_orientation;
+  MetaOrientation effective_orientation;
   guint has_accel : 1;
 
   GSettings *settings;
@@ -65,6 +74,24 @@ G_DEFINE_TYPE (MetaOrientationManager, meta_orientation_manager, G_TYPE_OBJECT)
 
 #define CONF_SCHEMA "org.gnome.settings-daemon.peripherals.touchscreen"
 #define ORIENTATION_LOCK_KEY "orientation-lock"
+
+MtkMonitorTransform
+meta_orientation_to_transform (MetaOrientation orientation)
+{
+  switch (orientation)
+    {
+    case META_ORIENTATION_BOTTOM_UP:
+      return MTK_MONITOR_TRANSFORM_180;
+    case META_ORIENTATION_LEFT_UP:
+      return MTK_MONITOR_TRANSFORM_90;
+    case META_ORIENTATION_RIGHT_UP:
+      return MTK_MONITOR_TRANSFORM_270;
+    case META_ORIENTATION_UNDEFINED:
+    case META_ORIENTATION_NORMAL:
+    default:
+      return MTK_MONITOR_TRANSFORM_NORMAL;
+    }
+}
 
 static MetaOrientation
 orientation_from_string (const char *orientation)
@@ -130,6 +157,7 @@ sync_state (MetaOrientationManager *self)
     return;
 
   self->prev_orientation = self->curr_orientation;
+  self->effective_orientation = self->curr_orientation;
 
   if (self->curr_orientation == META_ORIENTATION_UNDEFINED)
     return;
@@ -137,15 +165,13 @@ sync_state (MetaOrientationManager *self)
   g_signal_emit (self, signals[ORIENTATION_CHANGED], 0);
 }
 
-static gboolean
+static void
 changed_idle (gpointer user_data)
 {
   MetaOrientationManager *self = user_data;
 
   self->sync_idle_id = 0;
   sync_state (self);
-
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -160,7 +186,7 @@ queue_sync_state (MetaOrientationManager *self)
   if (self->sync_idle_id)
     return;
 
-  self->sync_idle_id = g_idle_add (changed_idle, self);
+  self->sync_idle_id = g_idle_add_once (changed_idle, self);
 }
 
 static void
@@ -275,6 +301,7 @@ static void
 meta_orientation_manager_init (MetaOrientationManager *self)
 {
   GSettingsSchemaSource *schema_source = g_settings_schema_source_get_default ();
+  g_autoptr (GSettingsSchema) schema = NULL;
 
   self->iio_watch_id = g_bus_watch_name (G_BUS_TYPE_SYSTEM,
                                          "net.hadess.SensorProxy",
@@ -284,13 +311,16 @@ meta_orientation_manager_init (MetaOrientationManager *self)
                                          self,
                                          NULL);
 
-  if (g_settings_schema_source_lookup (schema_source, CONF_SCHEMA, TRUE))
+  schema = g_settings_schema_source_lookup (schema_source, CONF_SCHEMA, TRUE);
+  if (schema != NULL)
     {
       self->settings = g_settings_new (CONF_SCHEMA);
       g_signal_connect_object (self->settings, "changed::"ORIENTATION_LOCK_KEY,
                                G_CALLBACK (orientation_lock_changed), self, 0);
       sync_state (self);
     }
+
+  self->effective_orientation = META_ORIENTATION_UNDEFINED;
 }
 
 static void
@@ -346,9 +376,7 @@ meta_orientation_manager_class_init (MetaOrientationManagerClass *klass)
                   G_TYPE_NONE, 0);
 
   props[PROP_HAS_ACCELEROMETER] =
-    g_param_spec_boolean ("has-accelerometer",
-                          "Has accelerometer",
-                          "Has accelerometer",
+    g_param_spec_boolean ("has-accelerometer", NULL, NULL,
                           FALSE,
                           G_PARAM_READABLE |
                           G_PARAM_EXPLICIT_NOTIFY |
@@ -359,7 +387,7 @@ meta_orientation_manager_class_init (MetaOrientationManagerClass *klass)
 MetaOrientation
 meta_orientation_manager_get_orientation (MetaOrientationManager *self)
 {
-  return self->curr_orientation;
+  return self->effective_orientation;
 }
 
 gboolean

@@ -14,16 +14,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_WINDOW_WAYLAND_H
-#define META_WINDOW_WAYLAND_H
+#pragma once
 
 #include "core/window-private.h"
 #include "meta/window.h"
@@ -41,15 +38,10 @@ MetaWindow * meta_window_wayland_new       (MetaDisplay        *display,
                                             MetaWaylandSurface *surface);
 
 void meta_window_wayland_finish_move_resize (MetaWindow              *window,
-                                             MetaRectangle            new_geom,
+                                             MtkRectangle             new_geom,
                                              MetaWaylandSurfaceState *pending);
 
 int meta_window_wayland_get_geometry_scale (MetaWindow *window);
-
-void meta_window_wayland_place_relative_to (MetaWindow *window,
-                                            MetaWindow *other,
-                                            int         x,
-                                            int         y);
 
 void meta_window_place_with_placement_rule (MetaWindow        *window,
                                             MetaPlacementRule *placement_rule);
@@ -57,6 +49,7 @@ void meta_window_place_with_placement_rule (MetaWindow        *window,
 void meta_window_update_placement_rule (MetaWindow        *window,
                                         MetaPlacementRule *placement_rule);
 
+META_EXPORT_TEST
 MetaWaylandWindowConfiguration *
   meta_window_wayland_peek_configuration (MetaWindowWayland *wl_window,
                                           uint32_t           serial);
@@ -85,4 +78,6 @@ gboolean meta_window_wayland_is_resize (MetaWindowWayland *wl_window,
 META_EXPORT_TEST
 gboolean meta_window_wayland_is_acked_fullscreen (MetaWindowWayland *wl_window);
 
-#endif
+META_EXPORT_TEST
+gboolean meta_window_wayland_get_pending_serial (MetaWindowWayland *wl_window,
+                                                 uint32_t          *serial);

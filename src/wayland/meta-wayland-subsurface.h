@@ -13,13 +13,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WAYLAND_SUBSURFACE_H
-#define META_WAYLAND_SUBSURFACE_H
+#pragma once
 
 #include "wayland/meta-wayland-actor-surface.h"
 
@@ -40,19 +37,15 @@ typedef struct
   MetaWaylandSubsurfacePlacement placement;
   MetaWaylandSurface *surface;
   MetaWaylandSurface *sibling;
-  struct wl_listener subsurface_destroy_listener;
-  struct wl_listener sibling_destroy_listener;
 } MetaWaylandSubsurfacePlacementOp;
-
-void meta_wayland_subsurface_parent_state_applied (MetaWaylandSubsurface *subsurface);
 
 void meta_wayland_subsurface_union_geometry (MetaWaylandSubsurface *subsurface,
                                              int                    parent_x,
                                              int                    parent_y,
-                                             MetaRectangle         *out_geometry);
+                                             MtkRectangle          *out_geometry);
 
-void meta_wayland_subsurface_placement_op_free (MetaWaylandSubsurfacePlacementOp *op);
+void meta_wayland_subsurface_destroy_placement_op (MetaWaylandSubsurfacePlacementOp *op);
+
+void meta_wayland_subsurface_parent_destroyed (MetaWaylandSurface *surface);
 
 void meta_wayland_subsurfaces_init (MetaWaylandCompositor *compositor);
-
-#endif /* META_WAYLAND_SUBSURFACE_H */

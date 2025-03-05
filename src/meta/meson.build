@@ -3,12 +3,11 @@ mutter_public_headers = [
   'boxes.h',
   'common.h',
   'compositor.h',
-  'compositor-mutter.h',
   'display.h',
-  'group.h',
   'keybindings.h',
   'main.h',
   'meta-backend.h',
+  'meta-base.h',
   'meta-background.h',
   'meta-background-actor.h',
   'meta-background-content.h',
@@ -17,6 +16,8 @@ mutter_public_headers = [
   'meta-close-dialog.h',
   'meta-cursor-tracker.h',
   'meta-context.h',
+  'meta-debug.h',
+  'meta-debug-control.h',
   'meta-dnd.h',
   'meta-enums.h',
   'meta-idle-monitor.h',
@@ -24,23 +25,24 @@ mutter_public_headers = [
   'meta-launch-context.h',
   'meta-later.h',
   'meta-monitor-manager.h',
+  'meta-multi-texture.h',
+  'meta-multi-texture-format.h',
+  'meta-orientation-manager.h',
   'meta-plugin.h',
   'meta-remote-access-controller.h',
   'meta-selection.h',
   'meta-selection-source.h',
   'meta-selection-source-memory.h',
   'meta-settings.h',
-  'meta-shadow-factory.h',
   'meta-shaped-texture.h',
   'meta-sound-player.h',
   'meta-stage.h',
   'meta-startup-notification.h',
   'meta-window-actor.h',
+  'meta-window-config.h',
   'meta-window-group.h',
-  'meta-window-shape.h',
   'meta-workspace-manager.h',
   'prefs.h',
-  'theme.h',
   'types.h',
   'util.h',
   'window.h',
@@ -50,13 +52,16 @@ mutter_public_headers = [
 if have_wayland
   mutter_public_headers += [
     'meta-wayland-client.h',
+    'meta-wayland-compositor.h',
+    'meta-wayland-surface.h',
   ]
 endif
 
-if have_x11
+if have_x11_client
   mutter_public_headers += [
     'meta-x11-display.h',
-    'meta-x11-errors.h',
+    'meta-x11-types.h',
+    'meta-x11-group.h',
   ]
 endif
 

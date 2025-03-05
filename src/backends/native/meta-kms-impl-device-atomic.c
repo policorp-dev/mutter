@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -49,6 +47,16 @@ static GInitableIface *initable_parent_iface;
 
 static void
 initable_iface_init (GInitableIface *iface);
+
+/*
+ * Fallback while the patch updating the uAPI header has not landed.
+ * Should be removed afterward.
+ * Clients which do set cursor hotspot and treat the cursor plane
+ * like a mouse cursor should set this property.
+ */
+#ifndef DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT
+#define DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT	6
+#endif
 
 G_DEFINE_TYPE_WITH_CODE (MetaKmsImplDeviceAtomic, meta_kms_impl_device_atomic,
                          META_TYPE_KMS_IMPL_DEVICE,
@@ -234,6 +242,75 @@ process_connector_update (MetaKmsImplDevice  *impl_device,
         return FALSE;
     }
 
+  if (connector_update->colorspace.has_update)
+    {
+      meta_topic (META_DEBUG_KMS,
+                  "[atomic] Setting colorspace to %u on connector %u (%s)",
+                  connector_update->colorspace.value,
+                  meta_kms_connector_get_id (connector),
+                  meta_kms_impl_device_get_path (impl_device));
+
+      if (!add_connector_property (impl_device,
+                                   connector, req,
+                                   META_KMS_CONNECTOR_PROP_COLORSPACE,
+                                   meta_output_color_space_to_drm_color_space (
+                                     connector_update->colorspace.value),
+                                   error))
+        return FALSE;
+    }
+
+  if (connector_update->hdr.has_update)
+    {
+      uint32_t hdr_blob_id;
+
+      meta_topic (META_DEBUG_KMS,
+                  "[atomic] Setting HDR metadata on connector %u (%s)",
+                  meta_kms_connector_get_id (connector),
+                  meta_kms_impl_device_get_path (impl_device));
+
+      hdr_blob_id = 0;
+      if (connector_update->hdr.value.active)
+        {
+          struct hdr_output_metadata metadata;
+
+          meta_set_drm_hdr_metadata (&connector_update->hdr.value, &metadata);
+
+          hdr_blob_id = store_new_blob (impl_device,
+                                        blob_ids,
+                                        &metadata,
+                                        sizeof (metadata),
+                                        error);
+          if (!hdr_blob_id)
+            return FALSE;
+        }
+
+      if (!add_connector_property (impl_device,
+                                   connector, req,
+                                   META_KMS_CONNECTOR_PROP_HDR_OUTPUT_METADATA,
+                                   hdr_blob_id,
+                                   error))
+        return FALSE;
+    }
+
+  if (connector_update->broadcast_rgb.has_update)
+    {
+      MetaOutputRGBRange rgb_range = connector_update->broadcast_rgb.value;
+      uint64_t value = meta_output_rgb_range_to_drm_broadcast_rgb (rgb_range);
+
+      meta_topic (META_DEBUG_KMS,
+                  "[atomic] Setting Broadcast RGB to %u on connector %u (%s)",
+                  rgb_range,
+                  meta_kms_connector_get_id (connector),
+                  meta_kms_impl_device_get_path (impl_device));
+
+      if (!add_connector_property (impl_device,
+                                   connector, req,
+                                   META_KMS_CONNECTOR_PROP_BROADCAST_RGB,
+                                   value,
+                                   error))
+        return FALSE;
+    }
+
   return TRUE;
 }
 
@@ -280,6 +357,31 @@ add_crtc_property (MetaKmsImplDevice  *impl_device,
                    prop_id,
                    g_strerror (-ret));
       return FALSE;
+    }
+
+  return TRUE;
+}
+
+static gboolean
+process_crtc_update (MetaKmsImplDevice  *impl_device,
+                     MetaKmsUpdate      *update,
+                     drmModeAtomicReq   *req,
+                     GArray             *blob_ids,
+                     gpointer            update_entry,
+                     gpointer            user_data,
+                     GError            **error)
+{
+  MetaKmsCrtcUpdate *crtc_update = update_entry;
+  MetaKmsCrtc *crtc = crtc_update->crtc;
+
+  if (crtc_update->vrr.has_update)
+    {
+      if (!add_crtc_property (impl_device,
+                              crtc, req,
+                              META_KMS_CRTC_PROP_VRR_ENABLED,
+                              !!crtc_update->vrr.is_enabled,
+                              error))
+        return FALSE;
     }
 
   return TRUE;
@@ -433,17 +535,7 @@ add_plane_property (MetaKmsImplDevice  *impl_device,
 static const char *
 get_plane_type_string (MetaKmsPlane *plane)
 {
-  switch (meta_kms_plane_get_plane_type (plane))
-    {
-    case META_KMS_PLANE_TYPE_PRIMARY:
-      return "primary";
-    case META_KMS_PLANE_TYPE_CURSOR:
-      return "cursor";
-    case META_KMS_PLANE_TYPE_OVERLAY:
-      return "overlay";
-    }
-
-  g_assert_not_reached ();
+  return meta_kms_plane_type_to_string (meta_kms_plane_get_plane_type (plane));
 }
 
 static gboolean
@@ -540,6 +632,62 @@ process_plane_assignment (MetaKmsImplDevice  *impl_device,
                                    error))
             return FALSE;
         }
+
+      if (plane_assignment->flags & META_KMS_ASSIGN_PLANE_FLAG_DISABLE_IMPLICIT_SYNC &&
+          !meta_kms_update_get_mode_sets (update))
+        {
+          int signaled_sync_file;
+
+          signaled_sync_file =
+            meta_kms_impl_device_get_signaled_sync_file (impl_device);
+
+          if (signaled_sync_file >= 0)
+            {
+              g_autoptr (GError) local_error = NULL;
+
+              if (!add_plane_property (impl_device,
+                                       plane, req,
+                                       META_KMS_PLANE_PROP_IN_FENCE_FD,
+                                       signaled_sync_file,
+                                       &local_error))
+                {
+                  meta_topic (META_DEBUG_KMS,
+                              "add_plane_property failed for IN_FENCE_FD: %s",
+                              local_error->message);
+                }
+            }
+        }
+
+      if (plane_assignment->cursor_hotspot.has_update)
+        {
+          struct {
+            MetaKmsPlaneProp prop;
+            uint64_t value;
+          } cursor_props[] = {
+            {
+              .prop = META_KMS_PLANE_PROP_HOTSPOT_X,
+              .value = plane_assignment->cursor_hotspot.is_valid ?
+                       plane_assignment->cursor_hotspot.x :
+                       0,
+            },
+            {
+              .prop = META_KMS_PLANE_PROP_HOTSPOT_Y,
+              .value = plane_assignment->cursor_hotspot.is_valid ?
+                       plane_assignment->cursor_hotspot.y :
+                       0,
+            },
+          };
+
+          for (i = 0; i < G_N_ELEMENTS (cursor_props); i++)
+            {
+              if (!add_plane_property (impl_device,
+                                       plane, req,
+                                       cursor_props[i].prop,
+                                       cursor_props[i].value,
+                                       error))
+                return FALSE;
+            }
+        }
     }
   else
     {
@@ -609,51 +757,102 @@ process_plane_assignment (MetaKmsImplDevice  *impl_device,
                                error))
         return FALSE;
     }
+
+  if (plane_assignment->color_encoding.has_update)
+    {
+      meta_topic (META_DEBUG_KMS,
+                  "[atomic] Setting plane (%u, %s) color encoding to %u",
+                  meta_kms_plane_get_id (plane),
+                  meta_kms_impl_device_get_path (impl_device),
+                  plane_assignment->color_encoding.value);
+
+      if (!add_plane_property (impl_device,
+                               plane, req,
+                               META_KMS_PLANE_PROP_YCBCR_COLOR_ENCODING,
+                               plane_assignment->color_encoding.value,
+                               error))
+        return FALSE;
+    }
+
+  if (plane_assignment->color_range.has_update)
+    {
+      meta_topic (META_DEBUG_KMS,
+                  "[atomic] Setting plane (%u, %s) color range to %u",
+                  meta_kms_plane_get_id (plane),
+                  meta_kms_impl_device_get_path (impl_device),
+                  plane_assignment->color_range.value);
+
+      if (!add_plane_property (impl_device,
+                               plane, req,
+                               META_KMS_PLANE_PROP_YCBCR_COLOR_RANGE,
+                               plane_assignment->color_range.value,
+                               error))
+        return FALSE;
+    }
+
   return TRUE;
 }
 
 static gboolean
-process_crtc_gamma (MetaKmsImplDevice  *impl_device,
-                    MetaKmsUpdate      *update,
-                    drmModeAtomicReq   *req,
-                    GArray             *blob_ids,
-                    gpointer            update_entry,
-                    gpointer            user_data,
-                    GError            **error)
+process_crtc_color_updates (MetaKmsImplDevice  *impl_device,
+                            MetaKmsUpdate      *update,
+                            drmModeAtomicReq   *req,
+                            GArray             *blob_ids,
+                            gpointer            update_entry,
+                            gpointer            user_data,
+                            GError            **error)
 {
-  MetaKmsCrtcGamma *gamma = update_entry;
-  MetaKmsCrtc *crtc = gamma->crtc;
-  struct drm_color_lut drm_color_lut[gamma->size];
-  int i;
-  uint32_t color_lut_blob_id;
+  MetaKmsCrtcColorUpdate *color_update = update_entry;
+  MetaKmsCrtc *crtc = color_update->crtc;
 
-  for (i = 0; i < gamma->size; i++)
+  if (color_update->gamma.has_update)
     {
-      drm_color_lut[i].red = gamma->red[i];
-      drm_color_lut[i].green = gamma->green[i];
-      drm_color_lut[i].blue = gamma->blue[i];
+      MetaGammaLut *gamma = color_update->gamma.state;
+      uint32_t color_lut_blob_id = 0;
+
+      if (gamma && gamma->size > 0)
+        {
+          g_autofree struct drm_color_lut *drm_color_lut = NULL;
+          size_t color_lut_size;
+          int i;
+
+          color_lut_size = sizeof(struct drm_color_lut) * gamma->size;
+          drm_color_lut = g_malloc (color_lut_size);
+
+          for (i = 0; i < gamma->size; i++)
+            {
+              drm_color_lut[i].red = gamma->red[i];
+              drm_color_lut[i].green = gamma->green[i];
+              drm_color_lut[i].blue = gamma->blue[i];
+            }
+
+          color_lut_blob_id = store_new_blob (impl_device,
+                                              blob_ids,
+                                              drm_color_lut,
+                                              color_lut_size,
+                                              error);
+
+          meta_topic (META_DEBUG_KMS,
+                      "[atomic] Setting CRTC (%u, %s) gamma, size: %zu",
+                      meta_kms_crtc_get_id (crtc),
+                      meta_kms_impl_device_get_path (impl_device),
+                      gamma->size);
+        }
+      else
+        {
+          meta_topic (META_DEBUG_KMS,
+                      "[atomic] Setting CRTC (%u, %s) gamma to bypass",
+                      meta_kms_crtc_get_id (crtc),
+                      meta_kms_impl_device_get_path (impl_device));
+        }
+
+      if (!add_crtc_property (impl_device,
+                              crtc, req,
+                              META_KMS_CRTC_PROP_GAMMA_LUT,
+                              color_lut_blob_id,
+                              error))
+        return FALSE;
     }
-
-  color_lut_blob_id = store_new_blob (impl_device,
-                                      blob_ids,
-                                      drm_color_lut,
-                                      sizeof drm_color_lut,
-                                      error);
-  if (!color_lut_blob_id)
-    return FALSE;
-
-  meta_topic (META_DEBUG_KMS,
-              "[atomic] Setting CRTC (%u, %s) gamma, size: %d",
-              meta_kms_crtc_get_id (crtc),
-              meta_kms_impl_device_get_path (impl_device),
-              gamma->size);
-
-  if (!add_crtc_property (impl_device,
-                          crtc, req,
-                          META_KMS_CRTC_PROP_GAMMA_LUT,
-                          color_lut_blob_id,
-                          error))
-    return FALSE;
 
   return TRUE;
 }
@@ -699,46 +898,9 @@ process_page_flip_listener (MetaKmsImplDevice  *impl_device,
   listener_destroy_notify = g_steal_pointer (&listener->destroy_notify);
   meta_kms_page_flip_data_add_listener (page_flip_data,
                                         listener->vtable,
-                                        listener->flags,
+                                        listener->main_context,
                                         listener_user_data,
                                         listener_destroy_notify);
-
-  return TRUE;
-}
-
-static gboolean
-discard_page_flip_listener (MetaKmsImplDevice  *impl_device,
-                            MetaKmsUpdate      *update,
-                            drmModeAtomicReq   *req,
-                            GArray             *blob_ids,
-                            gpointer            update_entry,
-                            gpointer            user_data,
-                            GError            **error)
-{
-  MetaKmsPageFlipListener *listener = update_entry;
-  GError *commit_error = user_data;
-  MetaKmsPageFlipData *page_flip_data;
-  gpointer listener_user_data;
-  GDestroyNotify listener_destroy_notify;
-
-  page_flip_data = meta_kms_page_flip_data_new (impl_device,
-                                                listener->crtc);
-
-  meta_topic (META_DEBUG_KMS,
-              "[atomic] Creating transient page flip data for (%u, %s): %p",
-              meta_kms_crtc_get_id (listener->crtc),
-              meta_kms_impl_device_get_path (impl_device),
-              page_flip_data);
-
-  listener_user_data = g_steal_pointer (&listener->user_data);
-  listener_destroy_notify = g_steal_pointer (&listener->destroy_notify);
-  meta_kms_page_flip_data_add_listener (page_flip_data,
-                                        listener->vtable,
-                                        listener->flags,
-                                        listener_user_data,
-                                        listener_destroy_notify);
-
-  meta_kms_page_flip_data_discard_in_impl (page_flip_data, commit_error);
 
   return TRUE;
 }
@@ -786,6 +948,10 @@ atomic_page_flip_handler (int           fd,
                                GUINT_TO_POINTER (crtc_id),
                                NULL,
                                (gpointer *) &page_flip_data);
+
+  COGL_TRACE_MESSAGE ("atomic_page_flip_handler()",
+                      "[atomic] Page flip callback for CRTC (%u, %s)",
+                      crtc_id, meta_kms_impl_device_get_path (impl_device));
 
   meta_topic (META_DEBUG_KMS,
               "[atomic] Page flip callback for CRTC (%u, %s), data: %p",
@@ -942,9 +1108,7 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
 
   blob_ids = g_array_new (FALSE, TRUE, sizeof (uint32_t));
 
-  meta_topic (META_DEBUG_KMS,
-              "[atomic] Processing update %" G_GUINT64_FORMAT,
-              meta_kms_update_get_sequence_number (update));
+  meta_topic (META_DEBUG_KMS, "[atomic] Processing update");
 
   req = drmModeAtomicAlloc ();
   if (!req)
@@ -975,6 +1139,16 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
                         update,
                         req,
                         blob_ids,
+                        meta_kms_update_get_crtc_updates (update),
+                        NULL,
+                        process_crtc_update,
+                        &error))
+    goto err;
+
+  if (!process_entries (impl_device,
+                        update,
+                        req,
+                        blob_ids,
                         meta_kms_update_get_mode_sets (update),
                         NULL,
                         process_mode_set,
@@ -995,13 +1169,13 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
                         update,
                         req,
                         blob_ids,
-                        meta_kms_update_get_crtc_gammas (update),
+                        meta_kms_update_get_crtc_color_updates (update),
                         NULL,
-                        process_crtc_gamma,
+                        process_crtc_color_updates,
                         &error))
     goto err;
 
-  if (meta_kms_update_get_mode_sets (update))
+  if (meta_kms_update_get_needs_modeset (update))
     commit_flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
   else
     commit_flags |= DRM_MODE_ATOMIC_NONBLOCK;
@@ -1013,19 +1187,19 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
     commit_flags |= DRM_MODE_ATOMIC_TEST_ONLY;
 
   meta_topic (META_DEBUG_KMS,
-              "[atomic] Committing update %" G_GUINT64_FORMAT ", flags: %s",
-              meta_kms_update_get_sequence_number (update),
+              "[atomic] Committing update flags: %s",
               commit_flags_string (commit_flags));
 
   fd = meta_kms_impl_device_get_fd (impl_device);
   ret = drmModeAtomicCommit (fd, req, commit_flags, impl_device);
-  drmModeAtomicFree (req);
   if (ret < 0)
     {
       g_set_error (&error, G_IO_ERROR, g_io_error_from_errno (-ret),
                    "drmModeAtomicCommit: %s", g_strerror (-ret));
       goto err;
     }
+
+  drmModeAtomicFree (req);
 
   process_entries (impl_device,
                    update,
@@ -1043,17 +1217,8 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
 err:
   meta_topic (META_DEBUG_KMS, "[atomic] KMS update failed: %s", error->message);
 
-  if (!(flags & META_KMS_UPDATE_FLAG_PRESERVE_ON_ERROR))
-    {
-      process_entries (impl_device,
-                       update,
-                       req,
-                       blob_ids,
-                       meta_kms_update_get_page_flip_listeners (update),
-                       error,
-                       discard_page_flip_listener,
-                       NULL);
-    }
+  if (req)
+    drmModeAtomicFree (req);
 
   release_blob_ids (impl_device, blob_ids);
 
@@ -1157,6 +1322,20 @@ meta_kms_impl_device_atomic_finalize (GObject *object)
   G_OBJECT_CLASS (meta_kms_impl_device_atomic_parent_class)->finalize (object);
 }
 
+static gboolean
+requires_hotspots (const char *driver_name)
+{
+  const char *atomic_driver_hotspots[] = {
+    "qxl",
+    "vboxvideo",
+    "virtio_gpu",
+    "vmwgfx",
+    NULL,
+  };
+
+  return g_strv_contains (atomic_driver_hotspots, driver_name);
+}
+
 static MetaDeviceFile *
 meta_kms_impl_device_atomic_open_device_file (MetaKmsImplDevice  *impl_device,
                                               const char         *path,
@@ -1208,13 +1387,29 @@ meta_kms_impl_device_atomic_open_device_file (MetaKmsImplDevice  *impl_device,
 }
 
 static gboolean
+has_cursor_hotspot_properties (MetaKmsImplDevice *impl_device)
+{
+  GList *planes;
+  GList *l;
+
+  planes = meta_kms_impl_device_peek_planes (impl_device);
+  for (l = planes; l; l = l->next)
+    {
+      MetaKmsPlane *plane = l->data;
+
+      if (meta_kms_plane_get_plane_type (plane) != META_KMS_PLANE_TYPE_CURSOR)
+        continue;
+
+      return meta_kms_plane_supports_cursor_hotspot (plane);
+    }
+
+  return FALSE;
+}
+
+static gboolean
 is_atomic_allowed (const char *driver_name)
 {
   const char *atomic_driver_deny_list[] = {
-    "qxl",
-    "vmwgfx",
-    "vboxvideo",
-    "virtio_gpu",
     "xlnx",
     NULL,
   };
@@ -1239,8 +1434,31 @@ meta_kms_impl_device_atomic_initable_init (GInitable     *initable,
       return FALSE;
     }
 
+  if (requires_hotspots (meta_kms_impl_device_get_driver_name (impl_device)))
+    {
+      if (drmSetClientCap (meta_kms_impl_device_get_fd (impl_device),
+                           DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, 1) != 0)
+        {
+          g_set_error (error, META_KMS_ERROR, META_KMS_ERROR_NOT_SUPPORTED,
+                       "Kernel has no support for virtual cursor plane on %s",
+                       meta_kms_impl_device_get_driver_name (impl_device));
+          return FALSE;
+        }
+    }
+
   if (!meta_kms_impl_device_init_mode_setting (impl_device, error))
     return FALSE;
+
+  if (requires_hotspots (meta_kms_impl_device_get_driver_name (impl_device)))
+    {
+      if (!has_cursor_hotspot_properties (impl_device))
+        {
+          g_set_error (error, META_KMS_ERROR, META_KMS_ERROR_NOT_SUPPORTED,
+                       "Plane cursor with hotspot properties is missing on %s",
+                       meta_kms_impl_device_get_driver_name (impl_device));
+          return FALSE;
+        }
+    }
 
   g_message ("Added device '%s' (%s) using atomic mode setting.",
              meta_kms_impl_device_get_path (impl_device),

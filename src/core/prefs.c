@@ -21,9 +21,9 @@
  */
 
 /**
- * SECTION:prefs
- * @title: Preferences
- * @short_description: Mutter preferences
+ * Preferences:
+ *
+ * Mutter preferences
  */
 
 #include "config.h"
@@ -39,7 +39,6 @@
 #include "core/prefs-private.h"
 #include "core/util-private.h"
 #include "meta/prefs.h"
-#include "x11/meta-x11-display-private.h"
 
 /* If you add a key, it needs updating in init() and in the gsettings
  * notify listener and of course in the .schemas file.
@@ -48,7 +47,6 @@
  * not given a name here, because the purpose of the unified handlers
  * is that keys should be referred to exactly once.
  */
-#define KEY_TITLEBAR_FONT "titlebar-font"
 #define KEY_NUM_WORKSPACES "num-workspaces"
 #define KEY_WORKSPACE_NAMES "workspace-names"
 
@@ -78,11 +76,9 @@ static guint changed_idle;
 static GList *listeners = NULL;
 static GHashTable *settings_schemas;
 
-static gboolean use_system_font = FALSE;
-static PangoFontDescription *titlebar_font = NULL;
-static MetaVirtualModifier mouse_button_mods = Mod1Mask;
-static MetaKeyCombo overlay_key_combo = { 0, 0, 0 };
-static MetaKeyCombo locate_pointer_key_combo = { 0, 0, 0 };
+static ClutterModifierType mouse_button_mods = CLUTTER_MOD1_MASK;
+static MetaKeyCombo overlay_key_combos[2] = { 0 };
+static MetaKeyCombo locate_pointer_key_combos[2] = { 0 };
 static GDesktopFocusMode focus_mode = G_DESKTOP_FOCUS_MODE_CLICK;
 static GDesktopFocusNewWindows focus_new_windows = G_DESKTOP_FOCUS_NEW_WINDOWS_SMART;
 static gboolean raise_on_click = TRUE;
@@ -95,7 +91,7 @@ static GDesktopTitlebarAction action_right_click_titlebar = G_DESKTOP_TITLEBAR_A
 static gboolean dynamic_workspaces = FALSE;
 static gboolean disable_workarounds = FALSE;
 static gboolean auto_raise = FALSE;
-static gboolean auto_raise_delay = 500;
+static int auto_raise_delay = 500;
 static gboolean focus_change_on_pointer_rest = FALSE;
 static gboolean bell_is_visible = FALSE;
 static gboolean bell_is_audible = TRUE;
@@ -145,7 +141,6 @@ static void queue_changed (MetaPreference  pref);
 
 static void maybe_give_disable_workarounds_warning (void);
 
-static gboolean titlebar_handler (GVariant*, gpointer*, gpointer);
 static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
 static gboolean button_layout_handler (GVariant*, gpointer*, gpointer);
 static gboolean overlay_key_handler (GVariant*, gpointer*, gpointer);
@@ -304,13 +299,6 @@ static MetaBoolPreference preferences_bool[] =
       &raise_on_click,
     },
     {
-      { "titlebar-uses-system-font",
-        SCHEMA_GENERAL,
-        META_PREF_TITLEBAR_FONT, /* note! shares a pref */
-      },
-      &use_system_font,
-    },
-    {
       { "dynamic-workspaces",
         SCHEMA_MUTTER,
         META_PREF_DYNAMIC_WORKSPACES,
@@ -412,14 +400,6 @@ static MetaStringPreference preferences_string[] =
         META_PREF_MOUSE_BUTTON_MODS,
       },
       mouse_button_mods_handler,
-      NULL,
-    },
-    {
-      { KEY_TITLEBAR_FONT,
-        SCHEMA_GENERAL,
-        META_PREF_TITLEBAR_FONT,
-      },
-      titlebar_handler,
       NULL,
     },
     {
@@ -1157,12 +1137,12 @@ maybe_give_disable_workarounds_warning (void)
     {
       first_disable = FALSE;
 
-      meta_warning ("Workarounds for broken applications disabled. "
-                    "Some applications may not behave properly.");
+      g_warning ("Workarounds for broken applications disabled. "
+                 "Some applications may not behave properly.");
     }
 }
 
-MetaVirtualModifier
+ClutterModifierType
 meta_prefs_get_mouse_button_mods  (void)
 {
   return mouse_button_mods;
@@ -1235,50 +1215,11 @@ meta_prefs_get_cursor_size (void)
 /****************************************************************************/
 
 static gboolean
-titlebar_handler (GVariant *value,
-                  gpointer *result,
-                  gpointer data)
-{
-  PangoFontDescription *desc;
-  const gchar *string_value;
-
-  *result = NULL; /* ignored */
-  string_value = g_variant_get_string (value, NULL);
-  desc = pango_font_description_from_string (string_value);
-
-  if (desc == NULL)
-    {
-      meta_warning ("Could not parse font description "
-                    "\"%s\" from GSettings key %s",
-                    string_value ? string_value : "(null)",
-                    KEY_TITLEBAR_FONT);
-      return FALSE;
-    }
-
-  /* Is the new description the same as the old? */
-  if (titlebar_font &&
-      pango_font_description_equal (desc, titlebar_font))
-    {
-      pango_font_description_free (desc);
-    }
-  else
-    {
-      if (titlebar_font)
-        pango_font_description_free (titlebar_font);
-
-      titlebar_font = desc;
-      queue_changed (META_PREF_TITLEBAR_FONT);
-    }
-
-  return TRUE;
-}
-
-static gboolean
 mouse_button_mods_handler (GVariant *value,
                            gpointer *result,
                            gpointer  data)
 {
-  MetaVirtualModifier mods;
+  ClutterModifierType mods;
   const gchar *string_value;
 
   *result = NULL; /* ignored */
@@ -1286,12 +1227,10 @@ mouse_button_mods_handler (GVariant *value,
 
   if (!string_value || !meta_parse_modifier (string_value, &mods))
     {
-      meta_topic (META_DEBUG_KEYBINDINGS,
-                  "Failed to parse new GSettings value");
-
-      meta_warning ("\"%s\" found in configuration database is "
-                    "not a valid value for mouse button modifier",
-                    string_value);
+      g_warning ("Failed to parse new GSettings value: "
+                 "\"%s\" found in configuration database is "
+                 "not a valid value for mouse button modifier",
+                 string_value);
 
       return FALSE;
     }
@@ -1479,7 +1418,7 @@ button_layout_handler (GVariant *value,
   g_strfreev (sides);
 
   /* Invert the button layout for RTL languages */
-  if (meta_get_locale_direction() == META_LOCALE_DIRECTION_RTL)
+  if (clutter_get_text_direction() == CLUTTER_TEXT_DIRECTION_RTL)
     {
       MetaButtonLayout rtl_layout;
       int j;
@@ -1527,32 +1466,55 @@ button_layout_handler (GVariant *value,
 }
 
 static gboolean
+parse_special_key (const gchar  *string_value,
+                   MetaKeyCombo  combos[2])
+{
+  g_autofree gchar *string_value_l = NULL;
+  g_autofree gchar *string_value_r = NULL;
+
+  if (meta_parse_accelerator (string_value, &combos[0]))
+    return TRUE;
+
+  string_value_l = g_strconcat (string_value, "_L", NULL);
+  if (!meta_parse_accelerator (string_value_l, &combos[0]))
+    return FALSE;
+
+  string_value_r = g_strconcat (string_value, "_R", NULL);
+  if (!meta_parse_accelerator (string_value_r, &combos[1]))
+    return FALSE;
+
+  return TRUE;
+}
+
+static gboolean
 overlay_key_handler (GVariant *value,
                      gpointer *result,
                      gpointer  data)
 {
-  MetaKeyCombo combo;
+  MetaKeyCombo combos[2] = { 0 };
   const gchar *string_value;
+  int i;
 
   *result = NULL; /* ignored */
   string_value = g_variant_get_string (value, NULL);
 
-  if (string_value && meta_parse_accelerator (string_value, &combo))
-    ;
-  else
+  if (!string_value || !parse_special_key (string_value, combos))
     {
       meta_topic (META_DEBUG_KEYBINDINGS,
                   "Failed to parse value for overlay-key");
       return FALSE;
     }
 
-  combo.modifiers = 0;
-
-  if (overlay_key_combo.keysym != combo.keysym ||
-      overlay_key_combo.keycode != combo.keycode)
+  for (i = 0; i < G_N_ELEMENTS (combos); i++)
     {
-      overlay_key_combo = combo;
-      queue_changed (META_PREF_KEYBINDINGS);
+      combos[i].modifiers = 0;
+
+      if (overlay_key_combos[i].keysym != combos[i].keysym ||
+          overlay_key_combos[i].keycode != combos[i].keycode)
+        {
+          overlay_key_combos[i] = combos[i];
+          queue_changed (META_PREF_KEYBINDINGS);
+        }
     }
 
   return TRUE;
@@ -1563,26 +1525,30 @@ locate_pointer_key_handler (GVariant *value,
                             gpointer *result,
                             gpointer  data)
 {
-  MetaKeyCombo combo;
+  MetaKeyCombo combos[2] = { 0 };
   const gchar *string_value;
+  int i;
 
   *result = NULL; /* ignored */
   string_value = g_variant_get_string (value, NULL);
 
-  if (!string_value || !meta_parse_accelerator (string_value, &combo))
+  if (!string_value || !parse_special_key (string_value, combos))
     {
       meta_topic (META_DEBUG_KEYBINDINGS,
                   "Failed to parse value for locate-pointer-key");
       return FALSE;
     }
 
-  combo.modifiers = 0;
-
-  if (locate_pointer_key_combo.keysym != combo.keysym ||
-      locate_pointer_key_combo.keycode != combo.keycode)
+  for (i = 0; i < G_N_ELEMENTS (combos); i++)
     {
-      locate_pointer_key_combo = combo;
-      queue_changed (META_PREF_KEYBINDINGS);
+      combos[i].modifiers = 0;
+
+      if (locate_pointer_key_combos[i].keysym != combos[i].keysym ||
+          locate_pointer_key_combos[i].keycode != combos[i].keycode)
+        {
+          locate_pointer_key_combos[i] = combos[i];
+          queue_changed (META_PREF_KEYBINDINGS);
+        }
     }
 
   return TRUE;
@@ -1619,15 +1585,6 @@ iso_next_group_handler (GVariant *value,
   g_free (xkb_options);
 
   return TRUE;
-}
-
-const PangoFontDescription*
-meta_prefs_get_titlebar_font (void)
-{
-  if (use_system_font)
-    return NULL;
-  else
-    return titlebar_font;
 }
 
 int
@@ -1673,9 +1630,6 @@ meta_preference_to_string (MetaPreference pref)
     case META_PREF_RAISE_ON_CLICK:
       return "RAISE_ON_CLICK";
 
-    case META_PREF_TITLEBAR_FONT:
-      return "TITLEBAR_FONT";
-
     case META_PREF_NUM_WORKSPACES:
       return "NUM_WORKSPACES";
 
@@ -1719,7 +1673,7 @@ meta_preference_to_string (MetaPreference pref)
       return "VISUAL_BELL_TYPE";
 
     case META_PREF_GNOME_ACCESSIBILITY:
-      return "GNOME_ACCESSIBILTY";
+      return "GNOME_ACCESSIBILITY";
 
     case META_PREF_GNOME_ANIMATIONS:
       return "GNOME_ANIMATIONS";
@@ -1804,7 +1758,8 @@ init_bindings (void)
   pref = g_new0 (MetaKeyPref, 1);
   pref->name = g_strdup ("overlay-key");
   pref->action = META_KEYBINDING_ACTION_OVERLAY_KEY;
-  pref->combos = g_slist_prepend (pref->combos, &overlay_key_combo);
+  pref->combos = g_slist_prepend (pref->combos, &overlay_key_combos[0]);
+  pref->combos = g_slist_prepend (pref->combos, &overlay_key_combos[1]);
   pref->builtin = 1;
 
   g_hash_table_insert (key_bindings, g_strdup (pref->name), pref);
@@ -1812,7 +1767,8 @@ init_bindings (void)
   pref = g_new0 (MetaKeyPref, 1);
   pref->name = g_strdup ("locate-pointer-key");
   pref->action = META_KEYBINDING_ACTION_LOCATE_POINTER_KEY;
-  pref->combos = g_slist_prepend (pref->combos, &locate_pointer_key_combo);
+  pref->combos = g_slist_prepend (pref->combos, &locate_pointer_key_combos[0]);
+  pref->combos = g_slist_prepend (pref->combos, &locate_pointer_key_combos[1]);
   pref->builtin = 1;
 
   g_hash_table_insert (key_bindings, g_strdup (pref->name), pref);
@@ -1841,10 +1797,10 @@ update_binding (MetaKeyPref *binding,
 
       if (!meta_parse_accelerator (strokes[i], combo))
         {
-          meta_topic (META_DEBUG_KEYBINDINGS,
-                      "Failed to parse new GSettings value");
-          meta_warning ("\"%s\" found in configuration database is not a valid value for keybinding \"%s\"",
-                        strokes[i], binding->name);
+          g_warning ("Failed to parse new GSettings value: "
+                     "\"%s\" found in configuration database is not a valid "
+                     "value for keybinding \"%s\"",
+                     strokes[i], binding->name);
 
           g_free (combo);
 
@@ -2011,7 +1967,7 @@ meta_prefs_add_keybinding (const char           *name,
 
   if (g_hash_table_lookup (key_bindings, name))
     {
-      meta_warning ("Trying to re-add keybinding \"%s\".", name);
+      g_warning ("Trying to re-add keybinding \"%s\".", name);
       return FALSE;
     }
 
@@ -2061,13 +2017,13 @@ meta_prefs_remove_keybinding (const char *name)
   pref = g_hash_table_lookup (key_bindings, name);
   if (!pref)
     {
-      meta_warning ("Trying to remove non-existent keybinding \"%s\".", name);
+      g_warning ("Trying to remove non-existent keybinding \"%s\".", name);
       return FALSE;
     }
 
   if (pref->builtin)
     {
-      meta_warning ("Trying to remove builtin keybinding \"%s\".", name);
+      g_warning ("Trying to remove builtin keybinding \"%s\".", name);
       return FALSE;
     }
 
@@ -2088,15 +2044,17 @@ meta_prefs_get_keybindings (void)
 }
 
 void
-meta_prefs_get_overlay_binding (MetaKeyCombo *combo)
+meta_prefs_get_overlay_bindings (MetaKeyCombo combos[2])
 {
-  *combo = overlay_key_combo;
+  combos[0] = overlay_key_combos[0];
+  combos[1] = overlay_key_combos[1];
 }
 
 void
-meta_prefs_get_locate_pointer_binding (MetaKeyCombo *combo)
+meta_prefs_get_locate_pointer_bindings (MetaKeyCombo combos[2])
 {
-  *combo = locate_pointer_key_combo;
+  combos[0] = locate_pointer_key_combos[0];
+  combos[1] = locate_pointer_key_combos[1];
 }
 
 gboolean
@@ -2184,6 +2142,22 @@ meta_prefs_get_keybinding_action (const char *name)
 
   return pref ? pref->action
               : META_KEYBINDING_ACTION_NONE;
+}
+
+/**
+ * meta_prefs_get_keybinding_label:
+ * Returns: (transfer full) (nullable)
+ */
+char *
+meta_prefs_get_keybinding_label (const char *name)
+{
+  MetaKeyPref *pref = g_hash_table_lookup (key_bindings, name);
+  MetaKeyCombo *combo = NULL;
+
+  if (pref && pref->combos)
+    combo = pref->combos->data;
+
+  return combo ? meta_accelerator_name (combo->modifiers, combo->keysym) : NULL;
 }
 
 gint

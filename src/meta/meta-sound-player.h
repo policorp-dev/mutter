@@ -12,18 +12,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
-#ifndef META_SOUND_PLAYER_H
-#define META_SOUND_PLAYER_H
+
+#pragma once
 
 #include <gio/gio.h>
 
-#include <meta/common.h>
+#include "meta/common.h"
 
 #define META_TYPE_SOUND_PLAYER (meta_sound_player_get_type ())
 
@@ -42,5 +40,3 @@ void meta_sound_player_play_from_file  (MetaSoundPlayer *player,
                                         GFile           *file,
                                         const char      *description,
                                         GCancellable    *cancellable);
-
-#endif /* META_SOUND_PLAYER_H */

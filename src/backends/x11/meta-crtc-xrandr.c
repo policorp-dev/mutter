@@ -26,9 +26,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -50,8 +48,8 @@ struct _MetaCrtcXrandr
 {
   MetaCrtc parent;
 
-  MetaRectangle rect;
-  MetaMonitorTransform transform;
+  MtkRectangle rect;
+  MtkMonitorTransform transform;
   MetaCrtcMode *current_mode;
 };
 
@@ -113,31 +111,31 @@ meta_crtc_xrandr_set_config (MetaCrtcXrandr      *crtc_xrandr,
   return TRUE;
 }
 
-static MetaMonitorTransform
-meta_monitor_transform_from_xrandr (Rotation rotation)
+static MtkMonitorTransform
+mtk_monitor_transform_from_xrandr (Rotation rotation)
 {
-  static const MetaMonitorTransform y_reflected_map[4] = {
-    META_MONITOR_TRANSFORM_FLIPPED_180,
-    META_MONITOR_TRANSFORM_FLIPPED_90,
-    META_MONITOR_TRANSFORM_FLIPPED,
-    META_MONITOR_TRANSFORM_FLIPPED_270
+  static const MtkMonitorTransform y_reflected_map[4] = {
+    MTK_MONITOR_TRANSFORM_FLIPPED_180,
+    MTK_MONITOR_TRANSFORM_FLIPPED_90,
+    MTK_MONITOR_TRANSFORM_FLIPPED,
+    MTK_MONITOR_TRANSFORM_FLIPPED_270
   };
-  MetaMonitorTransform ret;
+  MtkMonitorTransform ret;
 
   switch (rotation & 0x7F)
     {
     default:
     case RR_Rotate_0:
-      ret = META_MONITOR_TRANSFORM_NORMAL;
+      ret = MTK_MONITOR_TRANSFORM_NORMAL;
       break;
     case RR_Rotate_90:
-      ret = META_MONITOR_TRANSFORM_90;
+      ret = MTK_MONITOR_TRANSFORM_90;
       break;
     case RR_Rotate_180:
-      ret = META_MONITOR_TRANSFORM_180;
+      ret = MTK_MONITOR_TRANSFORM_180;
       break;
     case RR_Rotate_270:
-      ret = META_MONITOR_TRANSFORM_270;
+      ret = MTK_MONITOR_TRANSFORM_270;
       break;
     }
 
@@ -151,35 +149,35 @@ meta_monitor_transform_from_xrandr (Rotation rotation)
 
 #define ALL_ROTATIONS (RR_Rotate_0 | RR_Rotate_90 | RR_Rotate_180 | RR_Rotate_270)
 
-static MetaMonitorTransform
-meta_monitor_transform_from_xrandr_all (Rotation rotation)
+static MtkMonitorTransform
+mtk_monitor_transform_from_xrandr_all (Rotation rotation)
 {
   unsigned ret;
 
   /* Handle the common cases first (none or all) */
   if (rotation == 0 || rotation == RR_Rotate_0)
-    return (1 << META_MONITOR_TRANSFORM_NORMAL);
+    return (1 << MTK_MONITOR_TRANSFORM_NORMAL);
 
   /* All rotations and one reflection -> all of them by composition */
   if ((rotation & ALL_ROTATIONS) &&
       ((rotation & RR_Reflect_X) || (rotation & RR_Reflect_Y)))
-    return META_MONITOR_ALL_TRANSFORMS;
+    return MTK_MONITOR_ALL_TRANSFORMS;
 
-  ret = 1 << META_MONITOR_TRANSFORM_NORMAL;
+  ret = 1 << MTK_MONITOR_TRANSFORM_NORMAL;
   if (rotation & RR_Rotate_90)
-    ret |= 1 << META_MONITOR_TRANSFORM_90;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_90;
   if (rotation & RR_Rotate_180)
-    ret |= 1 << META_MONITOR_TRANSFORM_180;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_180;
   if (rotation & RR_Rotate_270)
-    ret |= 1 << META_MONITOR_TRANSFORM_270;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_270;
   if (rotation & (RR_Rotate_0 | RR_Reflect_X))
-    ret |= 1 << META_MONITOR_TRANSFORM_FLIPPED;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_FLIPPED;
   if (rotation & (RR_Rotate_90 | RR_Reflect_X))
-    ret |= 1 << META_MONITOR_TRANSFORM_FLIPPED_90;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_FLIPPED_90;
   if (rotation & (RR_Rotate_180 | RR_Reflect_X))
-    ret |= 1 << META_MONITOR_TRANSFORM_FLIPPED_180;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_FLIPPED_180;
   if (rotation & (RR_Rotate_270 | RR_Reflect_X))
-    ret |= 1 << META_MONITOR_TRANSFORM_FLIPPED_270;
+    ret |= 1 << MTK_MONITOR_TRANSFORM_FLIPPED_270;
 
   return ret;
 }
@@ -235,27 +233,28 @@ meta_crtc_xrandr_new (MetaGpuXrandr      *gpu_xrandr,
     META_MONITOR_MANAGER_XRANDR (monitor_manager);
   Display *xdisplay =
     meta_monitor_manager_xrandr_get_xdisplay (monitor_manager_xrandr);
-  MetaMonitorTransform all_transforms;
+  MtkMonitorTransform all_transforms;
   MetaCrtcXrandr *crtc_xrandr;
   XRRPanning *panning;
   unsigned int i;
   GList *modes;
 
   all_transforms =
-    meta_monitor_transform_from_xrandr_all (xrandr_crtc->rotations);
+    mtk_monitor_transform_from_xrandr_all (xrandr_crtc->rotations);
   crtc_xrandr = g_object_new (META_TYPE_CRTC_XRANDR,
                               "id", (uint64_t) crtc_id,
+                              "backend", backend,
                               "gpu", gpu,
                               "all-transforms", all_transforms,
                               NULL);
 
   crtc_xrandr->transform =
-    meta_monitor_transform_from_xrandr (xrandr_crtc->rotation);
+    mtk_monitor_transform_from_xrandr (xrandr_crtc->rotation);
 
   panning = XRRGetPanning (xdisplay, resources, crtc_id);
   if (panning && panning->width > 0 && panning->height > 0)
     {
-      crtc_xrandr->rect = (MetaRectangle) {
+      crtc_xrandr->rect = (MtkRectangle) {
         .x = panning->left,
         .y = panning->top,
         .width = panning->width,
@@ -264,7 +263,7 @@ meta_crtc_xrandr_new (MetaGpuXrandr      *gpu_xrandr,
     }
   else
     {
-      crtc_xrandr->rect = (MetaRectangle) {
+      crtc_xrandr->rect = (MtkRectangle) {
         .x = xrandr_crtc->x,
         .y = xrandr_crtc->y,
         .width = xrandr_crtc->width,
@@ -285,13 +284,16 @@ meta_crtc_xrandr_new (MetaGpuXrandr      *gpu_xrandr,
 
   if (crtc_xrandr->current_mode)
     {
-      meta_crtc_set_config (META_CRTC (crtc_xrandr),
-                            &GRAPHENE_RECT_INIT (crtc_xrandr->rect.x,
-                                                 crtc_xrandr->rect.y,
-                                                 crtc_xrandr->rect.width,
-                                                 crtc_xrandr->rect.height),
-                            crtc_xrandr->current_mode,
-                            crtc_xrandr->transform);
+      MetaCrtcConfig *crtc_config;
+
+      crtc_config =
+        meta_crtc_config_new (&GRAPHENE_RECT_INIT (crtc_xrandr->rect.x,
+                                                   crtc_xrandr->rect.y,
+                                                   crtc_xrandr->rect.width,
+                                                   crtc_xrandr->rect.height),
+                              crtc_xrandr->current_mode,
+                              crtc_xrandr->transform);
+      meta_crtc_set_config (META_CRTC (crtc_xrandr), crtc_config, NULL);
     }
 
   return crtc_xrandr;

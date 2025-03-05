@@ -14,13 +14,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_LOGICAL_MONITOR_H
-#define META_LOGICAL_MONITOR_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -37,27 +34,20 @@ struct _MetaLogicalMonitor
   GObject parent;
 
   int number;
-  MetaRectangle rect;
+  MtkRectangle rect;
   gboolean is_primary;
   gboolean is_presentation; /* XXX: not yet used */
   gboolean in_fullscreen;
   float scale;
-  MetaMonitorTransform transform;
-
-  /* The primary or first output for this monitor, 0 if we can't figure out.
-     It can be matched to a winsys_id of a MetaOutput.
-
-     This is used as an opaque token on reconfiguration when switching from
-     clone to extended, to decide on what output the windows should go next
-     (it's an attempt to keep windows on the same monitor, and preferably on
-     the primary one).
-  */
-  uint64_t winsys_id;
+  MtkMonitorTransform transform;
 
   GList *monitors;
 };
 
+typedef struct _MetaLogicalMonitorId MetaLogicalMonitorId;
+
 #define META_TYPE_LOGICAL_MONITOR (meta_logical_monitor_get_type ())
+META_EXPORT_TEST
 G_DECLARE_FINAL_TYPE (MetaLogicalMonitor, meta_logical_monitor,
                       META, LOGICAL_MONITOR,
                       GObject)
@@ -74,7 +64,7 @@ MetaLogicalMonitor * meta_logical_monitor_new (MetaMonitorManager       *monitor
 
 MetaLogicalMonitor * meta_logical_monitor_new_derived (MetaMonitorManager *monitor_manager,
                                                        MetaMonitor        *monitor,
-                                                       MetaRectangle      *layout,
+                                                       MtkRectangle       *layout,
                                                        float               scale,
                                                        int                 monitor_number);
 
@@ -86,12 +76,13 @@ gboolean meta_logical_monitor_is_primary (MetaLogicalMonitor *logical_monitor);
 
 void meta_logical_monitor_make_primary (MetaLogicalMonitor *logical_monitor);
 
+META_EXPORT_TEST
 float meta_logical_monitor_get_scale (MetaLogicalMonitor *logical_monitor);
 
-MetaMonitorTransform meta_logical_monitor_get_transform (MetaLogicalMonitor *logical_monitor);
+MtkMonitorTransform meta_logical_monitor_get_transform (MetaLogicalMonitor *logical_monitor);
 
 META_EXPORT_TEST
-MetaRectangle meta_logical_monitor_get_layout (MetaLogicalMonitor *logical_monitor);
+MtkRectangle meta_logical_monitor_get_layout (MetaLogicalMonitor *logical_monitor);
 
 META_EXPORT_TEST
 GList * meta_logical_monitor_get_monitors (MetaLogicalMonitor *logical_monitor);
@@ -104,4 +95,13 @@ void meta_logical_monitor_foreach_crtc (MetaLogicalMonitor        *logical_monit
                                         MetaLogicalMonitorCrtcFunc func,
                                         gpointer                   user_data);
 
-#endif /* META_LOGICAL_MONITOR_H */
+void meta_logical_monitor_id_free (MetaLogicalMonitorId *id);
+
+MetaLogicalMonitorId * meta_logical_monitor_id_dup (const MetaLogicalMonitorId *id);
+
+gboolean meta_logical_monitor_id_equal (const MetaLogicalMonitorId *id,
+                                        const MetaLogicalMonitorId *other_id);
+
+const MetaLogicalMonitorId * meta_logical_monitor_get_id (MetaLogicalMonitor *logical_monitor);
+
+MetaLogicalMonitorId * meta_logical_monitor_dup_id (MetaLogicalMonitor *logical_monitor);

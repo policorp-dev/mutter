@@ -8,7 +8,7 @@ static void
 create_pipeline (CoglTexture **tex_out,
                  CoglPipeline **pipeline_out)
 {
-  CoglTexture2D *tex;
+  CoglTexture *tex;
   CoglPipeline *pipeline;
   static const uint8_t tex_data[] =
     { 0x00, 0x44, 0x88, 0xcc };
@@ -30,7 +30,7 @@ create_pipeline (CoglTexture **tex_out,
                                      0, /* layer */
                                      COGL_PIPELINE_WRAP_MODE_CLAMP_TO_EDGE);
 
-  /* This is the layer combine used by cogl-pango */
+  /* This is the layer combine used by clutter text rendering */
   cogl_pipeline_set_layer_combine (pipeline,
                                    0, /* layer */
                                    "RGBA = MODULATE (PREVIOUS, TEXTURE[A])",
@@ -76,10 +76,10 @@ test_alpha_textures (void)
                                    -1.0f, 0.0f, /* x1/y1 */
                                    1.0f, -1.0f /* x2/y2 */);
 
-  cogl_object_unref (tex1);
-  cogl_object_unref (tex2);
-  cogl_object_unref (pipeline1);
-  cogl_object_unref (pipeline2);
+  g_object_unref (tex1);
+  g_object_unref (tex2);
+  g_object_unref (pipeline1);
+  g_object_unref (pipeline2);
 
   /* Unmodified texture */
   test_utils_check_pixel (test_fb,

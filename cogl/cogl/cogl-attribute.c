@@ -31,30 +31,48 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-util.h"
-#include "cogl-context-private.h"
-#include "cogl-object-private.h"
-#include "cogl-journal-private.h"
-#include "cogl-attribute.h"
-#include "cogl-attribute-private.h"
-#include "cogl-pipeline.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-indices-private.h"
-#include "cogl-private.h"
-#include "cogl-gtype-private.h"
+#include "cogl/cogl-util.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-journal-private.h"
+#include "cogl/cogl-attribute.h"
+#include "cogl/cogl-attribute-private.h"
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-indices-private.h"
+#include "cogl/cogl-private.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-static void _cogl_attribute_free (CoglAttribute *attribute);
+G_DEFINE_FINAL_TYPE (CoglAttribute, cogl_attribute, G_TYPE_OBJECT);
 
-COGL_OBJECT_DEFINE (Attribute, attribute);
-COGL_GTYPE_DEFINE_CLASS (Attribute, attribute);
+static void
+cogl_attribute_dispose (GObject *object)
+{
+  CoglAttribute *attribute = COGL_ATTRIBUTE (object);
+
+  g_clear_object (&attribute->attribute_buffer);
+
+  G_OBJECT_CLASS (cogl_attribute_parent_class)->dispose (object);
+}
+
+static void
+cogl_attribute_init (CoglAttribute *attribute)
+{
+}
+
+static void
+cogl_attribute_class_init (CoglAttributeClass *class)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (class);
+
+  object_class->dispose = cogl_attribute_dispose;
+}
 
 static gboolean
 validate_cogl_attribute_name (const char *name,
@@ -190,11 +208,9 @@ cogl_attribute_new (CoglAttributeBuffer *attribute_buffer,
                     int n_components,
                     CoglAttributeType type)
 {
-  CoglAttribute *attribute = g_new0 (CoglAttribute, 1);
+  CoglAttribute *attribute = g_object_new (COGL_TYPE_ATTRIBUTE, NULL);
   CoglBuffer *buffer = COGL_BUFFER (attribute_buffer);
   CoglContext *ctx = buffer->context;
-
-  attribute->is_buffered = TRUE;
 
   attribute->name_state =
     g_hash_table_lookup (ctx->attribute_name_states_hash, name);
@@ -207,13 +223,11 @@ cogl_attribute_new (CoglAttributeBuffer *attribute_buffer,
       attribute->name_state = name_state;
     }
 
-  attribute->d.buffered.attribute_buffer = cogl_object_ref (attribute_buffer);
-  attribute->d.buffered.stride = stride;
-  attribute->d.buffered.offset = offset;
-  attribute->d.buffered.n_components = n_components;
-  attribute->d.buffered.type = type;
-
-  attribute->immutable_ref = 0;
+  attribute->attribute_buffer = g_object_ref (attribute_buffer);
+  attribute->stride = stride;
+  attribute->offset = offset;
+  attribute->n_components = n_components;
+  attribute->type = type;
 
   if (attribute->name_state->name_id != COGL_ATTRIBUTE_NAME_ID_CUSTOM_ARRAY)
     {
@@ -225,241 +239,18 @@ cogl_attribute_new (CoglAttributeBuffer *attribute_buffer,
   else
     attribute->normalized = FALSE;
 
-  return _cogl_attribute_object_new (attribute);
+  return attribute;
 
 error:
-  _cogl_attribute_free (attribute);
+  g_object_unref (attribute);
   return NULL;
-}
-
-static CoglAttribute *
-_cogl_attribute_new_const (CoglContext *context,
-                           const char *name,
-                           int n_components,
-                           int n_columns,
-                           gboolean transpose,
-                           const float *value)
-{
-  CoglAttribute *attribute = g_new0 (CoglAttribute, 1);
-
-  attribute->name_state =
-    g_hash_table_lookup (context->attribute_name_states_hash, name);
-  if (!attribute->name_state)
-    {
-      CoglAttributeNameState *name_state =
-        _cogl_attribute_register_attribute_name (context, name);
-      if (!name_state)
-        goto error;
-      attribute->name_state = name_state;
-    }
-
-  if (!validate_n_components (attribute->name_state, n_components))
-    goto error;
-
-  attribute->is_buffered = FALSE;
-  attribute->normalized = FALSE;
-
-  attribute->d.constant.context = cogl_object_ref (context);
-
-  attribute->d.constant.boxed.v.array = NULL;
-
-  if (n_columns == 1)
-    {
-      _cogl_boxed_value_set_float (&attribute->d.constant.boxed,
-                                   n_components,
-                                   1,
-                                   value);
-    }
-  else
-    {
-      /* FIXME: Up until GL[ES] 3 only square matrices were supported
-       * and we don't currently expose non-square matrices in Cogl.
-       */
-      g_return_val_if_fail (n_columns == n_components, NULL);
-      _cogl_boxed_value_set_matrix (&attribute->d.constant.boxed,
-                                    n_columns,
-                                    1,
-                                    transpose,
-                                    value);
-    }
-
-  return _cogl_attribute_object_new (attribute);
-
-error:
-  _cogl_attribute_free (attribute);
-  return NULL;
-}
-
-CoglAttribute *
-cogl_attribute_new_const_1f (CoglContext *context,
-                             const char *name,
-                             float value)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    1, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    &value);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_2fv (CoglContext *context,
-                              const char *name,
-                              const float *value)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    2, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    value);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_3fv (CoglContext *context,
-                              const char *name,
-                              const float *value)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    3, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    value);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_4fv (CoglContext *context,
-                              const char *name,
-                              const float *value)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    4, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    value);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_2f (CoglContext *context,
-                             const char *name,
-                             float component0,
-                             float component1)
-{
-  float vec2[2] = { component0, component1 };
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    2, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    vec2);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_3f (CoglContext *context,
-                             const char *name,
-                             float component0,
-                             float component1,
-                             float component2)
-{
-  float vec3[3] = { component0, component1, component2 };
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    3, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    vec3);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_4f (CoglContext *context,
-                             const char *name,
-                             float component0,
-                             float component1,
-                             float component2,
-                             float component3)
-{
-  float vec4[4] = { component0, component1, component2, component3 };
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    4, /* n_components */
-                                    1, /* 1 column vector */
-                                    FALSE, /* no transpose */
-                                    vec4);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_2x2fv (CoglContext *context,
-                                const char *name,
-                                const float *matrix2x2,
-                                gboolean transpose)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    2, /* n_components */
-                                    2, /* 2 column vector */
-                                    FALSE, /* no transpose */
-                                    matrix2x2);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_3x3fv (CoglContext *context,
-                                const char *name,
-                                const float *matrix3x3,
-                                gboolean transpose)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    3, /* n_components */
-                                    3, /* 3 column vector */
-                                    FALSE, /* no transpose */
-                                    matrix3x3);
-}
-
-CoglAttribute *
-cogl_attribute_new_const_4x4fv (CoglContext *context,
-                                const char *name,
-                                const float *matrix4x4,
-                                gboolean transpose)
-{
-  return _cogl_attribute_new_const (context,
-                                    name,
-                                    4, /* n_components */
-                                    4, /* 4 column vector */
-                                    FALSE, /* no transpose */
-                                    matrix4x4);
-}
-
-gboolean
-cogl_attribute_get_normalized (CoglAttribute *attribute)
-{
-  g_return_val_if_fail (cogl_is_attribute (attribute), FALSE);
-
-  return attribute->normalized;
-}
-
-static void
-warn_about_midscene_changes (void)
-{
-  static gboolean seen = FALSE;
-  if (!seen)
-    {
-      g_warning ("Mid-scene modification of attributes has "
-                 "undefined results\n");
-      seen = TRUE;
-    }
 }
 
 void
 cogl_attribute_set_normalized (CoglAttribute *attribute,
                                       gboolean normalized)
 {
-  g_return_if_fail (cogl_is_attribute (attribute));
-
-  if (G_UNLIKELY (attribute->immutable_ref))
-    warn_about_midscene_changes ();
+  g_return_if_fail (COGL_IS_ATTRIBUTE (attribute));
 
   attribute->normalized = normalized;
 }
@@ -467,61 +258,9 @@ cogl_attribute_set_normalized (CoglAttribute *attribute,
 CoglAttributeBuffer *
 cogl_attribute_get_buffer (CoglAttribute *attribute)
 {
-  g_return_val_if_fail (cogl_is_attribute (attribute), NULL);
-  g_return_val_if_fail (attribute->is_buffered, NULL);
+  g_return_val_if_fail (COGL_IS_ATTRIBUTE (attribute), NULL);
 
-  return attribute->d.buffered.attribute_buffer;
-}
-
-void
-cogl_attribute_set_buffer (CoglAttribute *attribute,
-                           CoglAttributeBuffer *attribute_buffer)
-{
-  g_return_if_fail (cogl_is_attribute (attribute));
-  g_return_if_fail (attribute->is_buffered);
-
-  if (G_UNLIKELY (attribute->immutable_ref))
-    warn_about_midscene_changes ();
-
-  cogl_object_ref (attribute_buffer);
-
-  cogl_object_unref (attribute->d.buffered.attribute_buffer);
-  attribute->d.buffered.attribute_buffer = attribute_buffer;
-}
-
-CoglAttribute *
-_cogl_attribute_immutable_ref (CoglAttribute *attribute)
-{
-  CoglBuffer *buffer = COGL_BUFFER (attribute->d.buffered.attribute_buffer);
-
-  g_return_val_if_fail (cogl_is_attribute (attribute), NULL);
-
-  attribute->immutable_ref++;
-  _cogl_buffer_immutable_ref (buffer);
-  return attribute;
-}
-
-void
-_cogl_attribute_immutable_unref (CoglAttribute *attribute)
-{
-  CoglBuffer *buffer = COGL_BUFFER (attribute->d.buffered.attribute_buffer);
-
-  g_return_if_fail (cogl_is_attribute (attribute));
-  g_return_if_fail (attribute->immutable_ref > 0);
-
-  attribute->immutable_ref--;
-  _cogl_buffer_immutable_unref (buffer);
-}
-
-static void
-_cogl_attribute_free (CoglAttribute *attribute)
-{
-  if (attribute->is_buffered)
-    cogl_object_unref (attribute->d.buffered.attribute_buffer);
-  else
-    _cogl_boxed_value_destroy (&attribute->d.constant.boxed);
-
-  g_free (attribute);
+  return attribute->attribute_buffer;
 }
 
 static gboolean
@@ -544,7 +283,7 @@ validate_layer_cb (CoglPipeline *pipeline,
   /* Give the texture a chance to know that we're rendering
      non-quad shaped primitives. If the texture is in an atlas it
      will be migrated */
-  _cogl_texture_ensure_non_quad_rendering (texture);
+  COGL_TEXTURE_GET_CLASS (texture)->ensure_non_quad_rendering (texture);
 
   /* We need to ensure the mipmaps are ready before deciding
    * anything else about the texture because the texture storate
@@ -555,7 +294,7 @@ validate_layer_cb (CoglPipeline *pipeline,
 
   if (!_cogl_texture_can_hardware_repeat (texture))
     {
-      g_warning ("Disabling layer %d of the current source material, "
+      g_warning ("Disabling layer %d of the current source pipeline, "
                  "because texturing with the vertex buffer API is not "
                  "currently supported using sliced textures, or textures "
                  "with waste\n", layer_index);
@@ -590,6 +329,7 @@ _cogl_flush_attributes_state (CoglFramebuffer *framebuffer,
   CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
   CoglFlushLayerState layers_state;
   CoglPipeline *copy = NULL;
+  CoglDriverClass *driver_klass = COGL_DRIVER_GET_CLASS (ctx->driver);
 
   if (!(flags & COGL_DRAW_SKIP_JOURNAL_FLUSH))
     _cogl_framebuffer_flush_journal (framebuffer);
@@ -623,22 +363,23 @@ _cogl_flush_attributes_state (CoglFramebuffer *framebuffer,
    * when the framebuffer really does get drawn to. */
   _cogl_framebuffer_mark_clear_clip_dirty (framebuffer);
 
-  ctx->driver_vtable->flush_attributes_state (framebuffer,
-                                              pipeline,
-                                              &layers_state,
-                                              flags,
-                                              attributes,
-                                              n_attributes);
+  if (driver_klass->flush_attributes_state)
+    {
+      driver_klass->flush_attributes_state (ctx->driver,
+                                            framebuffer,
+                                            pipeline,
+                                            &layers_state,
+                                            flags,
+                                            attributes,
+                                            n_attributes);
+    }
 
   if (copy)
-    cogl_object_unref (copy);
+    g_object_unref (copy);
 }
 
 int
 _cogl_attribute_get_n_components (CoglAttribute *attribute)
 {
-  if (attribute->is_buffered)
-    return attribute->d.buffered.n_components;
-  else
-    return attribute->d.constant.boxed.size;
+  return attribute->n_components;
 }

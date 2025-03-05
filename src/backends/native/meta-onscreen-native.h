@@ -12,14 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_ONSCREEN_NATIVE_H
-#define META_ONSCREEN_NATIVE_H
+#pragma once
 
 #include <glib.h>
 
@@ -37,13 +34,21 @@ G_DECLARE_FINAL_TYPE (MetaOnscreenNative, meta_onscreen_native,
 
 void meta_renderer_native_release_onscreen (CoglOnscreen *onscreen);
 
+void meta_onscreen_native_prepare_frame (CoglOnscreen *onscreen,
+                                         ClutterFrame *frame);
+
+void meta_onscreen_native_before_redraw (CoglOnscreen *onscreen,
+                                         ClutterFrame *frame);
+
 void meta_onscreen_native_finish_frame (CoglOnscreen *onscreen,
                                         ClutterFrame *frame);
 
 void meta_onscreen_native_dummy_power_save_page_flip (CoglOnscreen *onscreen);
 
-gboolean meta_onscreen_native_is_buffer_scanout_compatible (CoglOnscreen  *onscreen,
-                                                            MetaDrmBuffer *fb);
+gboolean meta_onscreen_native_is_buffer_scanout_compatible (CoglOnscreen *onscreen,
+                                                            CoglScanout  *scanout);
+
+void meta_onscreen_native_discard_pending_swaps (CoglOnscreen *onscreen);
 
 void meta_onscreen_native_set_view (CoglOnscreen     *onscreen,
                                     MetaRendererView *view);
@@ -59,4 +64,11 @@ MetaOnscreenNative * meta_onscreen_native_new (MetaRendererNative *renderer_nati
 META_EXPORT_TEST
 MetaCrtc * meta_onscreen_native_get_crtc (MetaOnscreenNative *onscreen_native);
 
-#endif /* META_ONSCREEN_NATIVE_H */
+void meta_onscreen_native_invalidate (MetaOnscreenNative *onscreen_native);
+
+void meta_onscreen_native_detach (MetaOnscreenNative *onscreen_native);
+
+void meta_onscreen_native_request_frame_sync (MetaOnscreenNative *onscreen_native,
+                                              gboolean            enabled);
+
+gboolean meta_onscreen_native_is_frame_sync_enabled (MetaOnscreenNative *onscreen_native);

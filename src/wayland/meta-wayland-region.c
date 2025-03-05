@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
@@ -24,12 +22,13 @@
 
 #include "config.h"
 
+#include "mtk/mtk.h"
 #include "wayland/meta-wayland-region.h"
 
 struct _MetaWaylandRegion
 {
   struct wl_resource *resource;
-  cairo_region_t *region;
+  MtkRegion *region;
 };
 
 static void
@@ -40,31 +39,31 @@ wl_region_destroy (struct wl_client *client,
 }
 
 static void
-wl_region_add (struct wl_client *client,
+wl_region_add (struct wl_client   *client,
                struct wl_resource *resource,
-               gint32 x,
-               gint32 y,
-               gint32 width,
-               gint32 height)
+               gint32              x,
+               gint32              y,
+               gint32              width,
+               gint32              height)
 {
   MetaWaylandRegion *region = wl_resource_get_user_data (resource);
-  cairo_rectangle_int_t rectangle = { x, y, width, height };
+  MtkRectangle rectangle = { x, y, width, height };
 
-  cairo_region_union_rectangle (region->region, &rectangle);
+  mtk_region_union_rectangle (region->region, &rectangle);
 }
 
 static void
-wl_region_subtract (struct wl_client *client,
+wl_region_subtract (struct wl_client   *client,
                     struct wl_resource *resource,
-                    gint32 x,
-                    gint32 y,
-                    gint32 width,
-                    gint32 height)
+                    gint32              x,
+                    gint32              y,
+                    gint32              width,
+                    gint32              height)
 {
   MetaWaylandRegion *region = wl_resource_get_user_data (resource);
-  cairo_rectangle_int_t rectangle = { x, y, width, height };
+  MtkRectangle rectangle = { x, y, width, height };
 
-  cairo_region_subtract_rectangle (region->region, &rectangle);
+  mtk_region_subtract_rectangle (region->region, &rectangle);
 }
 
 static const struct wl_region_interface meta_wayland_wl_region_interface = {
@@ -78,7 +77,7 @@ wl_region_destructor (struct wl_resource *resource)
 {
   MetaWaylandRegion *region = wl_resource_get_user_data (resource);
 
-  cairo_region_destroy (region->region);
+  g_clear_pointer (&region->region, mtk_region_unref);
   g_free (region);
 }
 
@@ -93,13 +92,13 @@ meta_wayland_region_create (MetaWaylandCompositor *compositor,
   region->resource = wl_resource_create (client, &wl_region_interface, wl_resource_get_version (compositor_resource), id);
   wl_resource_set_implementation (region->resource, &meta_wayland_wl_region_interface, region, wl_region_destructor);
 
-  region->region = cairo_region_create ();
+  region->region = mtk_region_create ();
 
   return region;
 }
 
-cairo_region_t *
-meta_wayland_region_peek_cairo_region (MetaWaylandRegion *region)
+MtkRegion *
+meta_wayland_region_peek_region (MetaWaylandRegion *region)
 {
   return region->region;
 }

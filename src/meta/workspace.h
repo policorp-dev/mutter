@@ -18,11 +18,10 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WORKSPACE_H
-#define META_WORKSPACE_H
+#pragma once
 
-#include <meta/types.h>
-#include <meta/boxes.h>
+#include "meta/types.h"
+#include "meta/boxes.h"
 
 #define META_TYPE_WORKSPACE            (meta_workspace_get_type ())
 #define META_WORKSPACE(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), META_TYPE_WORKSPACE, MetaWorkspace))
@@ -48,11 +47,11 @@ GList* meta_workspace_list_windows (MetaWorkspace *workspace);
 META_EXPORT
 void meta_workspace_get_work_area_for_monitor (MetaWorkspace *workspace,
                                                int            which_monitor,
-                                               MetaRectangle *area);
+                                               MtkRectangle  *area);
 
 META_EXPORT
 void meta_workspace_get_work_area_all_monitors (MetaWorkspace *workspace,
-                                                MetaRectangle *area);
+                                                MtkRectangle  *area);
 
 META_EXPORT
 void meta_workspace_activate (MetaWorkspace *workspace, guint32 timestamp);
@@ -69,5 +68,3 @@ void meta_workspace_set_builtin_struts (MetaWorkspace *workspace,
 META_EXPORT
 MetaWorkspace* meta_workspace_get_neighbor (MetaWorkspace      *workspace,
                                             MetaMotionDirection direction);
-
-#endif

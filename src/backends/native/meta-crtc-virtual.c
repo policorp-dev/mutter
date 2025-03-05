@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -31,9 +29,11 @@ struct _MetaCrtcVirtual
 G_DEFINE_TYPE (MetaCrtcVirtual, meta_crtc_virtual, META_TYPE_CRTC_NATIVE)
 
 MetaCrtcVirtual *
-meta_crtc_virtual_new (uint64_t id)
+meta_crtc_virtual_new (MetaBackend *backend,
+                       uint64_t     id)
 {
   return g_object_new (META_TYPE_CRTC_VIRTUAL,
+                       "backend", backend,
                        "id", META_CRTC_VIRTUAL_ID_BIT | id,
                        NULL);
 }
@@ -58,16 +58,22 @@ meta_crtc_virtual_set_gamma_lut (MetaCrtc           *crtc,
 }
 
 static gboolean
-meta_crtc_virtual_is_transform_handled (MetaCrtcNative       *crtc_native,
-                                        MetaMonitorTransform  transform)
+meta_crtc_virtual_is_transform_handled (MetaCrtcNative      *crtc_native,
+                                        MtkMonitorTransform  transform)
 {
-  return transform == META_MONITOR_TRANSFORM_NORMAL;
+  return transform == MTK_MONITOR_TRANSFORM_NORMAL;
 }
 
 static gboolean
 meta_crtc_virtual_is_hw_cursor_supported (MetaCrtcNative *crtc_native)
 {
   return TRUE;
+}
+
+static int64_t
+meta_crtc_virtual_get_deadline_evasion (MetaCrtcNative *crtc_native)
+{
+  return 0;
 }
 
 static void
@@ -89,4 +95,6 @@ meta_crtc_virtual_class_init (MetaCrtcVirtualClass *klass)
     meta_crtc_virtual_is_transform_handled;
   crtc_native_class->is_hw_cursor_supported =
     meta_crtc_virtual_is_hw_cursor_supported;
+  crtc_native_class->get_deadline_evasion =
+    meta_crtc_virtual_get_deadline_evasion;
 }

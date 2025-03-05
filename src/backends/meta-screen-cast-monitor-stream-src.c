@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -44,6 +42,12 @@ struct _MetaScreenCastMonitorStreamSrc
   gboolean cursor_bitmap_invalid;
   gboolean hw_cursor_inhibited;
 
+  struct {
+    gboolean set;
+    int x;
+    int y;
+  } last_cursor_matadata;
+
   GList *watches;
 
   gulong position_invalidated_handler_id;
@@ -61,6 +65,18 @@ G_DEFINE_TYPE_WITH_CODE (MetaScreenCastMonitorStreamSrc,
                          META_TYPE_SCREEN_CAST_STREAM_SRC,
                          G_IMPLEMENT_INTERFACE (META_TYPE_HW_CURSOR_INHIBITOR,
                                                 hw_cursor_inhibitor_iface_init))
+
+static MetaBackend *
+get_backend (MetaScreenCastMonitorStreamSrc *monitor_src)
+{
+  MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
+  MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
+  MetaScreenCastSession *session = meta_screen_cast_stream_get_session (stream);
+  MetaScreenCast *screen_cast =
+    meta_screen_cast_session_get_screen_cast (session);
+
+  return meta_screen_cast_get_backend (screen_cast);
+}
 
 static ClutterStage *
 get_stage (MetaScreenCastMonitorStreamSrc *monitor_src)
@@ -98,6 +114,7 @@ meta_screen_cast_monitor_stream_src_get_specs (MetaScreenCastStreamSrc *src,
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (src);
+  MetaBackend *backend = get_backend (monitor_src);
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
   float scale;
@@ -107,7 +124,7 @@ meta_screen_cast_monitor_stream_src_get_specs (MetaScreenCastStreamSrc *src,
   logical_monitor = meta_monitor_get_logical_monitor (monitor);
   mode = meta_monitor_get_current_mode (monitor);
 
-  if (meta_is_stage_views_scaled ())
+  if (meta_backend_is_stage_views_scaled (backend))
     scale = logical_monitor->scale;
   else
     scale = 1.0;
@@ -119,72 +136,98 @@ meta_screen_cast_monitor_stream_src_get_specs (MetaScreenCastStreamSrc *src,
   return TRUE;
 }
 
-static gboolean
+static void
 maybe_record_frame_on_idle (gpointer user_data)
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (user_data);
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
 
   monitor_src->maybe_record_idle_id = 0;
 
   flags = META_SCREEN_CAST_RECORD_FLAG_NONE;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
-
-  return G_SOURCE_REMOVE;
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_DETACHED;
+  meta_screen_cast_stream_src_maybe_record_frame (src, flags, paint_phase, NULL);
 }
 
 static void
-stage_painted (MetaStage           *stage,
-               ClutterStageView    *view,
-               ClutterPaintContext *paint_context,
-               gpointer             user_data)
+stage_painted (MetaStage        *stage,
+               ClutterStageView *view,
+               const MtkRegion  *redraw_clip,
+               ClutterFrame     *frame,
+               gpointer          user_data)
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (user_data);
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
+  MetaScreenCastRecordResult record_result =
+    META_SCREEN_CAST_RECORD_RESULT_RECORDED_NOTHING;
+  int64_t presentation_time_us;
 
   if (monitor_src->maybe_record_idle_id)
     return;
 
-  monitor_src->maybe_record_idle_id = g_idle_add (maybe_record_frame_on_idle,
-                                                  src);
-  g_source_set_name_by_id (monitor_src->maybe_record_idle_id,
-                           "[mutter] maybe_record_frame_on_idle [monitor-src]");
+  if (!clutter_frame_get_target_presentation_time (frame, &presentation_time_us))
+    presentation_time_us = g_get_monotonic_time ();
+
+  if (meta_screen_cast_stream_src_uses_dma_bufs (src))
+    {
+      MetaScreenCastRecordFlag flags = META_SCREEN_CAST_RECORD_FLAG_NONE;
+      MetaScreenCastPaintPhase paint_phase =
+        META_SCREEN_CAST_PAINT_PHASE_PRE_SWAP_BUFFER;
+
+      record_result =
+        meta_screen_cast_stream_src_maybe_record_frame_with_timestamp (src,
+                                                                       flags,
+                                                                       paint_phase,
+                                                                       NULL,
+                                                                       presentation_time_us);
+    }
+
+  if (!(record_result & META_SCREEN_CAST_RECORD_RESULT_RECORDED_FRAME))
+    {
+      monitor_src->maybe_record_idle_id = g_idle_add_once (maybe_record_frame_on_idle,
+                                                           src);
+      g_source_set_name_by_id (monitor_src->maybe_record_idle_id,
+                               "[mutter] maybe_record_frame_on_idle [monitor-src]");
+    }
 }
 
 static void
-before_stage_painted (MetaStage           *stage,
-                      ClutterStageView    *view,
-                      ClutterPaintContext *paint_context,
-                      gpointer             user_data)
+before_stage_painted (MetaStage        *stage,
+                      ClutterStageView *view,
+                      const MtkRegion  *redraw_clip,
+                      ClutterFrame     *frame,
+                      gpointer          user_data)
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (user_data);
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
+  int64_t presentation_time_us;
 
   if (monitor_src->maybe_record_idle_id)
+    return;
+
+  if (!meta_screen_cast_stream_src_uses_dma_bufs (src))
     return;
 
   if (!clutter_stage_view_peek_scanout (view))
     return;
 
-  flags = META_SCREEN_CAST_RECORD_FLAG_DMABUF_ONLY;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
-}
+  if (!clutter_frame_get_target_presentation_time (frame, &presentation_time_us))
+    presentation_time_us = g_get_monotonic_time ();
 
-static MetaBackend *
-get_backend (MetaScreenCastMonitorStreamSrc *monitor_src)
-{
-  MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
-  MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
-  MetaScreenCastSession *session = meta_screen_cast_stream_get_session (stream);
-  MetaScreenCast *screen_cast =
-    meta_screen_cast_session_get_screen_cast (session);
-
-  return meta_screen_cast_get_backend (screen_cast);
+  flags = META_SCREEN_CAST_RECORD_FLAG_NONE;
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_PRE_PAINT;
+  meta_screen_cast_stream_src_maybe_record_frame_with_timestamp (src,
+                                                                 flags,
+                                                                 paint_phase,
+                                                                 NULL,
+                                                                 presentation_time_us);
 }
 
 static gboolean
@@ -195,7 +238,7 @@ is_cursor_in_stream (MetaScreenCastMonitorStreamSrc *monitor_src)
     meta_backend_get_cursor_renderer (backend);
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
-  MetaRectangle logical_monitor_layout;
+  MtkRectangle logical_monitor_layout;
   graphene_rect_t logical_monitor_rect;
   MetaCursorSprite *cursor_sprite;
 
@@ -203,7 +246,7 @@ is_cursor_in_stream (MetaScreenCastMonitorStreamSrc *monitor_src)
   logical_monitor = meta_monitor_get_logical_monitor (monitor);
   logical_monitor_layout = meta_logical_monitor_get_layout (logical_monitor);
   logical_monitor_rect =
-    meta_rectangle_to_graphene_rect (&logical_monitor_layout);
+    mtk_rectangle_to_graphene_rect (&logical_monitor_layout);
 
   cursor_sprite = meta_cursor_renderer_get_cursor (cursor_renderer);
   if (cursor_sprite)
@@ -254,6 +297,7 @@ static void
 sync_cursor_state (MetaScreenCastMonitorStreamSrc *monitor_src)
 {
   MetaScreenCastStreamSrc *src = META_SCREEN_CAST_STREAM_SRC (monitor_src);
+  MetaScreenCastPaintPhase paint_phase;
   MetaScreenCastRecordFlag flags;
 
   if (is_redraw_queued (monitor_src))
@@ -263,7 +307,10 @@ sync_cursor_state (MetaScreenCastMonitorStreamSrc *monitor_src)
     return;
 
   flags = META_SCREEN_CAST_RECORD_FLAG_CURSOR_ONLY;
-  meta_screen_cast_stream_src_maybe_record_frame (src, flags);
+  paint_phase = META_SCREEN_CAST_PAINT_PHASE_DETACHED;
+  meta_screen_cast_stream_src_maybe_record_frame (src, flags,
+                                                  paint_phase,
+                                                  NULL);
 }
 
 static void
@@ -286,6 +333,7 @@ cursor_changed (MetaCursorTracker              *cursor_tracker,
 static void
 on_prepare_frame (ClutterStage                   *stage,
                   ClutterStageView               *stage_view,
+                  ClutterFrame                   *frame,
                   MetaScreenCastMonitorStreamSrc *monitor_src)
 {
   sync_cursor_state (monitor_src);
@@ -332,7 +380,7 @@ add_view_watches (MetaScreenCastMonitorStreamSrc *monitor_src,
   MetaStage *meta_stage;
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
-  MetaRectangle logical_monitor_layout;
+  MtkRectangle logical_monitor_layout;
   GList *l;
 
   stage = get_stage (monitor_src);
@@ -344,10 +392,10 @@ add_view_watches (MetaScreenCastMonitorStreamSrc *monitor_src,
   for (l = meta_renderer_get_views (renderer); l; l = l->next)
     {
       MetaRendererView *view = l->data;
-      MetaRectangle view_layout;
+      MtkRectangle view_layout;
 
       clutter_stage_view_get_layout (CLUTTER_STAGE_VIEW (view), &view_layout);
-      if (meta_rectangle_overlap (&logical_monitor_layout, &view_layout))
+      if (mtk_rectangle_overlap (&logical_monitor_layout, &view_layout))
         {
           MetaStageWatch *watch;
 
@@ -498,16 +546,18 @@ meta_screen_cast_monitor_stream_src_disable (MetaScreenCastStreamSrc *src)
 }
 
 static gboolean
-meta_screen_cast_monitor_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *src,
-                                                      int                       width,
-                                                      int                       height,
-                                                      int                       stride,
-                                                      uint8_t                  *data,
-                                                      GError                  **error)
+meta_screen_cast_monitor_stream_src_record_to_buffer (MetaScreenCastStreamSrc   *src,
+                                                      MetaScreenCastPaintPhase   paint_phase,
+                                                      int                        width,
+                                                      int                        height,
+                                                      int                        stride,
+                                                      uint8_t                   *data,
+                                                      GError                   **error)
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (src);
   MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
+  MetaBackend *backend = get_backend (monitor_src);
   ClutterStage *stage;
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
@@ -518,7 +568,7 @@ meta_screen_cast_monitor_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *
   logical_monitor = meta_monitor_get_logical_monitor (monitor);
   stage = get_stage (monitor_src);
 
-  if (meta_is_stage_views_scaled ())
+  if (meta_backend_is_stage_views_scaled (backend))
     scale = meta_logical_monitor_get_scale (logical_monitor);
   else
     scale = 1.0;
@@ -537,7 +587,7 @@ meta_screen_cast_monitor_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *
   if (!clutter_stage_paint_to_buffer (stage, &logical_monitor->rect, scale,
                                       data,
                                       stride,
-                                      CLUTTER_CAIRO_FORMAT_ARGB32,
+                                      COGL_PIXEL_FORMAT_CAIRO_ARGB32_COMPAT,
                                       paint_flags,
                                       error))
     return FALSE;
@@ -546,45 +596,123 @@ meta_screen_cast_monitor_stream_src_record_to_buffer (MetaScreenCastStreamSrc  *
 }
 
 static gboolean
-meta_screen_cast_monitor_stream_src_record_to_framebuffer (MetaScreenCastStreamSrc  *src,
-                                                           CoglFramebuffer          *framebuffer,
-                                                           GError                  **error)
+meta_screen_cast_monitor_stream_src_record_to_framebuffer (MetaScreenCastStreamSrc   *src,
+                                                           MetaScreenCastPaintPhase   paint_phase,
+                                                           CoglFramebuffer           *framebuffer,
+                                                           GError                   **error)
 {
   MetaScreenCastMonitorStreamSrc *monitor_src =
     META_SCREEN_CAST_MONITOR_STREAM_SRC (src);
   MetaScreenCastStream *stream = meta_screen_cast_stream_src_get_stream (src);
+  MetaBackend *backend = get_backend (monitor_src);
+  MetaRenderer *renderer = meta_backend_get_renderer (backend);
   ClutterStage *stage = get_stage (monitor_src);
+  g_autoptr (GError) local_error = NULL;
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
-  MetaRectangle logical_monitor_layout;
+  MetaRendererView *renderer_view;
+  ClutterStageView *view;
+  MtkRectangle logical_monitor_layout;
+  MtkRectangle view_layout;
+  MetaCrtc *crtc;
+  gboolean do_stage_paint = TRUE;
   float view_scale;
-  ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
+  GList *outputs;
+  int x, y;
 
   monitor = get_monitor (monitor_src);
   logical_monitor = meta_monitor_get_logical_monitor (monitor);
   logical_monitor_layout = meta_logical_monitor_get_layout (logical_monitor);
 
-  if (meta_is_stage_views_scaled ())
+  if (meta_backend_is_stage_views_scaled (backend))
     view_scale = meta_logical_monitor_get_scale (logical_monitor);
   else
     view_scale = 1.0;
 
-  switch (meta_screen_cast_stream_get_cursor_mode (stream))
+  if (paint_phase == META_SCREEN_CAST_PAINT_PHASE_DETACHED)
+    goto stage_paint;
+
+  outputs = meta_monitor_get_outputs (monitor);
+  if (outputs->next)
+    goto stage_paint;
+
+  crtc = meta_output_get_assigned_crtc (outputs->data);
+  renderer_view = meta_renderer_get_view_for_crtc (renderer, crtc);
+
+  g_assert (renderer_view != NULL);
+
+  view = CLUTTER_STAGE_VIEW (renderer_view);
+  clutter_stage_view_get_layout (view, &view_layout);
+
+  x = (int) roundf ((view_layout.x - logical_monitor_layout.x) * view_scale);
+  y = (int) roundf ((view_layout.y - logical_monitor_layout.y) * view_scale);
+
+  switch (paint_phase)
     {
-    case META_SCREEN_CAST_CURSOR_MODE_METADATA:
-    case META_SCREEN_CAST_CURSOR_MODE_HIDDEN:
-      paint_flags |= CLUTTER_PAINT_FLAG_NO_CURSORS;
+    case META_SCREEN_CAST_PAINT_PHASE_PRE_PAINT:
+      {
+        CoglScanout *scanout = clutter_stage_view_peek_scanout (view);
+
+        if (scanout)
+          {
+            cogl_scanout_blit_to_framebuffer (scanout,
+                                              framebuffer,
+                                              x, y,
+                                              &local_error);
+          }
+      }
       break;
-    case META_SCREEN_CAST_CURSOR_MODE_EMBEDDED:
-      paint_flags |= CLUTTER_PAINT_FLAG_FORCE_CURSORS;
+
+    case META_SCREEN_CAST_PAINT_PHASE_PRE_SWAP_BUFFER:
+      {
+        CoglFramebuffer *view_framebuffer =
+          clutter_stage_view_get_framebuffer (view);
+
+        cogl_framebuffer_blit (view_framebuffer,
+                               framebuffer,
+                               0, 0,
+                               x, y,
+                               cogl_framebuffer_get_width (view_framebuffer),
+                               cogl_framebuffer_get_height (view_framebuffer),
+                               &local_error);
+      }
       break;
+
+    case META_SCREEN_CAST_PAINT_PHASE_DETACHED:
+      g_assert_not_reached ();
     }
 
-  clutter_stage_paint_to_framebuffer (stage,
-                                      framebuffer,
-                                      &logical_monitor_layout,
-                                      view_scale,
-                                      paint_flags);
+  if (local_error)
+    {
+      g_warning ("Error blitting to screencast framebuffer: %s",
+                 local_error->message);
+    }
+
+  do_stage_paint = local_error != NULL;
+
+stage_paint:
+  if (do_stage_paint)
+    {
+      ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
+
+      switch (meta_screen_cast_stream_get_cursor_mode (stream))
+        {
+        case META_SCREEN_CAST_CURSOR_MODE_METADATA:
+        case META_SCREEN_CAST_CURSOR_MODE_HIDDEN:
+          paint_flags |= CLUTTER_PAINT_FLAG_NO_CURSORS;
+          break;
+
+        case META_SCREEN_CAST_CURSOR_MODE_EMBEDDED:
+          paint_flags |= CLUTTER_PAINT_FLAG_FORCE_CURSORS;
+          break;
+        }
+
+      clutter_stage_paint_to_framebuffer (stage,
+                                          framebuffer,
+                                          &logical_monitor_layout,
+                                          view_scale,
+                                          paint_flags);
+    }
 
   cogl_framebuffer_flush (framebuffer);
 
@@ -601,7 +729,7 @@ meta_screen_cast_monitor_stream_record_follow_up (MetaScreenCastStreamSrc *src)
   ClutterStage *stage = get_stage (monitor_src);
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
-  MetaRectangle logical_monitor_layout;
+  MtkRectangle logical_monitor_layout;
   GList *l;
 
   g_clear_handle_id (&monitor_src->maybe_record_idle_id, g_source_remove);
@@ -613,15 +741,15 @@ meta_screen_cast_monitor_stream_record_follow_up (MetaScreenCastStreamSrc *src)
   for (l = meta_renderer_get_views (renderer); l; l = l->next)
     {
       MetaRendererView *view = l->data;
-      MetaRectangle view_layout;
-      MetaRectangle damage;
+      MtkRectangle view_layout;
+      MtkRectangle damage;
 
       clutter_stage_view_get_layout (CLUTTER_STAGE_VIEW (view), &view_layout);
 
-      if (!meta_rectangle_overlap (&logical_monitor_layout, &view_layout))
+      if (!mtk_rectangle_overlap (&logical_monitor_layout, &view_layout))
         continue;
 
-      damage = (cairo_rectangle_int_t) {
+      damage = (MtkRectangle) {
         .x = view_layout.x,
         .y = view_layout.y,
         .width = 1,
@@ -629,6 +757,66 @@ meta_screen_cast_monitor_stream_record_follow_up (MetaScreenCastStreamSrc *src)
       };
       clutter_actor_queue_redraw_with_clip (CLUTTER_ACTOR (stage), &damage);
     }
+}
+
+static gboolean
+should_cursor_metadata_be_set (MetaScreenCastMonitorStreamSrc *monitor_src)
+{
+  MetaBackend *backend = get_backend (monitor_src);
+  MetaCursorTracker *cursor_tracker =
+    meta_backend_get_cursor_tracker (backend);
+
+  return (meta_cursor_tracker_get_pointer_visible (cursor_tracker) &&
+          is_cursor_in_stream (monitor_src));
+}
+
+static float
+get_view_scale (MetaScreenCastMonitorStreamSrc *monitor_src)
+{
+  MetaBackend *backend = get_backend (monitor_src);
+  MetaMonitor *monitor;
+  MetaLogicalMonitor *logical_monitor;
+
+  monitor = get_monitor (monitor_src);
+  logical_monitor = meta_monitor_get_logical_monitor (monitor);
+
+  if (meta_backend_is_stage_views_scaled (backend))
+    return meta_logical_monitor_get_scale (logical_monitor);
+  else
+    return 1.0;
+}
+
+static void
+get_cursor_position (MetaScreenCastMonitorStreamSrc *monitor_src,
+                     int                            *out_x,
+                     int                            *out_y)
+{
+  MetaBackend *backend = get_backend (monitor_src);
+  MetaCursorTracker *cursor_tracker =
+    meta_backend_get_cursor_tracker (backend);
+  MetaMonitor *monitor;
+  MetaLogicalMonitor *logical_monitor;
+  MtkRectangle logical_monitor_layout;
+  graphene_rect_t logical_monitor_rect;
+  float view_scale;
+  graphene_point_t cursor_position;
+
+  monitor = get_monitor (monitor_src);
+  logical_monitor = meta_monitor_get_logical_monitor (monitor);
+  logical_monitor_layout = meta_logical_monitor_get_layout (logical_monitor);
+  logical_monitor_rect =
+    mtk_rectangle_to_graphene_rect (&logical_monitor_layout);
+
+  view_scale = get_view_scale (monitor_src);
+
+  meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
+  cursor_position.x -= logical_monitor_rect.origin.x;
+  cursor_position.y -= logical_monitor_rect.origin.y;
+  cursor_position.x *= view_scale;
+  cursor_position.y *= view_scale;
+
+  *out_x = (int) roundf (cursor_position.x);
+  *out_y = (int) roundf (cursor_position.y);
 }
 
 static void
@@ -640,65 +828,38 @@ meta_screen_cast_monitor_stream_src_set_cursor_metadata (MetaScreenCastStreamSrc
   MetaBackend *backend = get_backend (monitor_src);
   MetaCursorRenderer *cursor_renderer =
     meta_backend_get_cursor_renderer (backend);
-  MetaCursorTracker *cursor_tracker =
-    meta_backend_get_cursor_tracker (backend);
   MetaCursorSprite *cursor_sprite;
-  MetaMonitor *monitor;
-  MetaLogicalMonitor *logical_monitor;
-  MetaRectangle logical_monitor_layout;
-  graphene_rect_t logical_monitor_rect;
-  float view_scale;
-  graphene_point_t cursor_position;
   int x, y;
 
   cursor_sprite = meta_cursor_renderer_get_cursor (cursor_renderer);
 
-  if (!meta_cursor_tracker_get_pointer_visible (cursor_tracker) ||
-      !is_cursor_in_stream (monitor_src))
+  if (!should_cursor_metadata_be_set (monitor_src))
     {
+      monitor_src->last_cursor_matadata.set = FALSE;
       meta_screen_cast_stream_src_unset_cursor_metadata (src,
                                                          spa_meta_cursor);
       return;
     }
 
-  monitor = get_monitor (monitor_src);
-  logical_monitor = meta_monitor_get_logical_monitor (monitor);
-  logical_monitor_layout = meta_logical_monitor_get_layout (logical_monitor);
-  logical_monitor_rect =
-    meta_rectangle_to_graphene_rect (&logical_monitor_layout);
+  get_cursor_position (monitor_src, &x, &y);
 
-  if (meta_is_stage_views_scaled ())
-    view_scale = meta_logical_monitor_get_scale (logical_monitor);
-  else
-    view_scale = 1.0;
-
-  meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
-  cursor_position.x -= logical_monitor_rect.origin.x;
-  cursor_position.y -= logical_monitor_rect.origin.y;
-  cursor_position.x *= view_scale;
-  cursor_position.y *= view_scale;
-
-  x = (int) roundf (cursor_position.x);
-  y = (int) roundf (cursor_position.y);
+  monitor_src->last_cursor_matadata.set = TRUE;
+  monitor_src->last_cursor_matadata.x = x;
+  monitor_src->last_cursor_matadata.y = y;
 
   if (monitor_src->cursor_bitmap_invalid)
     {
       if (cursor_sprite)
         {
-          float cursor_scale;
-          float scale;
-          MetaMonitorTransform transform;
+          float view_scale;
 
-          cursor_scale = meta_cursor_sprite_get_texture_scale (cursor_sprite);
-          scale = view_scale * cursor_scale;
-          transform = meta_cursor_sprite_get_texture_transform (cursor_sprite);
+          view_scale = get_view_scale (monitor_src);
 
           meta_screen_cast_stream_src_set_cursor_sprite_metadata (src,
                                                                   spa_meta_cursor,
                                                                   cursor_sprite,
                                                                   x, y,
-                                                                  scale,
-                                                                  transform);
+                                                                  view_scale);
         }
       else
         {

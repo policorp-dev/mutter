@@ -28,23 +28,19 @@
  *
  */
 
-#ifndef __COGL_DISPLAY_PRIVATE_H
-#define __COGL_DISPLAY_PRIVATE_H
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-display.h"
-#include "cogl-renderer.h"
-#include "cogl-onscreen-template.h"
+#include "cogl/cogl-display.h"
+#include "cogl/cogl-renderer.h"
 
 struct _CoglDisplay
 {
-  CoglObject _parent;
+  GObjectClass parnet_class;
+
+  CoglContext *context;
 
   gboolean setup;
   CoglRenderer *renderer;
-  CoglOnscreenTemplate *onscreen_template;
 
   void *winsys;
 };
-
-#endif /* __COGL_DISPLAY_PRIVATE_H */

@@ -15,9 +15,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -36,6 +34,15 @@
 #include "backends/native/meta-kms.h"
 #include "backends/native/meta-monitor-manager-native.h"
 
+enum
+{
+  GAMMA_LUT_CHANGED,
+
+  N_SIGNALS
+};
+
+static guint signals[N_SIGNALS];
+
 #define ALL_TRANSFORMS_MASK ((1 << META_MONITOR_N_TRANSFORMS) - 1)
 
 struct _MetaCrtcKms
@@ -44,12 +51,8 @@ struct _MetaCrtcKms
 
   MetaKmsCrtc *kms_crtc;
 
-  MetaKmsPlane *primary_plane;
-
-  gpointer cursor_renderer_private;
-  GDestroyNotify cursor_renderer_private_destroy_notify;
-
-  gboolean is_gamma_valid;
+  MetaKmsPlane *assigned_primary_plane;
+  MetaKmsPlane *assigned_cursor_plane;
 };
 
 static GQuark kms_crtc_crtc_kms_quark;
@@ -67,24 +70,6 @@ monitor_manager_from_crtc (MetaCrtc *crtc)
   return META_MONITOR_MANAGER_NATIVE (monitor_manager);
 }
 
-gpointer
-meta_crtc_kms_get_cursor_renderer_private (MetaCrtcKms *crtc_kms)
-{
-  return crtc_kms->cursor_renderer_private;
-}
-
-void
-meta_crtc_kms_set_cursor_renderer_private (MetaCrtcKms    *crtc_kms,
-                                           gpointer        cursor_renderer_private,
-                                           GDestroyNotify  destroy_notify)
-{
-  g_clear_pointer (&crtc_kms->cursor_renderer_private,
-                   crtc_kms->cursor_renderer_private_destroy_notify);
-
-  crtc_kms->cursor_renderer_private = cursor_renderer_private;
-  crtc_kms->cursor_renderer_private_destroy_notify = destroy_notify;
-}
-
 static size_t
 meta_crtc_kms_get_gamma_lut_size (MetaCrtc *crtc)
 {
@@ -97,6 +82,16 @@ meta_crtc_kms_get_gamma_lut_size (MetaCrtc *crtc)
   return crtc_state->gamma.size;
 }
 
+const MetaGammaLut *
+meta_crtc_kms_peek_gamma_lut (MetaCrtcKms *crtc_kms)
+{
+  MetaMonitorManagerNative *monitor_manager_native =
+    monitor_manager_from_crtc (META_CRTC (crtc_kms));
+
+  return meta_monitor_manager_native_get_cached_crtc_gamma (monitor_manager_native,
+                                                            crtc_kms);
+}
+
 static MetaGammaLut *
 meta_crtc_kms_get_gamma_lut (MetaCrtc *crtc)
 {
@@ -105,37 +100,21 @@ meta_crtc_kms_get_gamma_lut (MetaCrtc *crtc)
   MetaMonitorManagerNative *monitor_manager_native =
     monitor_manager_from_crtc (crtc);
   const MetaKmsCrtcState *crtc_state;
-  MetaKmsCrtcGamma *crtc_gamma;
-  MetaGammaLut *lut;
+  MetaGammaLut *gamma;
 
-  crtc_gamma =
+  gamma =
     meta_monitor_manager_native_get_cached_crtc_gamma (monitor_manager_native,
                                                        crtc_kms);
-  if (crtc_gamma)
+  if (!gamma)
     {
-      lut = g_new0 (MetaGammaLut, 1);
-      lut->size = crtc_gamma->size;
-      lut->red = g_memdup2 (crtc_gamma->red,
-                            lut->size * sizeof (uint16_t));
-      lut->green = g_memdup2 (crtc_gamma->green,
-                              lut->size * sizeof (uint16_t));
-      lut->blue = g_memdup2 (crtc_gamma->blue,
-                             lut->size * sizeof (uint16_t));
-      return lut;
+      crtc_state = meta_kms_crtc_get_current_state (kms_crtc);
+      gamma = crtc_state->gamma.value;
     }
 
-  crtc_state = meta_kms_crtc_get_current_state (kms_crtc);
+  if (!gamma)
+    return meta_gamma_lut_new (0, NULL, NULL, NULL);
 
-  lut = g_new0 (MetaGammaLut, 1);
-  lut->size = crtc_state->gamma.size;
-  lut->red = g_memdup2 (crtc_state->gamma.red,
-                        lut->size * sizeof (uint16_t));
-  lut->green = g_memdup2 (crtc_state->gamma.green,
-                          lut->size * sizeof (uint16_t));
-  lut->blue = g_memdup2 (crtc_state->gamma.blue,
-                         lut->size * sizeof (uint16_t));
-
-  return lut;
+  return meta_gamma_lut_copy (gamma);
 }
 
 static char *
@@ -203,63 +182,216 @@ meta_crtc_kms_set_gamma_lut (MetaCrtc           *crtc,
                              const MetaGammaLut *lut)
 {
   MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc);
-  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
   MetaBackend *backend = meta_gpu_get_backend (meta_crtc_get_gpu (crtc));
   MetaMonitorManagerNative *monitor_manager_native =
     monitor_manager_from_crtc (crtc);
-  ClutterActor *stage = meta_backend_get_stage (backend);
-  const MetaKmsCrtcState *crtc_state;
+  MetaRenderer *renderer = meta_backend_get_renderer (backend);
+  MetaRendererView *renderer_view;
   g_autofree char *gamma_ramp_string = NULL;
-  MetaKmsCrtcGamma *crtc_gamma;
-
-  crtc_state = meta_kms_crtc_get_current_state (kms_crtc);
-
-  if (lut->size != crtc_state->gamma.size)
-    {
-      MetaKmsDevice *kms_device = meta_kms_crtc_get_device (kms_crtc);
-
-      g_warning ("Tried to set a different gamma LUT size on %u (%s)",
-                 meta_kms_crtc_get_id (kms_crtc),
-                 meta_kms_device_get_path (kms_device));
-      return;
-    }
+  MetaGammaLut *new_gamma;
 
   gamma_ramp_string = generate_gamma_ramp_string (lut);
   meta_topic (META_DEBUG_COLOR,
               "Setting CRTC (%" G_GUINT64_FORMAT ") gamma to %s",
               meta_crtc_get_id (crtc), gamma_ramp_string);
 
-  crtc_gamma = meta_kms_crtc_gamma_new (kms_crtc,
-                                        lut->size,
-                                        lut->red,
-                                        lut->green,
-                                        lut->blue);
+  new_gamma = meta_gamma_lut_copy (lut);
+  if (!new_gamma)
+    new_gamma = meta_gamma_lut_new (0, NULL, NULL, NULL);
+
   meta_monitor_manager_native_update_cached_crtc_gamma (monitor_manager_native,
                                                         crtc_kms,
-                                                        crtc_gamma);
+                                                        new_gamma);
 
-  meta_crtc_kms_invalidate_gamma (crtc_kms);
-  clutter_stage_schedule_update (CLUTTER_STAGE (stage));
+  g_signal_emit (crtc_kms, signals[GAMMA_LUT_CHANGED], 0);
+
+  renderer_view = meta_renderer_get_view_for_crtc (renderer, crtc);
+  if (renderer_view)
+    clutter_stage_view_schedule_update (CLUTTER_STAGE_VIEW (renderer_view));
 }
 
 static gboolean
-is_transform_handled (MetaCrtcKms          *crtc_kms,
-                      MetaMonitorTransform  transform)
+meta_crtc_kms_is_leased (MetaCrtc *crtc)
 {
-  if (!crtc_kms->primary_plane)
-    return FALSE;
+  MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc);
+  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
 
-  return meta_kms_plane_is_transform_handled (crtc_kms->primary_plane,
-                                              transform);
+  return meta_kms_crtc_is_leased (kms_crtc);
+}
+
+typedef struct _CrtcKmsAssignment
+{
+  MetaKmsPlane *primary_plane;
+  MetaKmsPlane *cursor_plane;
+} CrtcKmsAssignment;
+
+static gboolean
+is_plane_assigned (MetaKmsPlane     *plane,
+                   MetaKmsPlaneType  plane_type,
+                   GPtrArray        *crtc_assignments)
+{
+  size_t i;
+
+  for (i = 0; i < crtc_assignments->len; i++)
+    {
+      MetaCrtcAssignment *assigned_crtc_assignment =
+        g_ptr_array_index (crtc_assignments, i);
+      CrtcKmsAssignment *kms_assignment;
+
+      if (!META_IS_CRTC_KMS (assigned_crtc_assignment->crtc))
+        continue;
+
+      kms_assignment = assigned_crtc_assignment->backend_private;
+      switch (plane_type)
+        {
+        case META_KMS_PLANE_TYPE_PRIMARY:
+          if (kms_assignment->primary_plane == plane)
+            return TRUE;
+          break;
+        case META_KMS_PLANE_TYPE_CURSOR:
+          if (kms_assignment->cursor_plane == plane)
+            return TRUE;
+          break;
+        case META_KMS_PLANE_TYPE_OVERLAY:
+          g_assert_not_reached ();
+        }
+    }
+
+  return FALSE;
 }
 
 static gboolean
-meta_crtc_kms_is_transform_handled (MetaCrtcNative       *crtc_native,
-                                    MetaMonitorTransform  transform)
+is_plane_leased (MetaKmsDevice *kms_device,
+                 MetaKmsPlane  *kms_plane)
+{
+  GList *l;
+
+  for (l = meta_kms_device_get_crtcs (kms_device); l; l = l->next)
+    {
+      MetaKmsCrtc *kms_crtc = l->data;
+      MetaCrtcKms *crtc_kms = meta_crtc_kms_from_kms_crtc (kms_crtc);
+
+      if (meta_kms_crtc_is_leased (kms_crtc) &&
+          crtc_kms->assigned_primary_plane == kms_plane)
+        return TRUE;
+    }
+
+  return FALSE;
+}
+
+static MetaKmsPlane *
+find_unassigned_plane (MetaCrtcKms      *crtc_kms,
+                       MetaKmsPlaneType  kms_plane_type,
+                       GPtrArray        *crtc_assignments)
+{
+  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
+  MetaKmsDevice *kms_device = meta_kms_crtc_get_device (kms_crtc);
+  GList *l;
+
+  for (l = meta_kms_device_get_planes (kms_device); l; l = l->next)
+    {
+      MetaKmsPlane *kms_plane = l->data;
+
+      if (meta_kms_plane_get_plane_type (kms_plane) != kms_plane_type)
+        continue;
+
+      if (!meta_kms_plane_is_usable_with (kms_plane, kms_crtc))
+        continue;
+
+      if (is_plane_assigned (kms_plane, kms_plane_type,
+                             crtc_assignments))
+        continue;
+
+      if (is_plane_leased (kms_device, kms_plane))
+        continue;
+
+      return kms_plane;
+    }
+
+  return NULL;
+}
+
+static gboolean
+meta_crtc_kms_assign_extra (MetaCrtc            *crtc,
+                            MetaCrtcAssignment  *crtc_assignment,
+                            GPtrArray           *crtc_assignments,
+                            GError             **error)
+{
+  MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc);
+  MetaKmsPlane *primary_plane;
+  MetaKmsPlane *cursor_plane;
+  CrtcKmsAssignment *kms_assignment;
+
+  primary_plane = find_unassigned_plane (crtc_kms, META_KMS_PLANE_TYPE_PRIMARY,
+                                         crtc_assignments);
+  if (!primary_plane)
+    {
+      MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
+      MetaKmsDevice *kms_device = meta_kms_crtc_get_device (kms_crtc);
+
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "No available primary plane found for CRTC %u (%s)",
+                   meta_kms_crtc_get_id (kms_crtc),
+                   meta_kms_device_get_path (kms_device));
+      return FALSE;
+    }
+
+  cursor_plane = find_unassigned_plane (crtc_kms, META_KMS_PLANE_TYPE_CURSOR,
+                                        crtc_assignments);
+
+  kms_assignment = g_new0 (CrtcKmsAssignment, 1);
+  kms_assignment->primary_plane = primary_plane;
+  kms_assignment->cursor_plane = cursor_plane;
+
+  crtc_assignment->backend_private = kms_assignment;
+  crtc_assignment->backend_private_destroy = g_free;
+
+  return TRUE;
+}
+
+static void
+meta_crtc_kms_set_config (MetaCrtc             *crtc,
+                          const MetaCrtcConfig *config,
+                          gpointer              backend_private)
+{
+  MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc);
+  CrtcKmsAssignment *kms_assignment = backend_private;
+
+  crtc_kms->assigned_primary_plane = kms_assignment->primary_plane;
+  crtc_kms->assigned_cursor_plane = kms_assignment->cursor_plane;
+}
+
+void
+meta_crtc_kms_assign_planes (MetaCrtcKms  *crtc_kms,
+                             MetaKmsPlane *primary_plane,
+                             MetaKmsPlane *cursor_plane)
+{
+  crtc_kms->assigned_primary_plane = primary_plane;
+  crtc_kms->assigned_cursor_plane = cursor_plane;
+}
+
+static void
+meta_crtc_kms_unset_config (MetaCrtc *crtc)
+{
+  MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc);
+
+  if (meta_crtc_kms_is_leased (crtc))
+    return;
+
+  crtc_kms->assigned_primary_plane = NULL;
+  crtc_kms->assigned_cursor_plane = NULL;
+}
+
+static gboolean
+meta_crtc_kms_is_transform_handled (MetaCrtcNative      *crtc_native,
+                                    MtkMonitorTransform  transform)
 {
   MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc_native);
 
-  return is_transform_handled (crtc_kms, transform);
+  g_return_val_if_fail (crtc_kms->assigned_primary_plane, FALSE);
+
+  return meta_kms_plane_is_transform_handled (crtc_kms->assigned_primary_plane,
+                                              transform);
 }
 
 static gboolean
@@ -269,78 +401,28 @@ meta_crtc_kms_is_hw_cursor_supported (MetaCrtcNative *crtc_native)
   MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
   MetaKmsDevice *kms_device = meta_kms_crtc_get_device (kms_crtc);
 
-  return !!meta_kms_device_get_cursor_plane_for (kms_device, kms_crtc);
+  return meta_kms_device_has_cursor_plane_for (kms_device, kms_crtc);
 }
 
-void
-meta_crtc_kms_apply_transform (MetaCrtcKms            *crtc_kms,
-                               MetaKmsPlaneAssignment *kms_plane_assignment)
+static int64_t
+meta_crtc_kms_get_deadline_evasion (MetaCrtcNative *crtc_native)
 {
-  MetaCrtc *crtc = META_CRTC (crtc_kms);
-  const MetaCrtcConfig *crtc_config;
-  MetaMonitorTransform hw_transform;
+  MetaCrtcKms *crtc_kms = META_CRTC_KMS (crtc_native);
+  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
 
-  crtc_config = meta_crtc_get_config (crtc);
-
-  hw_transform = crtc_config->transform;
-  if (!is_transform_handled (crtc_kms, hw_transform))
-    hw_transform = META_MONITOR_TRANSFORM_NORMAL;
-  if (!is_transform_handled (crtc_kms, hw_transform))
-    return;
-
-  meta_kms_plane_update_set_rotation (crtc_kms->primary_plane,
-                                      kms_plane_assignment,
-                                      hw_transform);
+  return meta_kms_crtc_get_deadline_evasion (kms_crtc);
 }
 
-MetaKmsPlaneAssignment *
-meta_crtc_kms_assign_primary_plane (MetaCrtcKms   *crtc_kms,
-                                    MetaDrmBuffer *buffer,
-                                    MetaKmsUpdate *kms_update)
+MetaKmsPlane *
+meta_crtc_kms_get_assigned_cursor_plane (MetaCrtcKms *crtc_kms)
 {
-  MetaCrtc *crtc = META_CRTC (crtc_kms);
-  const MetaCrtcConfig *crtc_config;
-  const MetaCrtcModeInfo *crtc_mode_info;
-  MetaFixed16Rectangle src_rect;
-  MetaRectangle dst_rect;
-  MetaKmsAssignPlaneFlag flags;
-  MetaKmsCrtc *kms_crtc;
-  MetaKmsDevice *kms_device;
-  MetaKmsPlane *primary_kms_plane;
-  MetaKmsPlaneAssignment *plane_assignment;
+  return crtc_kms->assigned_cursor_plane;
+}
 
-  crtc_config = meta_crtc_get_config (crtc);
-  crtc_mode_info = meta_crtc_mode_get_info (crtc_config->mode);
-
-  src_rect = (MetaFixed16Rectangle) {
-    .x = meta_fixed_16_from_int (0),
-    .y = meta_fixed_16_from_int (0),
-    .width = meta_fixed_16_from_int (crtc_mode_info->width),
-    .height = meta_fixed_16_from_int (crtc_mode_info->height),
-  };
-  dst_rect = (MetaRectangle) {
-    .x = 0,
-    .y = 0,
-    .width = crtc_mode_info->width,
-    .height = crtc_mode_info->height,
-  };
-
-  flags = META_KMS_ASSIGN_PLANE_FLAG_NONE;
-
-  kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
-  kms_device = meta_kms_crtc_get_device (kms_crtc);
-  primary_kms_plane = meta_kms_device_get_primary_plane_for (kms_device,
-                                                             kms_crtc);
-  plane_assignment = meta_kms_update_assign_plane (kms_update,
-                                                   kms_crtc,
-                                                   primary_kms_plane,
-                                                   buffer,
-                                                   src_rect,
-                                                   dst_rect,
-                                                   flags);
-  meta_crtc_kms_apply_transform (crtc_kms, plane_assignment);
-
-  return plane_assignment;
+MetaKmsPlane *
+meta_crtc_kms_get_assigned_primary_plane (MetaCrtcKms *crtc_kms)
+{
+  return crtc_kms->assigned_primary_plane;
 }
 
 static GList *
@@ -366,43 +448,6 @@ generate_crtc_connector_list (MetaGpu  *gpu,
     }
 
   return connectors;
-}
-
-void
-meta_crtc_kms_maybe_set_gamma (MetaCrtcKms   *crtc_kms,
-                               MetaKmsDevice *kms_device)
-{
-  MetaGpu *gpu = meta_crtc_get_gpu (META_CRTC (crtc_kms));
-  MetaBackend *backend = meta_gpu_get_backend (gpu);
-  MetaMonitorManager *monitor_manager =
-    meta_backend_get_monitor_manager (backend);
-  MetaMonitorManagerNative *monitor_manager_native =
-    META_MONITOR_MANAGER_NATIVE (monitor_manager);
-  MetaKms *kms = meta_kms_device_get_kms (kms_device);
-  MetaKmsUpdate *kms_update;
-  MetaKmsCrtcGamma *gamma;
-  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
-
-  if (crtc_kms->is_gamma_valid)
-    return;
-
-  if (!meta_kms_crtc_has_gamma (kms_crtc))
-    return;
-
-  gamma = meta_monitor_manager_native_get_cached_crtc_gamma (monitor_manager_native,
-                                                             crtc_kms);
-  if (!gamma)
-    return;
-
-  kms_update = meta_kms_ensure_pending_update (kms, kms_device);
-  meta_kms_update_set_crtc_gamma (kms_update,
-                                  kms_crtc,
-                                  gamma->size,
-                                  gamma->red,
-                                  gamma->green,
-                                  gamma->blue);
-
-  crtc_kms->is_gamma_valid = TRUE;
 }
 
 void
@@ -448,63 +493,6 @@ meta_crtc_kms_get_kms_crtc (MetaCrtcKms *crtc_kms)
   return crtc_kms->kms_crtc;
 }
 
-/**
- * meta_crtc_kms_get_modifiers:
- * @crtc_kms: a #MetaCrtc object that has to be a #MetaCrtcKms
- * @format: a DRM pixel format
- *
- * Returns a pointer to a #GArray containing all the supported
- * modifiers for the given DRM pixel format on the CRTC's primary
- * plane. The array element type is uint64_t.
- *
- * The caller must not modify or destroy the array or its contents.
- *
- * Returns NULL if the modifiers are not known or the format is not
- * supported.
- */
-GArray *
-meta_crtc_kms_get_modifiers (MetaCrtcKms *crtc_kms,
-                             uint32_t     format)
-{
-  return meta_kms_plane_get_modifiers_for_format (crtc_kms->primary_plane,
-                                                  format);
-}
-
-/**
- * meta_crtc_kms_copy_drm_format_list:
- * @crtc_kms: a #MetaCrtc object that has to be a #MetaCrtcKms
- *
- * Returns a new #GArray that the caller must destroy. The array
- * contains all the DRM pixel formats the CRTC supports on
- * its primary plane. The array element type is uint32_t.
- */
-GArray *
-meta_crtc_kms_copy_drm_format_list (MetaCrtcKms *crtc_kms)
-{
-  return meta_kms_plane_copy_drm_format_list (crtc_kms->primary_plane);
-}
-
-/**
- * meta_crtc_kms_supports_format:
- * @crtc_kms: a #MetaCrtcKms
- * @drm_format: a DRM pixel format
- *
- * Returns true if the CRTC supports the format on its primary plane.
- */
-gboolean
-meta_crtc_kms_supports_format (MetaCrtcKms *crtc_kms,
-                               uint32_t     drm_format)
-{
-  return meta_kms_plane_is_format_supported (crtc_kms->primary_plane,
-                                             drm_format);
-}
-
-void
-meta_crtc_kms_invalidate_gamma (MetaCrtcKms *crtc_kms)
-{
-  crtc_kms->is_gamma_valid = FALSE;
-}
-
 MetaCrtcKms *
 meta_crtc_kms_from_kms_crtc (MetaKmsCrtc *kms_crtc)
 {
@@ -516,20 +504,15 @@ meta_crtc_kms_new (MetaGpuKms  *gpu_kms,
                    MetaKmsCrtc *kms_crtc)
 {
   MetaGpu *gpu = META_GPU (gpu_kms);
-  MetaKmsDevice *kms_device;
   MetaCrtcKms *crtc_kms;
-  MetaKmsPlane *primary_plane;
 
-  kms_device = meta_gpu_kms_get_kms_device (gpu_kms);
-  primary_plane = meta_kms_device_get_primary_plane_for (kms_device,
-                                                         kms_crtc);
   crtc_kms = g_object_new (META_TYPE_CRTC_KMS,
                            "id", (uint64_t) meta_kms_crtc_get_id (kms_crtc),
+                           "backend", meta_gpu_get_backend (gpu),
                            "gpu", gpu,
                            NULL);
 
   crtc_kms->kms_crtc = kms_crtc;
-  crtc_kms->primary_plane = primary_plane;
 
   if (!kms_crtc_crtc_kms_quark)
     {
@@ -543,17 +526,6 @@ meta_crtc_kms_new (MetaGpuKms  *gpu_kms,
 }
 
 static void
-meta_crtc_kms_dispose (GObject *object)
-{
-  MetaCrtcKms *crtc_kms = META_CRTC_KMS (object);
-
-  g_clear_pointer (&crtc_kms->cursor_renderer_private,
-                   crtc_kms->cursor_renderer_private_destroy_notify);
-
-  G_OBJECT_CLASS (meta_crtc_kms_parent_class)->dispose (object);
-}
-
-static void
 meta_crtc_kms_init (MetaCrtcKms *crtc_kms)
 {
 }
@@ -561,16 +533,26 @@ meta_crtc_kms_init (MetaCrtcKms *crtc_kms)
 static void
 meta_crtc_kms_class_init (MetaCrtcKmsClass *klass)
 {
-  GObjectClass *object_class = G_OBJECT_CLASS (klass);
   MetaCrtcClass *crtc_class = META_CRTC_CLASS (klass);
   MetaCrtcNativeClass *crtc_native_class = META_CRTC_NATIVE_CLASS (klass);
-
-  object_class->dispose = meta_crtc_kms_dispose;
 
   crtc_class->get_gamma_lut_size = meta_crtc_kms_get_gamma_lut_size;
   crtc_class->get_gamma_lut = meta_crtc_kms_get_gamma_lut;
   crtc_class->set_gamma_lut = meta_crtc_kms_set_gamma_lut;
+  crtc_class->assign_extra = meta_crtc_kms_assign_extra;
+  crtc_class->set_config = meta_crtc_kms_set_config;
+  crtc_class->unset_config = meta_crtc_kms_unset_config;
+  crtc_class->is_leased = meta_crtc_kms_is_leased;
 
   crtc_native_class->is_transform_handled = meta_crtc_kms_is_transform_handled;
   crtc_native_class->is_hw_cursor_supported = meta_crtc_kms_is_hw_cursor_supported;
+  crtc_native_class->get_deadline_evasion = meta_crtc_kms_get_deadline_evasion;
+
+  signals[GAMMA_LUT_CHANGED] =
+    g_signal_new ("gamma-lut-changed",
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL, NULL,
+                  G_TYPE_NONE, 0);
 }

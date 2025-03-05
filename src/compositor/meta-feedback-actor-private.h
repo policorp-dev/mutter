@@ -20,10 +20,10 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_FEEDBACK_ACTOR_PRIVATE_H
-#define META_FEEDBACK_ACTOR_PRIVATE_H
+#pragma once
 
 #include "clutter/clutter.h"
+#include "meta/types.h"
 
 /**
  * MetaFeedbackActor:
@@ -44,10 +44,6 @@ struct _MetaFeedbackActorClass
   ClutterActorClass parent_class;
 };
 
-
-ClutterActor *meta_feedback_actor_new (float anchor_x,
-                                       float anchor_y);
-
 void meta_feedback_actor_set_anchor (MetaFeedbackActor *actor,
                                      float              anchor_x,
                                      float              anchor_y);
@@ -59,12 +55,7 @@ void meta_feedback_actor_set_position (MetaFeedbackActor  *self,
                                        float               x,
                                        float               y);
 
-void meta_feedback_actor_update (MetaFeedbackActor  *self,
-                                 const ClutterEvent *event);
-
 void meta_feedback_actor_set_geometry_scale (MetaFeedbackActor *self,
                                              int                geometry_scale);
 
 int meta_feedback_actor_get_geometry_scale (MetaFeedbackActor *self);
-
-#endif /* META_FEEDBACK_ACTOR_PRIVATE_H */

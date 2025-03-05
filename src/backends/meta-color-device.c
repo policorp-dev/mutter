@@ -24,11 +24,13 @@
 
 #include <colord.h>
 
+#include "backends/meta-backend-private.h"
 #include "backends/meta-color-device.h"
 #include "backends/meta-color-manager-private.h"
 #include "backends/meta-color-profile.h"
 #include "backends/meta-color-store.h"
 #include "backends/meta-monitor.h"
+#include "core/meta-debug-control-private.h"
 
 #define EFI_PANEL_COLOR_INFO_PATH \
   "/sys/firmware/efi/efivars/INTERNAL_PANEL_COLOR_INFO-01e1ada1-79f2-46b3-8d3e-71fc0996ca6b"
@@ -36,13 +38,19 @@
 enum
 {
   READY,
-  CHANGED,
-  UPDATED,
+  CALIBRATION_CHANGED,
+  COLOR_STATE_CHANGED,
 
   N_SIGNALS
 };
 
 static guint signals[N_SIGNALS];
+
+typedef enum
+{
+  UPDATE_RESULT_CALIBRATION = 1 << 0,
+  UPDATE_RESULT_COLOR_STATE = 1 << 1,
+} UpdateResult;
 
 typedef enum
 {
@@ -56,6 +64,7 @@ struct _MetaColorDevice
   GObject parent;
 
   MetaColorManager *color_manager;
+  gulong manager_ready_handler_id;
 
   char *cd_device_id;
   MetaMonitor *monitor;
@@ -69,6 +78,8 @@ struct _MetaColorDevice
   GCancellable *assigned_profile_cancellable;
 
   GCancellable *cancellable;
+
+  ClutterColorState *color_state;
 
   PendingState pending_state;
   gboolean is_ready;
@@ -157,7 +168,7 @@ ensure_default_profile_cb (GObject      *source_object,
 
   g_set_object (&color_device->assigned_profile, color_profile);
 
-  g_signal_emit (color_device, signals[CHANGED], 0);
+  meta_color_device_update (color_device);
 }
 
 static void
@@ -274,13 +285,17 @@ meta_color_device_dispose (GObject *object)
   g_clear_object (&color_device->cancellable);
   g_clear_signal_handler (&color_device->device_profile_ready_handler_id,
                           color_device->device_profile);
+  g_clear_signal_handler (&color_device->manager_ready_handler_id,
+                          color_manager);
+
 
   g_clear_object (&color_device->assigned_profile);
   g_clear_object (&color_device->device_profile);
 
   cd_device = color_device->cd_device;
   cd_device_id = color_device->cd_device_id;
-  if (!cd_device && cd_device_id)
+  if (!cd_device && !color_device->is_ready &&
+      cd_device_id && meta_color_manager_is_ready (color_manager))
     {
       g_autoptr (GError) error = NULL;
 
@@ -301,6 +316,7 @@ meta_color_device_dispose (GObject *object)
   g_clear_pointer (&color_device->cd_device_id, g_free);
   g_clear_object (&color_device->cd_device);
   g_clear_object (&color_device->monitor);
+  g_clear_object (&color_device->color_state);
 
   G_OBJECT_CLASS (meta_color_device_parent_class)->dispose (object);
 }
@@ -312,6 +328,10 @@ meta_color_device_class_init (MetaColorDeviceClass *klass)
 
   object_class->dispose = meta_color_device_dispose;
 
+  /**
+   * MetaColorDevice::ready:
+   * @device: the #MetaColorDevice which became ready
+   */
   signals[READY] =
     g_signal_new ("ready",
                   G_TYPE_FROM_CLASS (klass),
@@ -319,14 +339,23 @@ meta_color_device_class_init (MetaColorDeviceClass *klass)
                   NULL, NULL, NULL,
                   G_TYPE_NONE, 1,
                   G_TYPE_BOOLEAN);
-  signals[CHANGED] =
-    g_signal_new ("changed",
+  /**
+   * MetaColorDevice::calibration-changed:
+   * @device: the #MetaColorDevice which emitted the signal
+   *
+   * The signal notifies that the color calibration of the device has changed.
+   * Calibration is anything that changes the monitors behavior when given
+   * a signal. Changes to the white point from the source are also considered
+   * calibration even though they are technically not on the monitor.
+   */
+  signals[CALIBRATION_CHANGED] =
+    g_signal_new ("calibration-changed",
                   G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0,
                   NULL, NULL, NULL,
                   G_TYPE_NONE, 0);
-  signals[UPDATED] =
-    g_signal_new ("updated",
+  signals[COLOR_STATE_CHANGED] =
+    g_signal_new ("color-state-changed",
                   G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0,
                   NULL, NULL, NULL,
@@ -572,19 +601,14 @@ generate_color_device_props (MetaMonitor *monitor)
   return device_props;
 }
 
-MetaColorDevice *
-meta_color_device_new (MetaColorManager *color_manager,
-                       MetaMonitor      *monitor)
+static void
+create_cd_device (MetaColorDevice *color_device)
 {
-  MetaColorDevice *color_device;
+  MetaColorManager *color_manager = color_device->color_manager;
+  MetaMonitor *monitor = color_device->monitor;
   g_autoptr (GHashTable) device_props = NULL;
 
   device_props = generate_color_device_props (monitor);
-  color_device = g_object_new (META_TYPE_COLOR_DEVICE, NULL);
-  color_device->cd_device_id = generate_cd_device_id (monitor);
-  color_device->monitor = g_object_ref (monitor);
-  color_device->cancellable = g_cancellable_new ();
-  color_device->color_manager = color_manager;
 
   cd_client_create_device (meta_color_manager_get_cd_client (color_manager),
                            color_device->cd_device_id,
@@ -593,15 +617,138 @@ meta_color_device_new (MetaColorManager *color_manager,
                            color_device->cancellable,
                            on_cd_device_created,
                            color_device);
-
-  return color_device;
 }
 
-void
-meta_color_device_destroy (MetaColorDevice *color_device)
+static void
+on_manager_ready (MetaColorManager *color_manager,
+                  MetaColorDevice  *color_device)
 {
-  g_object_run_dispose (G_OBJECT (color_device));
-  g_object_unref (color_device);
+  create_cd_device (color_device);
+}
+
+static void
+get_color_metadata_from_monitor (MetaMonitor        *monitor,
+                                 ClutterColorimetry *colorimetry,
+                                 ClutterEOTF        *eotf)
+{
+  colorimetry->type = CLUTTER_COLORIMETRY_TYPE_COLORSPACE;
+  eotf->type = CLUTTER_EOTF_TYPE_NAMED;
+
+  switch (meta_monitor_get_color_mode (monitor))
+    {
+    case META_COLOR_MODE_DEFAULT:
+      colorimetry->colorspace = CLUTTER_COLORSPACE_SRGB;
+      eotf->tf_name = CLUTTER_TRANSFER_FUNCTION_SRGB;
+      return;
+    case META_COLOR_MODE_BT2100:
+      colorimetry->colorspace = CLUTTER_COLORSPACE_BT2020;
+      eotf->tf_name = CLUTTER_TRANSFER_FUNCTION_PQ;
+      return;
+    }
+
+  g_assert_not_reached ();
+}
+
+static UpdateResult
+update_color_state (MetaColorDevice *color_device)
+{
+  MetaMonitor *monitor = color_device->monitor;
+  MetaBackend *backend =
+    meta_color_manager_get_backend (color_device->color_manager);
+  MetaContext *context = meta_backend_get_context (backend);
+  MetaDebugControl *debug_control = meta_context_get_debug_control (context);
+  MetaSettings *settings = meta_backend_get_settings (backend);
+  ClutterContext *clutter_context = meta_backend_get_clutter_context (backend);
+  g_autoptr (ClutterColorState) color_state = NULL;
+  ClutterColorimetry colorimetry;
+  ClutterEOTF eotf;
+  MetaMonitorSpec *monitor_spec;
+  MetaColorMode color_mode;
+  ClutterLuminance luminance;
+  float reference_luminance_factor;
+  UpdateResult result = 0;
+
+  get_color_metadata_from_monitor (monitor, &colorimetry, &eotf);
+
+  if (meta_debug_control_is_hdr_forced (debug_control))
+    {
+      colorimetry.type = CLUTTER_COLORIMETRY_TYPE_COLORSPACE;
+      colorimetry.colorspace = CLUTTER_COLORSPACE_BT2020;
+      eotf.type = CLUTTER_EOTF_TYPE_NAMED;
+      eotf.tf_name = CLUTTER_TRANSFER_FUNCTION_PQ;
+    }
+
+  luminance = *clutter_eotf_get_default_luminance (eotf);
+
+  monitor_spec = meta_monitor_get_spec (color_device->monitor);
+  color_mode = meta_monitor_get_color_mode (color_device->monitor);
+  reference_luminance_factor =
+    (float) meta_settings_get_output_luminance (settings,
+                                                monitor_spec,
+                                                color_mode) /
+    100.0f;
+  luminance.ref = luminance.ref * reference_luminance_factor;
+
+  color_state = clutter_color_state_params_new_from_primitives (clutter_context,
+                                                                colorimetry,
+                                                                eotf,
+                                                                luminance);
+
+  if (!color_device->color_state ||
+      !clutter_color_state_equals (color_device->color_state, color_state))
+    {
+      g_set_object (&color_device->color_state, color_state);
+      result |= UPDATE_RESULT_COLOR_STATE;
+    }
+
+  return result;
+}
+
+MetaColorDevice *
+meta_color_device_new (MetaColorManager *color_manager,
+                       MetaMonitor      *monitor)
+{
+  MetaBackend *backend = meta_color_manager_get_backend (color_manager);
+  MetaContext *context = meta_backend_get_context (backend);
+  MetaDebugControl *debug_control = meta_context_get_debug_control (context);
+  MetaSettings *settings = meta_backend_get_settings (backend);
+  MetaColorDevice *color_device;
+
+  color_device = g_object_new (META_TYPE_COLOR_DEVICE, NULL);
+  color_device->cd_device_id = generate_cd_device_id (monitor);
+  color_device->monitor = g_object_ref (monitor);
+  color_device->cancellable = g_cancellable_new ();
+  color_device->color_manager = color_manager;
+
+  update_color_state (color_device);
+
+  if (meta_monitor_is_virtual (monitor))
+    {
+      meta_color_device_notify_ready (color_device, FALSE);
+    }
+  else if (meta_color_manager_is_ready (color_manager))
+    {
+      create_cd_device (color_device);
+    }
+  else
+    {
+      color_device->manager_ready_handler_id =
+        g_signal_connect (color_manager, "ready",
+                          G_CALLBACK (on_manager_ready),
+                          color_device);
+    }
+
+  g_signal_connect_object (settings, "output-luminance-changed",
+                           G_CALLBACK (meta_color_device_update),
+                           color_device,
+                           G_CONNECT_SWAPPED | G_CONNECT_AFTER);
+
+  g_signal_connect_object (debug_control, "notify::force-hdr",
+                           G_CALLBACK (meta_color_device_update),
+                           color_device,
+                           G_CONNECT_SWAPPED | G_CONNECT_AFTER);
+
+  return color_device;
 }
 
 void
@@ -820,15 +967,17 @@ create_icc_profile_from_edid (MetaColorDevice     *color_device,
   const char *serial;
   g_autofree char *vendor_name = NULL;
   cmsHPROFILE lcms_profile;
+  const struct di_color_primaries *primaries =
+    &edid_info->default_color_primaries;
 
-  if (G_APPROX_VALUE (edid_info->red_x, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->red_y, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->green_x, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->green_y, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->blue_x, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->blue_y, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->white_x, 0.0, FLT_EPSILON) ||
-      G_APPROX_VALUE (edid_info->white_y, 0.0, FLT_EPSILON))
+  if (G_APPROX_VALUE (primaries->primary[0].x, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->primary[0].y, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->primary[1].x, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->primary[1].y, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->primary[2].x, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->primary[2].y, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->default_white.x, 0.0, FLT_EPSILON) ||
+      G_APPROX_VALUE (primaries->default_white.y, 0.0, FLT_EPSILON))
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
                    "EDID for %s contains bogus Color Characteristics",
@@ -836,8 +985,8 @@ create_icc_profile_from_edid (MetaColorDevice     *color_device,
       return NULL;
     }
 
-  if (edid_info->gamma + FLT_EPSILON < 1.0 ||
-      edid_info->gamma > 4.0)
+  if (edid_info->default_gamma + FLT_EPSILON < 1.0 ||
+      edid_info->default_gamma > 4.0)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
                    "EDID for %s contains bogus Display Transfer "
@@ -856,18 +1005,18 @@ create_icc_profile_from_edid (MetaColorDevice     *color_device,
 
   cd_icc = cd_icc_new ();
 
-  chroma.Red.x = edid_info->red_x;
-  chroma.Red.y = edid_info->red_y;
-  chroma.Green.x = edid_info->green_x;
-  chroma.Green.y = edid_info->green_y;
-  chroma.Blue.x = edid_info->blue_x;
-  chroma.Blue.y = edid_info->blue_y;
-  white_point.x = edid_info->white_x;
-  white_point.y = edid_info->white_y;
+  chroma.Red.x = primaries->primary[0].x;
+  chroma.Red.y = primaries->primary[0].y;
+  chroma.Green.x = primaries->primary[1].x;
+  chroma.Green.y = primaries->primary[1].y;
+  chroma.Blue.x = primaries->primary[2].x;
+  chroma.Blue.y = primaries->primary[2].y;
+  white_point.x = primaries->default_white.x;
+  white_point.y = primaries->default_white.y;
   white_point.Y = 1.0;
 
   /* Estimate the transfer function for the gamma */
-  transfer_curve[0] = cmsBuildGamma (NULL, edid_info->gamma);
+  transfer_curve[0] = cmsBuildGamma (NULL, edid_info->default_gamma);
   transfer_curve[1] = transfer_curve[0];
   transfer_curve[2] = transfer_curve[0];
 
@@ -963,56 +1112,62 @@ static void
 create_device_profile_from_edid (MetaColorDevice *color_device,
                                  GTask           *task)
 {
-  const MetaEdidInfo *edid_info;
+  const MetaEdidInfo *edid_info =
+    meta_monitor_get_edid_info (color_device->monitor);
+  GenerateProfileData *data = g_task_get_task_data (task);
+  g_autoptr (CdIcc) cd_icc = NULL;
+  g_autoptr (GBytes) bytes = NULL;
+  g_autofree char *file_md5_checksum = NULL;
+  g_autoptr (GError) error = NULL;
 
-  edid_info = meta_monitor_get_edid_info (color_device->monitor);
   if (edid_info)
     {
-      g_autoptr (CdIcc) cd_icc = NULL;
-      GBytes *bytes;
-      g_autoptr (GError) error = NULL;
-      GenerateProfileData *data = g_task_get_task_data (task);
-      const char *file_path = data->file_path;
-      g_autofree char *file_md5_checksum = NULL;
-
       meta_topic (META_DEBUG_COLOR,
                   "Generating ICC profile for '%s' from EDID",
                   meta_color_device_get_id (color_device));
 
       cd_icc = create_icc_profile_from_edid (color_device,
-                                             edid_info, file_path,
+                                             edid_info, data->file_path,
                                              &error);
-      if (!cd_icc)
-        {
-          g_task_return_error (task, g_steal_pointer (&error));
-          g_object_unref (task);
-          return;
-        }
-
-      bytes = cd_icc_save_data (cd_icc, CD_ICC_SAVE_FLAGS_NONE, &error);
-      if (!bytes)
-        {
-          g_task_return_error (task, g_steal_pointer (&error));
-          g_object_unref (task);
-          return;
-        }
-
-      file_md5_checksum = g_compute_checksum_for_bytes (G_CHECKSUM_MD5, bytes);
-      cd_icc_add_metadata (cd_icc, CD_PROFILE_METADATA_FILE_CHECKSUM,
-                           file_md5_checksum);
-
-      data->color_calibration =
-        meta_color_calibration_new (cd_icc, NULL);
-      data->cd_icc = g_steal_pointer (&cd_icc);
-      data->bytes = bytes;
-      save_icc_profile (file_path, task);
     }
   else
     {
-      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                               "No EDID available");
-      g_object_unref (task);
+      meta_topic (META_DEBUG_COLOR,
+                  "Generating sRGB ICC profile for '%s' because EDID is missing",
+                  meta_color_device_get_id (color_device));
+
+      cd_icc = cd_icc_new ();
+
+      if (!cd_icc_create_default_full (cd_icc,
+                                       CD_ICC_LOAD_FLAGS_PRIMARIES,
+                                       &error))
+        g_clear_object (&cd_icc);
     }
+
+  if (!cd_icc)
+    {
+      g_task_return_error (task, g_steal_pointer (&error));
+      g_object_unref (task);
+      return;
+    }
+
+  bytes = cd_icc_save_data (cd_icc, CD_ICC_SAVE_FLAGS_NONE, &error);
+  if (!bytes)
+    {
+      g_task_return_error (task, g_steal_pointer (&error));
+      g_object_unref (task);
+      return;
+    }
+
+  file_md5_checksum = g_compute_checksum_for_bytes (G_CHECKSUM_MD5, bytes);
+  cd_icc_add_metadata (cd_icc, CD_PROFILE_METADATA_FILE_CHECKSUM,
+                       file_md5_checksum);
+
+  data->color_calibration =
+    meta_color_calibration_new (cd_icc, NULL);
+  data->cd_icc = g_steal_pointer (&cd_icc);
+  data->bytes = g_steal_pointer (&bytes);
+  save_icc_profile (data->file_path, task);
 }
 
 static void
@@ -1201,6 +1356,12 @@ meta_color_device_get_monitor (MetaColorDevice *color_device)
   return color_device->monitor;
 }
 
+ClutterColorState *
+meta_color_device_get_color_state (MetaColorDevice *color_device)
+{
+  return color_device->color_state;
+}
+
 MetaColorProfile *
 meta_color_device_get_device_profile (MetaColorDevice *color_device)
 {
@@ -1219,25 +1380,27 @@ meta_color_device_get_assigned_profile (MetaColorDevice *color_device)
   return color_device->assigned_profile;
 }
 
-void
-meta_color_device_update (MetaColorDevice *color_device,
-                          unsigned int     temperature)
+static UpdateResult
+update_white_point (MetaColorDevice *color_device)
 {
+  MetaColorManager *color_manager = color_device->color_manager;
+  MetaMonitor *monitor = color_device->monitor;
   MetaColorProfile *color_profile;
-  MetaMonitor *monitor;
   size_t lut_size;
+  unsigned int temperature;
+
+  if (!meta_color_device_is_ready (color_device))
+    return 0;
 
   color_profile = meta_color_device_get_assigned_profile (color_device);
   if (!color_profile)
-    return;
+    return 0;
 
-  monitor = color_device->monitor;
-  if (!meta_monitor_is_active (monitor))
-    return;
+  temperature = meta_color_manager_get_temperature (color_manager);
 
   meta_topic (META_DEBUG_COLOR,
-              "Updating device '%s' (%s) using color profile '%s' "
-              "and temperature %uK",
+              "Updating white point of device '%s' (%s) "
+              "using color profile '%s' and temperature %uK",
               meta_color_device_get_id (color_device),
               meta_monitor_get_connector (monitor),
               meta_color_profile_get_id (color_profile),
@@ -1254,7 +1417,7 @@ meta_color_device_update (MetaColorDevice *color_device,
           meta_topic (META_DEBUG_COLOR,
                       "Setting brightness to %s%% from brightness profile",
                       brightness_profile);
-          meta_color_manager_set_brightness (color_device->color_manager,
+          meta_color_manager_set_brightness (color_manager,
                                              atoi (brightness_profile));
         }
     }
@@ -1271,5 +1434,24 @@ meta_color_device_update (MetaColorDevice *color_device,
       meta_monitor_set_gamma_lut (monitor, lut);
     }
 
-  g_signal_emit (color_device, signals[UPDATED], 0);
+  return UPDATE_RESULT_CALIBRATION;
+}
+
+void
+meta_color_device_update (MetaColorDevice *color_device)
+{
+  MetaMonitor *monitor = color_device->monitor;
+  UpdateResult result = 0;
+
+  if (!meta_monitor_is_active (monitor))
+    return;
+
+  result |= update_white_point (color_device);
+  result |= update_color_state (color_device);
+
+  if (result & UPDATE_RESULT_CALIBRATION)
+    g_signal_emit (color_device, signals[CALIBRATION_CHANGED], 0);
+
+  if (result & UPDATE_RESULT_COLOR_STATE)
+    g_signal_emit (color_device, signals[COLOR_STATE_CHANGED], 0);
 }

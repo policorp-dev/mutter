@@ -13,9 +13,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -27,7 +25,8 @@
 #include "wayland/meta-wayland.h"
 #include "wayland/meta-wayland-actor-surface.h"
 #include "wayland/meta-wayland-buffer.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
+#include "wayland/meta-wayland-transaction.h"
 #include "wayland/meta-window-wayland.h"
 
 struct _MetaWaylandSubsurface
@@ -49,7 +48,7 @@ transform_subsurface_position (MetaWaylandSurface *surface,
       *x += surface->sub.x;
       *y += surface->sub.y;
 
-      surface = surface->sub.parent;
+      surface = surface->applied_state.parent;
     }
   while (surface);
 }
@@ -57,10 +56,10 @@ transform_subsurface_position (MetaWaylandSurface *surface,
 static gboolean
 should_show (MetaWaylandSurface *surface)
 {
-  if (!surface->buffer_ref->buffer)
+  if (!surface->buffer)
     return FALSE;
-  else if (surface->sub.parent)
-    return should_show (surface->sub.parent);
+  else if (surface->applied_state.parent)
+    return should_show (surface->applied_state.parent);
   else
     return TRUE;
 }
@@ -73,8 +72,11 @@ sync_actor_subsurface_state (MetaWaylandSurface *surface)
   int x, y;
 
   toplevel_window = meta_wayland_surface_get_toplevel_window (surface);
-  if (!toplevel_window)
-    return;
+  if (!toplevel_window || !should_show (surface))
+    {
+      clutter_actor_hide (actor);
+      return;
+    }
 
   if (toplevel_window->client_type == META_WINDOW_CLIENT_TYPE_X11)
     return;
@@ -85,82 +87,56 @@ sync_actor_subsurface_state (MetaWaylandSurface *surface)
   clutter_actor_set_position (actor, x, y);
   clutter_actor_set_reactive (actor, TRUE);
 
-  if (should_show (surface))
-    clutter_actor_show (actor);
-  else
-    clutter_actor_hide (actor);
+  clutter_actor_show (actor);
+
+  clutter_actor_notify_transform_invalid (actor);
 }
 
 static gboolean
 is_child (MetaWaylandSurface *surface,
           MetaWaylandSurface *sibling)
 {
-   return surface->sub.parent == sibling;
+  return surface->committed_state.parent == sibling;
 }
 
 static gboolean
 is_sibling (MetaWaylandSurface *surface,
             MetaWaylandSurface *sibling)
 {
-  return surface != sibling && surface->sub.parent == sibling->sub.parent;
-}
-
-static gboolean
-is_surface_effectively_synchronized (MetaWaylandSurface *surface)
-{
-  return meta_wayland_surface_should_cache_state (surface);
-}
-
-void
-meta_wayland_subsurface_parent_state_applied (MetaWaylandSubsurface *subsurface)
-{
-  MetaWaylandSurfaceRole *surface_role = META_WAYLAND_SURFACE_ROLE (subsurface);
-  MetaWaylandActorSurface *actor_surface =
-    META_WAYLAND_ACTOR_SURFACE (subsurface);
-  MetaWaylandSurface *surface =
-    meta_wayland_surface_role_get_surface (surface_role);
-
-  if (surface->sub.pending_pos)
-    {
-      surface->sub.x = surface->sub.pending_x;
-      surface->sub.y = surface->sub.pending_y;
-      surface->sub.pending_pos = FALSE;
-    }
-
-  if (is_surface_effectively_synchronized (surface))
-    meta_wayland_surface_apply_cached_state (surface);
-
-  meta_wayland_actor_surface_sync_actor_state (actor_surface);
+  return surface != sibling &&
+         surface->committed_state.parent &&
+         surface->committed_state.parent == sibling->committed_state.parent;
 }
 
 void
 meta_wayland_subsurface_union_geometry (MetaWaylandSubsurface *subsurface,
                                         int                    parent_x,
                                         int                    parent_y,
-                                        MetaRectangle         *out_geometry)
+                                        MtkRectangle          *out_geometry)
 {
   MetaWaylandSurfaceRole *surface_role = META_WAYLAND_SURFACE_ROLE (subsurface);
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
-  MetaRectangle geometry;
+  MtkRectangle geometry;
   MetaWaylandSurface *subsurface_surface;
 
-  geometry = (MetaRectangle) {
+  geometry = (MtkRectangle) {
     .x = surface->offset_x + surface->sub.x,
     .y = surface->offset_y + surface->sub.y,
     .width = meta_wayland_surface_get_width (surface),
     .height = meta_wayland_surface_get_height (surface),
   };
 
-  if (surface->buffer_ref->buffer)
-    meta_rectangle_union (out_geometry, &geometry, out_geometry);
+  if (surface->buffer)
+    mtk_rectangle_union (out_geometry, &geometry, out_geometry);
 
-  META_WAYLAND_SURFACE_FOREACH_SUBSURFACE (surface, subsurface_surface)
+  META_WAYLAND_SURFACE_FOREACH_SUBSURFACE (&surface->applied_state,
+                                           subsurface_surface)
     {
-      MetaWaylandSubsurface *subsurface;
+      MetaWaylandSubsurface *sub_surface;
 
-      subsurface = META_WAYLAND_SUBSURFACE (subsurface_surface->role);
-      meta_wayland_subsurface_union_geometry (subsurface,
+      sub_surface = META_WAYLAND_SUBSURFACE (subsurface_surface->role);
+      meta_wayland_subsurface_union_geometry (sub_surface,
                                               parent_x + geometry.x,
                                               parent_y + geometry.y,
                                               out_geometry);
@@ -185,7 +161,7 @@ meta_wayland_subsurface_get_toplevel (MetaWaylandSurfaceRole *surface_role)
 {
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
-  MetaWaylandSurface *parent = surface->sub.parent;
+  MetaWaylandSurface *parent = surface->applied_state.parent;
 
   if (parent)
     return meta_wayland_surface_get_toplevel (parent);
@@ -200,7 +176,7 @@ meta_wayland_subsurface_get_window (MetaWaylandSurfaceRole *surface_role)
     meta_wayland_surface_role_get_surface (surface_role);
   MetaWaylandSurface *parent;
 
-  parent = surface->sub.parent;
+  parent = surface->committed_state.parent;
   if (parent)
     return meta_wayland_surface_get_window (parent);
   else
@@ -208,7 +184,7 @@ meta_wayland_subsurface_get_window (MetaWaylandSurfaceRole *surface_role)
 }
 
 static gboolean
-meta_wayland_subsurface_should_cache_state (MetaWaylandSurfaceRole *surface_role)
+meta_wayland_subsurface_is_synchronized (MetaWaylandSurfaceRole *surface_role)
 {
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
@@ -217,9 +193,9 @@ meta_wayland_subsurface_should_cache_state (MetaWaylandSurfaceRole *surface_role
   if (surface->sub.synchronous)
     return TRUE;
 
-  parent = surface->sub.parent;
+  parent = surface->committed_state.parent;
   if (parent)
-    return meta_wayland_surface_should_cache_state (parent);
+    return meta_wayland_surface_is_synchronized (parent);
 
   return TRUE;
 }
@@ -229,10 +205,24 @@ meta_wayland_subsurface_notify_subsurface_state_changed (MetaWaylandSurfaceRole 
 {
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
-  MetaWaylandSurface *parent = surface->sub.parent;
+  MetaWaylandSurface *parent = surface->applied_state.parent;
 
   if (parent)
     return meta_wayland_surface_notify_subsurface_state_changed (parent);
+}
+
+static MetaLogicalMonitor *
+meta_wayland_subsurface_get_preferred_scale_monitor (MetaWaylandSurfaceRole *surface_role)
+{
+  MetaWaylandSurface *surface =
+    meta_wayland_surface_role_get_surface (surface_role);
+  MetaWaylandSurface *parent;
+
+  parent = surface->committed_state.parent;
+  if (!parent)
+    return NULL;
+
+  return meta_wayland_surface_get_preferred_scale_monitor (parent);
 }
 
 static int
@@ -242,13 +232,14 @@ meta_wayland_subsurface_get_geometry_scale (MetaWaylandActorSurface *actor_surfa
     META_WAYLAND_SURFACE_ROLE (actor_surface);
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
-  MetaWaylandSurface *parent = surface->sub.parent;
+  MetaWaylandSurface *parent = surface->applied_state.parent;
 
   if (parent)
     {
       MetaWaylandActorSurface *parent_actor;
 
-      parent_actor = META_WAYLAND_ACTOR_SURFACE (surface->sub.parent->role);
+      parent_actor =
+        META_WAYLAND_ACTOR_SURFACE (surface->applied_state.parent->role);
       return meta_wayland_actor_surface_get_geometry_scale (parent_actor);
     }
   else
@@ -289,31 +280,16 @@ meta_wayland_subsurface_class_init (MetaWaylandSubsurfaceClass *klass)
   surface_role_class->assigned = meta_wayland_subsurface_assigned;
   surface_role_class->get_toplevel = meta_wayland_subsurface_get_toplevel;
   surface_role_class->get_window = meta_wayland_subsurface_get_window;
-  surface_role_class->should_cache_state = meta_wayland_subsurface_should_cache_state;
+  surface_role_class->is_synchronized = meta_wayland_subsurface_is_synchronized;
   surface_role_class->notify_subsurface_state_changed =
     meta_wayland_subsurface_notify_subsurface_state_changed;
+  surface_role_class->get_preferred_scale_monitor =
+    meta_wayland_subsurface_get_preferred_scale_monitor;
 
   actor_surface_class->get_geometry_scale =
     meta_wayland_subsurface_get_geometry_scale;
   actor_surface_class->sync_actor_state =
     meta_wayland_subsurface_sync_actor_state;
-}
-
-static void
-wl_subsurface_destructor (struct wl_resource *resource)
-{
-  MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
-
-  g_node_unlink (surface->subsurface_branch_node);
-
-  if (surface->sub.parent)
-    {
-      meta_wayland_surface_notify_subsurface_state_changed (surface->sub.parent);
-      wl_list_remove (&surface->sub.parent_destroy_listener.link);
-      surface->sub.parent = NULL;
-    }
-
-  surface->wl_subsurface = NULL;
 }
 
 static void
@@ -330,10 +306,10 @@ wl_subsurface_set_position (struct wl_client   *client,
                             int32_t             y)
 {
   MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
+  MetaWaylandTransaction *transaction;
 
-  surface->sub.pending_x = x;
-  surface->sub.pending_y = y;
-  surface->sub.pending_pos = TRUE;
+  transaction = meta_wayland_surface_ensure_transaction (surface);
+  meta_wayland_transaction_add_subsurface_position (transaction, surface, x, y);
 }
 
 static gboolean
@@ -347,61 +323,86 @@ is_valid_sibling (MetaWaylandSurface *surface,
   return FALSE;
 }
 
-static void
-subsurface_handle_pending_subsurface_destroyed (struct wl_listener *listener,
-                                                void               *data)
+static MetaWaylandSubsurfacePlacementOp *
+get_subsurface_placement_op (MetaWaylandSurface             *surface,
+                             MetaWaylandSurface             *sibling,
+                             MetaWaylandSubsurfacePlacement  placement)
 {
+  MetaWaylandSurface *parent = surface->committed_state.parent;
   MetaWaylandSubsurfacePlacementOp *op =
-    wl_container_of (listener, op, subsurface_destroy_listener);
+    g_new0 (MetaWaylandSubsurfacePlacementOp, 1);
+  GNode *sibling_node;
 
-  op->surface = NULL;
-  wl_list_remove (&op->subsurface_destroy_listener.link);
-}
+  op->placement = placement;
+  op->surface = g_object_ref (surface);
 
-static void
-subsurface_handle_pending_sibling_destroyed (struct wl_listener *listener,
-                                             void               *data)
-{
-  MetaWaylandSubsurfacePlacementOp *op =
-    wl_container_of (listener, op, sibling_destroy_listener);
+  g_node_unlink (surface->committed_state.subsurface_branch_node);
 
-  op->sibling = NULL;
-  wl_list_remove (&op->sibling_destroy_listener.link);
+  if (!sibling)
+    return op;
+
+  op->sibling = g_object_ref (sibling);
+
+  if (sibling == parent)
+    sibling_node = parent->committed_state.subsurface_leaf_node;
+  else
+    sibling_node = sibling->committed_state.subsurface_branch_node;
+
+  switch (placement)
+    {
+    case META_WAYLAND_SUBSURFACE_PLACEMENT_ABOVE:
+      g_node_insert_after (parent->committed_state.subsurface_branch_node,
+                           sibling_node,
+                           surface->committed_state.subsurface_branch_node);
+      break;
+    case META_WAYLAND_SUBSURFACE_PLACEMENT_BELOW:
+      g_node_insert_before (parent->committed_state.subsurface_branch_node,
+                            sibling_node,
+                            surface->committed_state.subsurface_branch_node);
+      break;
+    }
+
+  return op;
 }
 
 void
-meta_wayland_subsurface_placement_op_free (MetaWaylandSubsurfacePlacementOp *op)
+meta_wayland_subsurface_destroy_placement_op (MetaWaylandSubsurfacePlacementOp *op)
 {
-  if (op->surface)
-    wl_list_remove (&op->subsurface_destroy_listener.link);
-  if (op->sibling)
-    wl_list_remove (&op->sibling_destroy_listener.link);
+  g_clear_object (&op->surface);
+  g_clear_object (&op->sibling);
   g_free (op);
 }
 
 static void
-queue_subsurface_placement (MetaWaylandSurface             *surface,
-                            MetaWaylandSurface             *sibling,
-                            MetaWaylandSubsurfacePlacement  placement)
+subsurface_place (struct wl_client               *client,
+                  struct wl_resource             *resource,
+                  struct wl_resource             *sibling_resource,
+                  MetaWaylandSubsurfacePlacement  placement)
 {
-  MetaWaylandSurface *parent = surface->sub.parent;
-  MetaWaylandSubsurfacePlacementOp *op =
-    g_new0 (MetaWaylandSubsurfacePlacementOp, 1);
+  MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
+  MetaWaylandSurface *sibling = wl_resource_get_user_data (sibling_resource);
+  MetaWaylandSurfaceState *pending_state;
+  MetaWaylandSubsurfacePlacementOp *op;
 
-  op->placement = placement;
-  op->surface = surface;
-  op->sibling = sibling;
-  op->subsurface_destroy_listener.notify =
-    subsurface_handle_pending_subsurface_destroyed;
-  op->sibling_destroy_listener.notify =
-    subsurface_handle_pending_sibling_destroyed;
-  wl_resource_add_destroy_listener (surface->wl_subsurface,
-                                    &op->subsurface_destroy_listener);
-  wl_resource_add_destroy_listener (sibling->resource,
-                                    &op->sibling_destroy_listener);
+  if (!is_valid_sibling (surface, sibling))
+    {
+      wl_resource_post_error (resource, WL_SUBSURFACE_ERROR_BAD_SURFACE,
+                              "wl_subsurface::place_%s: wl_surface@%d is "
+                              "not a valid parent or sibling",
+                              placement == META_WAYLAND_SUBSURFACE_PLACEMENT_ABOVE ?
+                              "above" : "below",
+                              wl_resource_get_id (sibling->resource));
+      return;
+    }
 
-  parent->pending_state->subsurface_placement_ops =
-    g_slist_append (parent->pending_state->subsurface_placement_ops, op);
+  op = get_subsurface_placement_op (surface,
+                                    sibling,
+                                    placement);
+
+  pending_state =
+    meta_wayland_surface_get_pending_state (surface->committed_state.parent);
+  pending_state->subsurface_placement_ops =
+    g_slist_append (pending_state->subsurface_placement_ops, op);
 }
 
 static void
@@ -409,21 +410,8 @@ wl_subsurface_place_above (struct wl_client   *client,
                            struct wl_resource *resource,
                            struct wl_resource *sibling_resource)
 {
-  MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
-  MetaWaylandSurface *sibling = wl_resource_get_user_data (sibling_resource);
-
-  if (!is_valid_sibling (surface, sibling))
-    {
-      wl_resource_post_error (resource, WL_SUBSURFACE_ERROR_BAD_SURFACE,
-                              "wl_subsurface::place_above: wl_surface@%d is "
-                              "not a valid parent or sibling",
-                              wl_resource_get_id (sibling->resource));
-      return;
-    }
-
-  queue_subsurface_placement (surface,
-                              sibling,
-                              META_WAYLAND_SUBSURFACE_PLACEMENT_ABOVE);
+  subsurface_place (client, resource, sibling_resource,
+                    META_WAYLAND_SUBSURFACE_PLACEMENT_ABOVE);
 }
 
 static void
@@ -431,21 +419,40 @@ wl_subsurface_place_below (struct wl_client   *client,
                            struct wl_resource *resource,
                            struct wl_resource *sibling_resource)
 {
+  subsurface_place (client, resource, sibling_resource,
+                    META_WAYLAND_SUBSURFACE_PLACEMENT_BELOW);
+}
+
+static void
+permanently_unmap_subsurface (MetaWaylandSurface *surface)
+{
+  MetaWaylandSubsurfacePlacementOp *op;
+  MetaWaylandTransaction *transaction;
+  MetaSurfaceActor *surface_actor;
+
+  op = get_subsurface_placement_op (surface, NULL,
+                                    META_WAYLAND_SUBSURFACE_PLACEMENT_BELOW);
+
+  transaction = meta_wayland_transaction_new (surface->compositor);
+  meta_wayland_transaction_add_placement_op (transaction,
+                                             surface->committed_state.parent, op);
+  meta_wayland_transaction_add_subsurface_position (transaction, surface, 0, 0);
+  meta_wayland_transaction_commit (transaction);
+
+  surface_actor = meta_wayland_surface_get_actor (surface);
+  clutter_actor_set_reactive (CLUTTER_ACTOR (surface_actor), FALSE);
+  surface->committed_state.parent = NULL;
+}
+
+static void
+wl_subsurface_destructor (struct wl_resource *resource)
+{
   MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
-  MetaWaylandSurface *sibling = wl_resource_get_user_data (sibling_resource);
 
-  if (!is_valid_sibling (surface, sibling))
-    {
-      wl_resource_post_error (resource, WL_SUBSURFACE_ERROR_BAD_SURFACE,
-                              "wl_subsurface::place_below: wl_surface@%d is "
-                              "not a valid parent or sibling",
-                              wl_resource_get_id (sibling->resource));
-      return;
-    }
+  if (surface->committed_state.parent)
+    permanently_unmap_subsurface (surface);
 
-  queue_subsurface_placement (surface,
-                              sibling,
-                              META_WAYLAND_SUBSURFACE_PLACEMENT_BELOW);
+  surface->wl_subsurface = NULL;
 }
 
 static void
@@ -458,24 +465,34 @@ wl_subsurface_set_sync (struct wl_client   *client,
 }
 
 static void
+meta_wayland_subsurface_parent_desynced (MetaWaylandSurface *surface)
+{
+  MetaWaylandSurface *subsurface_surface;
+
+  if (surface->sub.synchronous)
+    return;
+
+  if (surface->sub.transaction)
+    meta_wayland_transaction_commit (g_steal_pointer (&surface->sub.transaction));
+
+  META_WAYLAND_SURFACE_FOREACH_SUBSURFACE (&surface->committed_state,
+                                           subsurface_surface)
+    meta_wayland_subsurface_parent_desynced (subsurface_surface);
+}
+
+static void
 wl_subsurface_set_desync (struct wl_client   *client,
                           struct wl_resource *resource)
 {
   MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
-  MetaWaylandSurface *parent;
-  gboolean is_parent_effectively_synchronized;
 
-  parent = surface->sub.parent;
-  if (!parent || !surface->sub.synchronous)
+  if (!surface->sub.synchronous)
     return;
 
-  is_parent_effectively_synchronized =
-    is_surface_effectively_synchronized (parent);
-
-  if (!is_parent_effectively_synchronized)
-    meta_wayland_surface_apply_cached_state (surface);
-
   surface->sub.synchronous = FALSE;
+
+  if (!meta_wayland_surface_is_synchronized (surface))
+    meta_wayland_subsurface_parent_desynced (surface);
 }
 
 static const struct wl_subsurface_interface meta_wayland_wl_subsurface_interface = {
@@ -494,17 +511,10 @@ wl_subcompositor_destroy (struct wl_client   *client,
   wl_resource_destroy (resource);
 }
 
-static void
-surface_handle_parent_surface_destroyed (struct wl_listener *listener,
-                                         void               *data)
+void
+meta_wayland_subsurface_parent_destroyed (MetaWaylandSurface *surface)
 {
-  MetaWaylandSurface *surface = wl_container_of (listener,
-                                                 surface,
-                                                 sub.parent_destroy_listener);
-
-  g_node_unlink (surface->subsurface_branch_node);
-  surface->sub.parent = NULL;
-  wl_list_remove (&surface->sub.parent_destroy_listener.link);
+  permanently_unmap_subsurface (surface);
 }
 
 static gboolean
@@ -513,8 +523,8 @@ is_same_or_ancestor (MetaWaylandSurface *surface,
 {
   if (surface == other_surface)
     return TRUE;
-  if (other_surface->sub.parent)
-    return is_same_or_ancestor (surface, other_surface->sub.parent);
+  if (other_surface->committed_state.parent)
+    return is_same_or_ancestor (surface, other_surface->committed_state.parent);
   return FALSE;
 }
 
@@ -527,6 +537,9 @@ wl_subcompositor_get_subsurface (struct wl_client   *client,
 {
   MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
   MetaWaylandSurface *parent = wl_resource_get_user_data (parent_resource);
+  MetaWaylandSurfaceState *pending_state;
+  MetaWaylandSubsurfacePlacementOp *op;
+  MetaWaylandSurface *reference;
   MetaWindow *toplevel_window;
 
   if (surface->wl_subsurface)
@@ -573,16 +586,18 @@ wl_subcompositor_get_subsurface (struct wl_client   *client,
                                   wl_subsurface_destructor);
 
   surface->sub.synchronous = TRUE;
-  surface->sub.parent = parent;
-  surface->sub.parent_destroy_listener.notify =
-    surface_handle_parent_surface_destroyed;
-  wl_resource_add_destroy_listener (parent->resource,
-                                    &surface->sub.parent_destroy_listener);
+  surface->committed_state.parent = parent;
 
-  g_node_append (parent->subsurface_branch_node,
-                 surface->subsurface_branch_node);
+  meta_wayland_surface_notify_preferred_scale_monitor (surface);
 
-  meta_wayland_surface_notify_subsurface_state_changed (parent);
+  reference =
+    g_node_last_child (parent->committed_state.subsurface_branch_node)->data;
+  op = get_subsurface_placement_op (surface, reference,
+                                    META_WAYLAND_SUBSURFACE_PLACEMENT_ABOVE);
+
+  pending_state = meta_wayland_surface_get_pending_state (parent);
+  pending_state->subsurface_placement_ops =
+    g_slist_append (pending_state->subsurface_placement_ops, op);
 }
 
 static const struct wl_subcompositor_interface meta_wayland_subcompositor_interface = {

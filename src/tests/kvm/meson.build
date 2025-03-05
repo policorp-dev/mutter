@@ -16,7 +16,7 @@ else
     console: true,
     command: [
       build_linux,
-      'https://anongit.freedesktop.org/git/drm/drm.git',
+      'https://gitlab.freedesktop.org/drm/kernel.git',
       '@INPUT@',
       '@OUTPUT@',
       '--enable', 'CONFIG_DRM_VKMS',
@@ -50,12 +50,13 @@ foreach test_case: privileged_tests
     args: [
       kernel_image_path,
       meta_dbus_runner.full_path(),
-      '--kvm',
+      '--',
       meson.current_build_dir(),
       vm_env,
       kvm_wrapper,
       test_case['executable'].full_path(),
     ],
     is_parallel: false,
+    timeout: 60,
   )
 endforeach

@@ -1,9 +1,9 @@
 /* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; c-basic-offset: 2; -*- */
 
 /**
- * SECTION:barrier
- * @Title: MetaBarrier
- * @Short_Description: Pointer barriers
+ * MetaBarrier:
+ *
+ * Pointer barriers
  */
 
 #include "config.h"
@@ -13,10 +13,13 @@
 
 #include <glib-object.h>
 
-#include "backends/x11/meta-backend-x11.h"
-#include "backends/x11/meta-barrier-x11.h"
 #include "meta/meta-enum-types.h"
 #include "meta/util.h"
+
+#ifdef HAVE_X11
+#include "backends/x11/meta-backend-x11.h"
+#include "backends/x11/meta-barrier-x11.h"
+#endif
 
 #ifdef HAVE_NATIVE_BACKEND
 #include "backends/native/meta-backend-native.h"
@@ -28,6 +31,7 @@ typedef struct _MetaBarrierPrivate
   MetaBackend *backend;
   MetaBorder border;
   MetaBarrierImpl *impl;
+  MetaBarrierFlags flags;
 } MetaBarrierPrivate;
 
 static void initable_iface_init (GInitableIface *initable_iface);
@@ -53,13 +57,12 @@ enum
   PROP_0,
 
   PROP_BACKEND,
-  PROP_DISPLAY,
-
   PROP_X1,
   PROP_Y1,
   PROP_X2,
   PROP_Y2,
   PROP_DIRECTIONS,
+  PROP_FLAGS,
 
   PROP_LAST,
 };
@@ -76,22 +79,6 @@ enum
 
 static guint obj_signals[LAST_SIGNAL];
 
-static MetaBackend *
-backend_from_display (MetaDisplay *display)
-{
-  MetaContext *context = meta_display_get_context (display);
-
-  return meta_context_get_backend (context);
-}
-
-static MetaDisplay *
-display_from_backend (MetaBackend *backend)
-{
-  MetaContext *context = meta_backend_get_context (backend);
-
-  return meta_context_get_display (context);
-}
-
 static void
 meta_barrier_get_property (GObject    *object,
                            guint       prop_id,
@@ -106,24 +93,24 @@ meta_barrier_get_property (GObject    *object,
     case PROP_BACKEND:
       g_value_set_object (value, priv->backend);
       break;
-    case PROP_DISPLAY:
-      g_value_set_object (value, display_from_backend (priv->backend));
-      break;
     case PROP_X1:
-      g_value_set_int (value, priv->border.line.a.x);
+      g_value_set_int (value, (int) priv->border.line.a.x);
       break;
     case PROP_Y1:
-      g_value_set_int (value, priv->border.line.a.y);
+      g_value_set_int (value, (int) priv->border.line.a.y);
       break;
     case PROP_X2:
-      g_value_set_int (value, priv->border.line.b.x);
+      g_value_set_int (value, (int) priv->border.line.b.x);
       break;
     case PROP_Y2:
-      g_value_set_int (value, priv->border.line.b.y);
+      g_value_set_int (value, (int) priv->border.line.b.y);
       break;
     case PROP_DIRECTIONS:
       g_value_set_flags (value,
                          meta_border_get_allows_directions (&priv->border));
+      break;
+    case PROP_FLAGS:
+      g_value_set_flags (value, priv->flags);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -145,15 +132,6 @@ meta_barrier_set_property (GObject      *object,
     case PROP_BACKEND:
       priv->backend = g_value_get_object (value);
       break;
-    case PROP_DISPLAY:
-      {
-        MetaDisplay *display;
-
-        display = g_value_get_object (value);
-        if (display)
-          priv->backend = backend_from_display (g_value_get_object (value));
-        break;
-      }
     case PROP_X1:
       priv->border.line.a.x = g_value_get_int (value);
       break;
@@ -169,6 +147,9 @@ meta_barrier_set_property (GObject      *object,
     case PROP_DIRECTIONS:
       meta_border_set_allows_directions (&priv->border,
                                          g_value_get_flags (value));
+      break;
+    case PROP_FLAGS:
+      priv->flags = g_value_get_flags (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -268,9 +249,11 @@ init_barrier_impl (MetaBarrier *barrier)
   if (META_IS_BACKEND_NATIVE (priv->backend))
     priv->impl = meta_barrier_impl_native_new (barrier);
 #endif
+#ifdef HAVE_X11
   if (META_IS_BACKEND_X11 (priv->backend) &&
       !meta_is_wayland_compositor ())
     priv->impl = meta_barrier_impl_x11_new (barrier);
+#endif
 
   g_warn_if_fail (priv->impl);
 }
@@ -300,65 +283,51 @@ meta_barrier_class_init (MetaBarrierClass *klass)
   object_class->constructed = meta_barrier_constructed;
 
   obj_props[PROP_BACKEND] =
-    g_param_spec_object ("backend",
-                         "backend",
-                         "The backend",
+    g_param_spec_object ("backend", NULL, NULL,
                          META_TYPE_BACKEND,
-                         G_PARAM_READWRITE |
-                         G_PARAM_CONSTRUCT_ONLY |
-                         G_PARAM_STATIC_STRINGS);
-  obj_props[PROP_DISPLAY] =
-    g_param_spec_object ("display",
-                         "Display",
-                         "The display to construct the pointer barrier on",
-                         META_TYPE_DISPLAY,
-                         G_PARAM_DEPRECATED |
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_X1] =
-    g_param_spec_int ("x1",
-                      "X1",
-                      "The first X coordinate of the barrier",
+    g_param_spec_int ("x1", NULL, NULL,
                       0, G_MAXSHORT, 0,
                       G_PARAM_READWRITE |
                       G_PARAM_CONSTRUCT_ONLY |
                       G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_Y1] =
-    g_param_spec_int ("y1",
-                      "Y1",
-                      "The first Y coordinate of the barrier",
+    g_param_spec_int ("y1", NULL, NULL,
                       0, G_MAXSHORT, 0,
                       G_PARAM_READWRITE |
                       G_PARAM_CONSTRUCT_ONLY |
                       G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_X2] =
-    g_param_spec_int ("x2",
-                      "X2",
-                      "The second X coordinate of the barrier",
+    g_param_spec_int ("x2", NULL, NULL,
                       0, G_MAXSHORT, G_MAXSHORT,
                       G_PARAM_READWRITE |
                       G_PARAM_CONSTRUCT_ONLY |
                       G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_Y2] =
-    g_param_spec_int ("y2",
-                      "Y2",
-                      "The second Y coordinate of the barrier",
+    g_param_spec_int ("y2", NULL, NULL,
                       0, G_MAXSHORT, G_MAXSHORT,
                       G_PARAM_READWRITE |
                       G_PARAM_CONSTRUCT_ONLY |
                       G_PARAM_STATIC_STRINGS);
 
   obj_props[PROP_DIRECTIONS] =
-    g_param_spec_flags ("directions",
-                        "Directions",
-                        "A set of directions to let the pointer through",
+    g_param_spec_flags ("directions", NULL, NULL,
                         META_TYPE_BARRIER_DIRECTION,
                         0,
+                        G_PARAM_READWRITE |
+                        G_PARAM_CONSTRUCT_ONLY |
+                        G_PARAM_STATIC_STRINGS);
+  obj_props[PROP_FLAGS] =
+    g_param_spec_flags ("flags", NULL, NULL,
+                        META_TYPE_BARRIER_FLAGS,
+                        META_BARRIER_FLAG_NONE,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT_ONLY |
                         G_PARAM_STATIC_STRINGS);
@@ -426,6 +395,7 @@ meta_barrier_new (MetaBackend           *backend,
                   int                    x2,
                   int                    y2,
                   MetaBarrierDirection   directions,
+                  MetaBarrierFlags       flags,
                   GError               **error)
 {
   return g_initable_new (META_TYPE_BARRIER,
@@ -436,6 +406,7 @@ meta_barrier_new (MetaBackend           *backend,
                          "x2", x2,
                          "y2", y2,
                          "directions", directions,
+                         "flags", flags,
                          NULL);
 }
 
@@ -467,6 +438,14 @@ meta_barrier_get_border (MetaBarrier *barrier)
   MetaBarrierPrivate *priv = meta_barrier_get_instance_private (barrier);
 
   return &priv->border;
+}
+
+MetaBarrierFlags
+meta_barrier_get_flags (MetaBarrier *barrier)
+{
+  MetaBarrierPrivate *priv = meta_barrier_get_instance_private (barrier);
+
+  return priv->flags;
 }
 
 static void

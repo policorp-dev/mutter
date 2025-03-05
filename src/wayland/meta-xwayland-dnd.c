@@ -30,18 +30,18 @@
 #include <glib-unix.h>
 #include <gio/gunixoutputstream.h>
 #include <gio/gunixinputstream.h>
-#include <gdk/gdkx.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xfixes.h>
 
 #include "core/meta-workspace-manager-private.h"
 #include "core/workspace-private.h"
-#include "meta/meta-x11-errors.h"
+#include "mtk/mtk-x11.h"
 #include "wayland/meta-wayland-data-device.h"
 #include "wayland/meta-xwayland-private.h"
 #include "wayland/meta-xwayland-dnd-private.h"
 #include "wayland/meta-xwayland.h"
 #include "x11/meta-x11-display-private.h"
+#include "x11/window-x11.h"
 
 #define INCR_CHUNK_SIZE (128 * 1024)
 #define XDND_VERSION 5
@@ -55,6 +55,8 @@ struct _MetaWaylandDataSourceXWayland
 
 struct _MetaXWaylandDnd
 {
+  MetaXWaylandManager *manager;
+
   Window owner;
   Time client_message_timestamp;
   MetaWaylandDataSource *source; /* owned by MetaWaylandDataDevice */
@@ -63,6 +65,17 @@ struct _MetaXWaylandDnd
   Window dnd_dest; /* X11 drag dest window */
   guint32 last_motion_time;
   int current_dnd_window;
+};
+
+typedef struct _DndCandidateDevice DndCandidateDevice;
+
+struct _DndCandidateDevice
+{
+  MetaWaylandSeat *seat;
+  ClutterInputDevice *device;
+  ClutterEventSequence *sequence;
+  MetaWaylandSurface *focus;
+  graphene_point_t pos;
 };
 
 enum
@@ -107,6 +120,24 @@ Atom xdnd_atoms[N_DND_ATOMS];
 
 G_DEFINE_TYPE (MetaWaylandDataSourceXWayland, meta_wayland_data_source_xwayland,
                META_TYPE_WAYLAND_DATA_SOURCE);
+
+static MetaDisplay *
+display_from_compositor (MetaWaylandCompositor *compositor)
+{
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+
+  return meta_context_get_display (context);
+}
+
+static MetaX11Display *
+x11_display_from_dnd (MetaXWaylandDnd *dnd)
+{
+  MetaWaylandCompositor *compositor = dnd->manager->compositor;
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+  MetaDisplay *display = meta_context_get_display (context);
+
+  return meta_display_get_x11_display (display);
+}
 
 /* XDND helpers */
 static Atom
@@ -224,15 +255,15 @@ static void
 xdnd_send_enter (MetaXWaylandDnd *dnd,
                  Window           dest)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaWaylandCompositor *compositor = dnd->manager->compositor;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   Display *xdisplay = x11_display->xdisplay;
   MetaWaylandDataSource *data_source;
   XEvent xev = { 0 };
   gchar **p;
   struct wl_array *source_mime_types;
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
 
   data_source = compositor->seat->data_device.dnd_data_source;
   xev.xclient.type = ClientMessage;
@@ -252,7 +283,7 @@ xdnd_send_enter (MetaXWaylandDnd *dnd,
 
       wl_array_for_each (p, source_mime_types)
         {
-          xev.xclient.data.l[i++] = gdk_x11_get_xatom_by_name (*p);
+          xev.xclient.data.l[i++] = XInternAtom (xdisplay, *p, False);
         }
     }
   else
@@ -268,7 +299,7 @@ xdnd_send_enter (MetaXWaylandDnd *dnd,
 
       wl_array_for_each (p, source_mime_types)
         {
-          atomlist[i++] = gdk_x11_get_xatom_by_name (*p);
+          atomlist[i++] = XInternAtom (xdisplay, *p, False);
         }
 
       XChangeProperty (xdisplay, x11_display->selection.xwindow,
@@ -279,7 +310,7 @@ xdnd_send_enter (MetaXWaylandDnd *dnd,
 
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
 
-  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
     g_critical ("Error sending XdndEnter");
 }
 
@@ -287,7 +318,7 @@ static void
 xdnd_send_leave (MetaXWaylandDnd *dnd,
                  Window           dest)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   Display *xdisplay = x11_display->xdisplay;
   XEvent xev = { 0 };
 
@@ -297,9 +328,9 @@ xdnd_send_leave (MetaXWaylandDnd *dnd,
   xev.xclient.window = dest;
   xev.xclient.data.l[0] = x11_display->selection.xwindow;
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
-  meta_x11_error_trap_pop (x11_display);
+  mtk_x11_error_trap_pop (x11_display->xdisplay);
 }
 
 static void
@@ -309,11 +340,13 @@ xdnd_send_position (MetaXWaylandDnd *dnd,
                     int              x,
                     int              y)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandCompositor *compositor = dnd->manager->compositor;
+  MetaXWaylandManager *manager = &compositor->xwayland_manager;
   MetaWaylandDataSource *source = compositor->seat->data_device.dnd_data_source;
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   Display *xdisplay = x11_display->xdisplay;
   uint32_t action = 0, user_action, actions;
+  int protocol_x, protocol_y;
   XEvent xev = { 0 };
 
   user_action = meta_wayland_data_source_get_user_action (source);
@@ -329,16 +362,20 @@ xdnd_send_position (MetaXWaylandDnd *dnd,
   xev.xclient.format = 32;
   xev.xclient.window = dest;
 
+  meta_xwayland_stage_to_protocol_point (manager,
+                                         x, y,
+                                         &protocol_x, &protocol_y);
+
   xev.xclient.data.l[0] = x11_display->selection.xwindow;
   xev.xclient.data.l[1] = 0;
-  xev.xclient.data.l[2] = (x << 16) | y;
+  xev.xclient.data.l[2] = (protocol_x << 16) | protocol_y;
   xev.xclient.data.l[3] = time;
   xev.xclient.data.l[4] = action_to_atom (action);
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
 
-  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
     g_critical ("Error sending XdndPosition");
 }
 
@@ -347,7 +384,7 @@ xdnd_send_drop (MetaXWaylandDnd *dnd,
                 Window           dest,
                 uint32_t         time)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   Display *xdisplay = x11_display->xdisplay;
   XEvent xev = { 0 };
 
@@ -359,10 +396,10 @@ xdnd_send_drop (MetaXWaylandDnd *dnd,
   xev.xclient.data.l[0] = x11_display->selection.xwindow;
   xev.xclient.data.l[2] = time;
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
 
-  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
     g_critical ("Error sending XdndDrop");
 }
 
@@ -371,7 +408,7 @@ xdnd_send_finished (MetaXWaylandDnd *dnd,
                     Window           dest,
                     gboolean         accepted)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   Display *xdisplay = x11_display->xdisplay;
   MetaWaylandDataSource *source = dnd->source;
   uint32_t action = 0;
@@ -391,10 +428,10 @@ xdnd_send_finished (MetaXWaylandDnd *dnd,
       xev.xclient.data.l[2] = action_to_atom (action);
     }
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
 
-  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
     g_critical ("Error sending XdndFinished");
 }
 
@@ -403,8 +440,8 @@ xdnd_send_status (MetaXWaylandDnd *dnd,
                   Window           dest,
                   uint32_t         action)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
-  Display *xdisplay = GDK_DISPLAY_XDISPLAY (gdk_display_get_default ());
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   XEvent xev = { 0 };
 
   xev.xclient.type = ClientMessage;
@@ -419,10 +456,10 @@ xdnd_send_status (MetaXWaylandDnd *dnd,
   if (xev.xclient.data.l[4])
     xev.xclient.data.l[1] |= 1 << 0; /* Bit 1: dest accepts the drop */
 
-  meta_x11_error_trap_push (x11_display);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
   XSendEvent (xdisplay, dest, False, NoEventMask, &xev);
 
-  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
     g_critical ("Error sending Xdndstatus");
 }
 
@@ -430,11 +467,12 @@ static void
 meta_xwayland_end_dnd_grab (MetaWaylandDataDevice *data_device,
                             gboolean               success)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandManager *manager = &compositor->xwayland_manager;
   MetaWaylandDragGrab *drag_grab = compositor->seat->data_device.current_grab;
   MetaXWaylandDnd *dnd = manager->dnd;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
 
   if (drag_grab)
     {
@@ -469,7 +507,10 @@ meta_x11_source_send (MetaWaylandDataSource *source,
                       const gchar           *mime_type,
                       gint                   fd)
 {
-  MetaDisplay *display = meta_get_display ();
+  MetaWaylandCompositor *compositor =
+    meta_wayland_data_source_get_compositor (source);
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+  MetaDisplay *display = meta_context_get_display (context);
   GOutputStream *stream;
 
   stream = g_unix_output_stream_new (fd, TRUE);
@@ -533,18 +574,18 @@ meta_x11_source_drag_finished (MetaWaylandDataSource *source)
   MetaWaylandDataSourceXWayland *source_xwayland =
     META_WAYLAND_DATA_SOURCE_XWAYLAND (source);
   MetaXWaylandDnd *dnd = source_xwayland->dnd;
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
   uint32_t action = meta_wayland_data_source_get_current_action (source);
 
   if (action == WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE)
     {
-      Display *xdisplay = GDK_DISPLAY_XDISPLAY (gdk_display_get_default ());
+      Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
 
       /* Request data deletion on the drag source */
       XConvertSelection (xdisplay,
                          xdnd_atoms[ATOM_DND_SELECTION],
-                         gdk_x11_get_xatom_by_name ("DELETE"),
-                         gdk_x11_get_xatom_by_name ("_META_SELECTION"),
+                         XInternAtom (xdisplay, "DELETE", False),
+                         XInternAtom (xdisplay, "_META_SELECTION", False),
                          x11_display->selection.xwindow,
                          META_CURRENT_TIME);
     }
@@ -572,11 +613,14 @@ meta_wayland_data_source_xwayland_class_init (MetaWaylandDataSourceXWaylandClass
 }
 
 static MetaWaylandDataSource *
-meta_wayland_data_source_xwayland_new (MetaXWaylandDnd *dnd)
+meta_wayland_data_source_xwayland_new (MetaXWaylandDnd       *dnd,
+                                       MetaWaylandCompositor *compositor)
 {
   MetaWaylandDataSourceXWayland *source_xwayland;
 
-  source_xwayland = g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_XWAYLAND, NULL);
+  source_xwayland = g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_XWAYLAND,
+                                  "compositor", compositor,
+                                  NULL);
   source_xwayland->dnd = dnd;
 
   return META_WAYLAND_DATA_SOURCE (source_xwayland);
@@ -587,10 +631,12 @@ meta_x11_drag_dest_focus_in (MetaWaylandDataDevice *data_device,
                              MetaWaylandSurface    *surface,
                              MetaWaylandDataOffer  *offer)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
+  MetaWindow *window = meta_wayland_surface_get_window (surface);
 
-  dnd->dnd_dest = meta_wayland_surface_get_window (surface)->xwindow;
+  dnd->dnd_dest = meta_window_x11_get_xwindow (window);
   xdnd_send_enter (dnd, dnd->dnd_dest);
 }
 
@@ -598,7 +644,8 @@ static void
 meta_x11_drag_dest_focus_out (MetaWaylandDataDevice *data_device,
                               MetaWaylandSurface    *surface)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
 
   xdnd_send_leave (dnd, dnd->dnd_dest);
@@ -608,43 +655,49 @@ meta_x11_drag_dest_focus_out (MetaWaylandDataDevice *data_device,
 static void
 meta_x11_drag_dest_motion (MetaWaylandDataDevice *data_device,
                            MetaWaylandSurface    *surface,
-                           const ClutterEvent    *event)
+                           float                  x,
+                           float                  y,
+                           uint32_t               time_ms)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
-  guint32 time;
-  gfloat x, y;
 
-  time = clutter_event_get_time (event);
-  clutter_event_get_coords (event, &x, &y);
-  xdnd_send_position (dnd, dnd->dnd_dest, time, x, y);
+  xdnd_send_position (dnd, dnd->dnd_dest, time_ms, (int) x, (int) y);
 }
 
 static void
 meta_x11_drag_dest_drop (MetaWaylandDataDevice *data_device,
                          MetaWaylandSurface    *surface)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
+  MetaDisplay *display = display_from_compositor (compositor);
 
   xdnd_send_drop (dnd, dnd->dnd_dest,
-                  meta_display_get_current_time_roundtrip (meta_get_display ()));
+                  meta_display_get_current_time_roundtrip (display));
 }
 
 static void
 meta_x11_drag_dest_update (MetaWaylandDataDevice *data_device,
                            MetaWaylandSurface    *surface)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandSeat *seat = meta_wayland_data_device_get_seat (data_device);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
-  MetaWaylandSeat *seat = compositor->seat;
+  MetaWaylandDragGrab *drag_grab = compositor->seat->data_device.current_grab;
+  ClutterInputDevice *device;
+  ClutterEventSequence *sequence;
   graphene_point_t pos;
 
-  clutter_seat_query_state (clutter_input_device_get_seat (seat->pointer->device),
-                            seat->pointer->device, NULL, &pos, NULL);
+  device = meta_wayland_drag_grab_get_device (drag_grab, &sequence);
+
+  clutter_seat_query_state (clutter_input_device_get_seat (device),
+                            device, sequence, &pos, NULL);
   xdnd_send_position (dnd, dnd->dnd_dest,
                       clutter_get_current_event_time (),
-                      pos.x, pos.y);
+                      (int) pos.x, (int) pos.y);
 }
 
 static const MetaWaylandDragDestFuncs meta_x11_drag_dest_funcs = {
@@ -668,7 +721,9 @@ meta_xwayland_data_source_fetch_mimetype_list (MetaWaylandDataSource *source,
 {
   MetaWaylandDataSourceXWayland *source_xwayland =
     META_WAYLAND_DATA_SOURCE_XWAYLAND (source);
-  Display *xdisplay = GDK_DISPLAY_XDISPLAY (gdk_display_get_default ());
+  MetaXWaylandDnd *dnd = source_xwayland->dnd;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   gulong nitems_ret, bytes_after_ret, i;
   Atom *atoms, type_ret, utf8_string;
   int format_ret;
@@ -678,17 +733,26 @@ meta_xwayland_data_source_fetch_mimetype_list (MetaWaylandDataSource *source,
   if (source_mime_types->size != 0)
     return TRUE;
 
-  utf8_string = gdk_x11_get_xatom_by_name ("UTF8_STRING");
-  XGetWindowProperty (xdisplay, window, prop,
-                      0, /* offset */
-                      0x1fffffff, /* length */
-                      False, /* delete */
-                      AnyPropertyType,
-                      &type_ret,
-                      &format_ret,
-                      &nitems_ret,
-                      &bytes_after_ret,
-                      (guchar **) &atoms);
+  mtk_x11_error_trap_push (x11_display->xdisplay);
+
+  utf8_string = XInternAtom (xdisplay, "UTF8_STRING", False);
+  if (XGetWindowProperty (xdisplay, window, prop,
+                          0, /* offset */
+                          0x1fffffff, /* length */
+                          False, /* delete */
+                          AnyPropertyType,
+                          &type_ret,
+                          &format_ret,
+                          &nitems_ret,
+                          &bytes_after_ret,
+                          (guchar **) &atoms) != Success)
+    {
+      mtk_x11_error_trap_pop (xdisplay);
+      return FALSE;
+    }
+
+  if (mtk_x11_error_trap_pop_with_return (x11_display->xdisplay) != Success)
+    return FALSE;
 
   if (nitems_ret == 0 || type_ret != XA_ATOM)
     {
@@ -698,7 +762,7 @@ meta_xwayland_data_source_fetch_mimetype_list (MetaWaylandDataSource *source,
 
   for (i = 0; i < nitems_ret; i++)
     {
-      const gchar *mime_type;
+      char *mime_type;
 
       if (atoms[i] == utf8_string)
         {
@@ -707,8 +771,9 @@ meta_xwayland_data_source_fetch_mimetype_list (MetaWaylandDataSource *source,
           source_xwayland->has_utf8_string_atom = TRUE;
         }
 
-      mime_type = gdk_x11_get_xatom_name (atoms[i]);
+      mime_type = XGetAtomName (xdisplay, atoms[i]);
       meta_wayland_data_source_add_mime_type (source, mime_type);
+      XFree (mime_type);
     }
 
   XFree (atoms);
@@ -720,7 +785,8 @@ static MetaWaylandSurface *
 pick_drop_surface (MetaWaylandCompositor *compositor,
                    const ClutterEvent    *event)
 {
-  MetaDisplay *display = meta_get_display ();
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+  MetaDisplay *display = meta_context_get_display (context);
   MetaWorkspaceManager *workspace_manager = display->workspace_manager;
   MetaWorkspace *workspace = workspace_manager->active_workspace;
   MetaWindow *focus_window = NULL;
@@ -729,8 +795,9 @@ pick_drop_surface (MetaWaylandCompositor *compositor,
   clutter_event_get_coords (event, &pos.x, &pos.y);
   focus_window = meta_workspace_get_default_focus_window_at_point (workspace,
                                                                    NULL,
-                                                                   pos.x, pos.y);
-  return focus_window ? focus_window->surface : NULL;
+                                                                   (int) pos.x,
+                                                                   (int) pos.y);
+  return focus_window ? meta_window_get_wayland_surface (focus_window) : NULL;
 }
 
 static void
@@ -738,9 +805,10 @@ repick_drop_surface (MetaWaylandCompositor *compositor,
                      MetaWaylandDragGrab   *drag_grab,
                      const ClutterEvent    *event)
 {
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
-  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
+  MetaXWaylandManager *manager = &compositor->xwayland_manager;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   MetaWaylandSurface *focus = NULL;
   MetaWindow *focus_window;
 
@@ -759,16 +827,23 @@ repick_drop_surface (MetaWaylandCompositor *compositor,
       focus_window->client_type == META_WINDOW_CLIENT_TYPE_WAYLAND)
     {
       Window dnd_window;
+      MtkRectangle frame_rect;
 
       hide_dnd_window (dnd, x11_display, dnd->current_dnd_window);
       dnd_window = next_dnd_window (dnd);
 
       XMapRaised (xdisplay, dnd_window);
+
+      frame_rect = meta_window_config_get_rect (focus_window->config);
+      meta_xwayland_stage_to_protocol_rect (manager,
+                                            &frame_rect,
+                                            &frame_rect);
+
       XMoveResizeWindow (xdisplay, dnd_window,
-                         focus_window->rect.x,
-                         focus_window->rect.y,
-                         focus_window->rect.width,
-                         focus_window->rect.height);
+                         frame_rect.x,
+                         frame_rect.y,
+                         frame_rect.width,
+                         frame_rect.height);
     }
   else
     {
@@ -776,55 +851,118 @@ repick_drop_surface (MetaWaylandCompositor *compositor,
     }
 }
 
-static void
-drag_xgrab_focus (MetaWaylandPointerGrab *grab,
-                  MetaWaylandSurface     *surface)
+static MetaWaylandSurface *
+drag_xgrab_get_focus_surface (MetaWaylandEventHandler *handler,
+                              ClutterInputDevice      *device,
+                              ClutterEventSequence    *sequence,
+                              gpointer                 user_data)
 {
-  /* Do not update the focus here. First, the surface may perfectly
+  MetaWaylandDragGrab *drag_grab = user_data;
+  ClutterInputDevice *drag_device;
+  ClutterEventSequence *drag_sequence;
+
+  drag_device = meta_wayland_drag_grab_get_device (drag_grab, &drag_sequence);
+
+  if (drag_sequence != sequence ||
+      drag_device != device)
+    return NULL;
+
+  return meta_wayland_drag_grab_get_origin (drag_grab);
+}
+
+static void
+drag_xgrab_focus (MetaWaylandEventHandler *handler,
+                  ClutterInputDevice      *device,
+                  ClutterEventSequence    *sequence,
+                  MetaWaylandSurface      *surface,
+                  gpointer                 user_data)
+{
+  meta_wayland_event_handler_chain_up_focus (handler, device,
+                                             sequence, surface);
+
+  /* Do not update the DnD focus here. First, the surface may perfectly
    * be the X11 source DnD icon window's, so we can only be fooled
    * here. Second, delaying focus handling to XdndEnter/Leave
    * makes us do the negotiation orderly on the X11 side.
    */
 }
 
-static void
-drag_xgrab_motion (MetaWaylandPointerGrab *grab,
-                   const ClutterEvent     *event)
+static gboolean
+drag_xgrab_motion (MetaWaylandEventHandler *handler,
+                   const ClutterEvent      *event,
+                   gpointer                 user_data)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandDragGrab *drag_grab = user_data;
+  MetaWaylandSeat *seat = meta_wayland_drag_grab_get_seat (drag_grab);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
-  MetaWaylandSeat *seat = compositor->seat;
 
-  repick_drop_surface (compositor,
-                       (MetaWaylandDragGrab *) grab,
-                       event);
+  if (clutter_event_type (event) != CLUTTER_MOTION ||
+      clutter_event_get_device_tool (event))
+    return CLUTTER_EVENT_STOP;
+
+  repick_drop_surface (compositor, drag_grab, event);
 
   dnd->last_motion_time = clutter_event_get_time (event);
-  meta_wayland_pointer_send_motion (seat->pointer, event);
+
+  return CLUTTER_EVENT_PROPAGATE;
 }
 
-static void
-drag_xgrab_button (MetaWaylandPointerGrab *grab,
-                   const ClutterEvent     *event)
+static gboolean
+drag_xgrab_release (MetaWaylandEventHandler *handler,
+                    const ClutterEvent      *event,
+                    gpointer                 user_data)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
-  MetaWaylandSeat *seat = compositor->seat;
+  MetaWaylandDragGrab *drag_grab = user_data;
+  MetaWaylandSeat *seat = meta_wayland_drag_grab_get_seat (drag_grab);
+  MetaWaylandCompositor *compositor = meta_wayland_seat_get_compositor (seat);
   MetaWaylandDataSource *data_source;
 
-  meta_wayland_pointer_send_button (seat->pointer, event);
+  if (clutter_event_type (event) != CLUTTER_BUTTON_RELEASE ||
+      clutter_event_get_device_tool (event))
+    return CLUTTER_EVENT_STOP;
+
   data_source = compositor->seat->data_device.dnd_data_source;
 
-  if (seat->pointer->button_count == 0 &&
-      (!meta_wayland_drag_grab_get_focus ((MetaWaylandDragGrab *) grab) ||
-       meta_wayland_data_source_get_current_action (data_source) ==
-       WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE))
+  if (__builtin_popcount (clutter_event_get_state (event) &
+                          (CLUTTER_BUTTON1_MASK |
+                           CLUTTER_BUTTON2_MASK |
+                           CLUTTER_BUTTON3_MASK |
+                           CLUTTER_BUTTON4_MASK |
+                           CLUTTER_BUTTON5_MASK)) <= 1 &&
+      ((!meta_wayland_drag_grab_get_focus (drag_grab) ||
+        meta_wayland_data_source_get_current_action (data_source) ==
+        WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE) ||
+       !meta_wayland_data_source_has_target (data_source)))
     meta_xwayland_end_dnd_grab (&seat->data_device, FALSE);
+
+  return CLUTTER_EVENT_PROPAGATE;
 }
 
-static const MetaWaylandPointerGrabInterface drag_xgrab_interface = {
+static gboolean
+drag_xgrab_key (MetaWaylandEventHandler *handler,
+                const ClutterEvent      *event,
+                gpointer                 user_data)
+{
+  return CLUTTER_EVENT_PROPAGATE;
+}
+
+static gboolean
+drag_xgrab_ignore_event (MetaWaylandEventHandler *handler,
+                         const ClutterEvent      *event,
+                         gpointer                 user_data)
+{
+  return CLUTTER_EVENT_STOP;
+}
+
+static const MetaWaylandEventInterface xdnd_event_interface = {
+  drag_xgrab_get_focus_surface,
   drag_xgrab_focus,
   drag_xgrab_motion,
-  drag_xgrab_button,
+  drag_xgrab_ignore_event, /* press */
+  drag_xgrab_release,
+  drag_xgrab_key,
+  drag_xgrab_ignore_event, /* other */
 };
 
 static gboolean
@@ -834,7 +972,8 @@ meta_xwayland_dnd_handle_client_message (MetaWaylandCompositor *compositor,
   XClientMessageEvent *event = (XClientMessageEvent *) xevent;
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
   MetaWaylandSeat *seat = compositor->seat;
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
 
   /* Source side messages */
   if (event->window == x11_display->selection.xwindow)
@@ -892,7 +1031,7 @@ meta_xwayland_dnd_handle_client_message (MetaWaylandCompositor *compositor,
           if (!(event->data.l[1] & 1))
             {
               /* Mimetypes are contained in this message */
-              const gchar *mimetype;
+              char *mimetype;
               gint i;
               struct wl_array *source_mime_types;
 
@@ -906,9 +1045,10 @@ meta_xwayland_dnd_handle_client_message (MetaWaylandCompositor *compositor,
                       if (event->data.l[i] == None)
                         break;
 
-                      mimetype = gdk_x11_get_xatom_name (event->data.l[i]);
+                      mimetype = XGetAtomName (xdisplay, event->data.l[i]);
                       meta_wayland_data_source_add_mime_type (dnd->source,
                                                               mimetype);
+                      XFree (mimetype);
                     }
                 }
             }
@@ -929,28 +1069,26 @@ meta_xwayland_dnd_handle_client_message (MetaWaylandCompositor *compositor,
         }
       else if (event->message_type == xdnd_atoms[ATOM_DND_POSITION])
         {
-          ClutterEvent *motion;
+          ClutterInputDevice *device;
+          ClutterEventSequence *sequence;
           graphene_point_t pos;
           uint32_t action = 0;
 
           dnd->client_message_timestamp = event->data.l[3];
 
-          motion = clutter_event_new (CLUTTER_MOTION);
-          clutter_seat_query_state (clutter_input_device_get_seat (seat->pointer->device),
-                                    seat->pointer->device, NULL, &pos, NULL);
-          clutter_event_set_coords (motion, pos.x, pos.y);
-          clutter_event_set_device (motion, seat->pointer->device);
-          clutter_event_set_source_device (motion, seat->pointer->device);
-          clutter_event_set_time (motion, dnd->last_motion_time);
+          device = meta_wayland_drag_grab_get_device (drag_grab, &sequence);
+
+          clutter_seat_query_state (clutter_input_device_get_seat (device),
+                                    device, sequence, &pos, NULL);
 
           action = atom_to_action ((Atom) event->data.l[4]);
           meta_wayland_data_source_set_user_action (dnd->source, action);
 
-          meta_wayland_surface_drag_dest_motion (drag_focus, motion);
+          meta_wayland_surface_drag_dest_motion (drag_focus, pos.x, pos.y,
+                                                 dnd->last_motion_time);
           xdnd_send_status (dnd, (Window) event->data.l[0],
                             meta_wayland_data_source_get_current_action (dnd->source));
 
-          clutter_event_free (motion);
           return TRUE;
         }
       else if (event->message_type == xdnd_atoms[ATOM_DND_LEAVE])
@@ -971,33 +1109,77 @@ meta_xwayland_dnd_handle_client_message (MetaWaylandCompositor *compositor,
 }
 
 static gboolean
+find_dnd_candidate_device (ClutterStage         *stage,
+                           ClutterInputDevice   *device,
+                           ClutterEventSequence *sequence,
+                           gpointer              user_data)
+{
+  DndCandidateDevice *candidate = user_data;
+  graphene_point_t pos;
+  ClutterModifierType modifiers;
+  MetaWaylandSurface *focus;
+
+  clutter_seat_query_state (clutter_input_device_get_seat (device),
+                            device, sequence, &pos, &modifiers);
+
+  if (!sequence)
+    {
+      if ((modifiers &
+           (CLUTTER_BUTTON1_MASK | CLUTTER_BUTTON2_MASK |
+            CLUTTER_BUTTON3_MASK | CLUTTER_BUTTON4_MASK |
+            CLUTTER_BUTTON5_MASK)) == 0)
+        return TRUE;
+    }
+
+  focus = meta_wayland_seat_get_current_surface (candidate->seat,
+                                                 device, sequence);
+  if (!focus || !meta_wayland_surface_is_xwayland (focus))
+    return TRUE;
+
+  candidate->device = device;
+  candidate->sequence = sequence;
+  candidate->pos = pos;
+  candidate->focus = focus;
+
+  return FALSE;
+}
+
+static gboolean
 meta_xwayland_dnd_handle_xfixes_selection_notify (MetaWaylandCompositor *compositor,
                                                   XEvent                *xevent)
 {
   XFixesSelectionNotifyEvent *event = (XFixesSelectionNotifyEvent *) xevent;
   MetaXWaylandDnd *dnd = compositor->xwayland_manager.dnd;
-  MetaWaylandDataDevice *data_device = &compositor->seat->data_device;
-  MetaX11Display *x11_display = meta_get_display ()->x11_display;
-  MetaWaylandSurface *focus;
+  MetaWaylandSeat *seat = compositor->seat;
+  MetaWaylandDataDevice *data_device = &seat->data_device;
+  MetaX11Display *x11_display = x11_display_from_dnd (dnd);
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
+  DndCandidateDevice candidate = { seat, };
 
   if (event->selection != xdnd_atoms[ATOM_DND_SELECTION])
     return FALSE;
 
   dnd->owner = event->owner;
-  focus = compositor->seat->pointer->focus_surface;
 
   if (event->owner != None && event->owner != x11_display->selection.xwindow &&
-      focus && meta_xwayland_is_xwayland_surface (focus))
+      !clutter_stage_pointing_input_foreach (stage, find_dnd_candidate_device,
+                                             &candidate))
     {
-      dnd->source = meta_wayland_data_source_xwayland_new (dnd);
+
+      dnd->source = meta_wayland_data_source_xwayland_new (dnd, compositor);
       meta_wayland_data_device_set_dnd_source (&compositor->seat->data_device,
                                                dnd->source);
 
       meta_wayland_data_device_start_drag (data_device,
-                                           wl_resource_get_client (focus->resource),
-                                           &drag_xgrab_interface,
-                                           focus, dnd->source,
-                                           NULL);
+                                           wl_resource_get_client (candidate.focus->resource),
+                                           &xdnd_event_interface,
+                                           candidate.focus, dnd->source,
+                                           NULL,
+                                           candidate.device,
+                                           candidate.sequence,
+                                           candidate.pos);
     }
   else if (event->owner == None)
     {
@@ -1009,11 +1191,10 @@ meta_xwayland_dnd_handle_xfixes_selection_notify (MetaWaylandCompositor *composi
 }
 
 gboolean
-meta_xwayland_dnd_handle_event (XEvent *xevent)
+meta_xwayland_dnd_handle_xevent (MetaXWaylandManager *manager,
+                                 XEvent              *xevent)
 {
-  MetaWaylandCompositor *compositor;
-
-  compositor = meta_wayland_compositor_get_default ();
+  MetaWaylandCompositor *compositor = manager->compositor;
 
   if (!compositor->xwayland_manager.dnd)
     return FALSE;
@@ -1024,7 +1205,8 @@ meta_xwayland_dnd_handle_event (XEvent *xevent)
       return meta_xwayland_dnd_handle_client_message (compositor, xevent);
     default:
       {
-        MetaX11Display *x11_display = meta_get_display ()->x11_display;
+        MetaDisplay *display = display_from_compositor (compositor);
+        MetaX11Display *x11_display = meta_display_get_x11_display (display);
 
         if (xevent->type - x11_display->xfixes_event_base == XFixesSelectionNotify)
           return meta_xwayland_dnd_handle_xfixes_selection_notify (compositor, xevent);
@@ -1037,11 +1219,13 @@ meta_xwayland_dnd_handle_event (XEvent *xevent)
 void
 meta_xwayland_init_dnd (MetaX11Display *x11_display)
 {
-  MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
+  MetaContext *context = meta_display_get_context (display);
+  MetaWaylandCompositor *compositor =
+    meta_context_get_wayland_compositor (context);
   MetaXWaylandManager *manager = &compositor->xwayland_manager;
-
   MetaXWaylandDnd *dnd = manager->dnd;
-
   guint32 i;
 
   g_assert (manager->dnd == NULL);
@@ -1049,9 +1233,10 @@ meta_xwayland_init_dnd (MetaX11Display *x11_display)
   manager->dnd = dnd = g_new0 (MetaXWaylandDnd, 1);
 
   for (i = 0; i < N_DND_ATOMS; i++)
-    xdnd_atoms[i] = gdk_x11_get_xatom_by_name (atom_names[i]);
+    xdnd_atoms[i] = XInternAtom (xdisplay, atom_names[i], False);
 
   create_dnd_windows (dnd, x11_display);
+  dnd->manager = manager;
   dnd->current_dnd_window = 0;
 }
 

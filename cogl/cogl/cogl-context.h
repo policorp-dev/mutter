@@ -30,31 +30,30 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_CONTEXT_H__
-#define __COGL_CONTEXT_H__
+#include "cogl/cogl-display.h"
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-primitive.h"
 
-/* We forward declare the CoglContext type here to avoid some circular
- * dependency issues with the following headers.
- */
-typedef struct _CoglContext CoglContext;
-typedef struct _CoglTimestampQuery CoglTimestampQuery;
-
-#include <cogl/cogl-defines.h>
-#include <cogl/cogl-display.h>
-#include <cogl/cogl-pipeline.h>
-#include <cogl/cogl-primitive.h>
+#ifdef HAVE_EGL
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglmesaext.h>
+#endif
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-context
- * @short_description: The top level application context.
+ * CoglContext:
+ *
+ * The top level application context.
  *
  * A #CoglContext is the top most sandbox of Cogl state for an
  * application or toolkit. Its main purpose is to act as a sandbox
@@ -74,7 +73,7 @@ G_BEGIN_DECLS
  * that can all access the same GPU without having to worry about
  * what state other components have left you with.
  *
- * <note><para>Cogl does not maintain internal references to the context for
+ * Cogl does not maintain internal references to the context for
  * resources that depend on the context so applications. This is to
  * help applications control the lifetime a context without us needing to
  * introduce special api to handle the breakup of internal circular
@@ -91,21 +90,20 @@ G_BEGIN_DECLS
  * times throughout their lifetime (such as Android applications) they
  * should be careful to destroy all context dependent resources, such as
  * framebuffers or textures etc before unrefing and destroying the
- * context.</para></note>
+ * context.
  */
 
-#define COGL_CONTEXT(OBJECT) ((CoglContext *)OBJECT)
+#define COGL_TYPE_CONTEXT (cogl_context_get_type ())
 
-/**
- * cogl_context_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
 COGL_EXPORT
-GType cogl_context_get_gtype (void);
+G_DECLARE_FINAL_TYPE (CoglContext,
+                      cogl_context,
+                      COGL,
+                      CONTEXT,
+                      GObject)
 
 /**
- * cogl_context_new: (constructor) (skip)
+ * cogl_context_new: (constructor)
  * @display: (allow-none): A #CoglDisplay pointer
  * @error: A GError return location.
  *
@@ -113,15 +111,13 @@ GType cogl_context_get_gtype (void);
  * for any state objects that are allocated.
  *
  * Return value: (transfer full): A newly allocated #CoglContext
- * Since: 1.8
- * Stability: unstable
  */
 COGL_EXPORT CoglContext *
 cogl_context_new (CoglDisplay *display,
                   GError **error);
 
 /**
- * cogl_context_get_display: (skip)
+ * cogl_context_get_display:
  * @context: A #CoglContext pointer
  *
  * Retrieves the #CoglDisplay that is internally associated with the
@@ -132,14 +128,12 @@ cogl_context_new (CoglDisplay *display,
  *
  * Return value: (transfer none): The #CoglDisplay associated with the
  *               given @context.
- * Since: 1.8
- * Stability: unstable
  */
 COGL_EXPORT CoglDisplay *
 cogl_context_get_display (CoglContext *context);
 
 /**
- * cogl_context_get_renderer: (skip)
+ * cogl_context_get_renderer:
  * @context: A #CoglContext pointer
  *
  * Retrieves the #CoglRenderer that is internally associated with the
@@ -151,26 +145,10 @@ cogl_context_get_display (CoglContext *context);
  *
  * Return value: (transfer none): The #CoglRenderer associated with the
  *               given @context.
- * Since: 1.16
- * Stability: unstable
  */
 COGL_EXPORT CoglRenderer *
 cogl_context_get_renderer (CoglContext *context);
 
-/**
- * cogl_is_context:
- * @object: An object or %NULL
- *
- * Gets whether the given object references an existing context object.
- *
- * Return value: %TRUE if the @object references a #CoglContext,
- *   %FALSE otherwise
- *
- * Since: 1.10
- * Stability: Unstable
- */
-COGL_EXPORT gboolean
-cogl_is_context (void *object);
 
 /* XXX: not guarded by the EXPERIMENTAL_API defines to avoid
  * upsetting glib-mkenums, but this can still be considered implicitly
@@ -180,6 +158,9 @@ cogl_is_context (void *object);
  * @COGL_FEATURE_ID_TEXTURE_RG: Support for
  *    %COGL_TEXTURE_COMPONENTS_RG as the internal components of a
  *    texture.
+ * @COGL_FEATURE_ID_TEXTURE_RGBA1010102: Support for 10bpc RGBA formats
+ * @COGL_FEATURE_ID_TEXTURE_HALF_FLOAT: Support for half float formats
+ * @COGL_FEATURE_ID_TEXTURE_NORM16: Support for 16bpc formats
  * @COGL_FEATURE_ID_UNSIGNED_INT_INDICES: Set if
  *     %COGL_INDICES_TYPE_UNSIGNED_INT is supported in
  *     cogl_indices_new().
@@ -191,13 +172,13 @@ cogl_is_context (void *object);
  *    buffers are tracked and so cogl_onscreen_get_buffer_age() can be
  *    expected to return age values other than 0.
  * @COGL_FEATURE_ID_BLIT_FRAMEBUFFER: Whether blitting using
- *    cogl_blit_framebuffer() is supported.
+ *    [method@Cogl.Framebuffer.blit] is supported.
+ * @COGL_FEATURE_ID_SYNC_FD
+ *    cogl_context_get_latest_sync_fd() is supported.
  *
  * All the capabilities that can vary between different GPUs supported
  * by Cogl. Applications that depend on any of these features should explicitly
- * check for them using cogl_has_feature() or cogl_has_features().
- *
- * Since: 1.10
+ * check for them using [method@Cogl.Context.has_feature].
  */
 typedef enum _CoglFeatureID
 {
@@ -206,10 +187,14 @@ typedef enum _CoglFeatureID
   COGL_FEATURE_ID_MAP_BUFFER_FOR_WRITE,
   COGL_FEATURE_ID_FENCE,
   COGL_FEATURE_ID_TEXTURE_RG,
+  COGL_FEATURE_ID_TEXTURE_RGBA1010102,
+  COGL_FEATURE_ID_TEXTURE_HALF_FLOAT,
+  COGL_FEATURE_ID_TEXTURE_NORM16,
   COGL_FEATURE_ID_BUFFER_AGE,
   COGL_FEATURE_ID_TEXTURE_EGL_IMAGE_EXTERNAL,
   COGL_FEATURE_ID_BLIT_FRAMEBUFFER,
   COGL_FEATURE_ID_TIMESTAMP_QUERY,
+  COGL_FEATURE_ID_SYNC_FD,
 
   /*< private >*/
   _COGL_N_FEATURE_IDS   /*< skip >*/
@@ -217,7 +202,7 @@ typedef enum _CoglFeatureID
 
 
 /**
- * cogl_has_feature:
+ * cogl_context_has_feature:
  * @context: A #CoglContext pointer
  * @feature: A #CoglFeatureID
  *
@@ -230,63 +215,10 @@ typedef enum _CoglFeatureID
  *
  * Returns: %TRUE if the @feature is currently supported or %FALSE if
  * not.
- *
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT gboolean
-cogl_has_feature (CoglContext *context, CoglFeatureID feature);
-
-/**
- * cogl_has_features:
- * @context: A #CoglContext pointer
- * @...: A 0 terminated list of CoglFeatureID<!-- -->s
- *
- * Checks if a list of features are all currently available.
- *
- * This checks all of the listed features using cogl_has_feature() and
- * returns %TRUE if all the features are available or %FALSE
- * otherwise.
- *
- * Return value: %TRUE if all the features are available, %FALSE
- * otherwise.
- *
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT gboolean
-cogl_has_features (CoglContext *context, ...);
-
-/**
- * CoglFeatureCallback:
- * @feature: A single feature currently supported by Cogl
- * @user_data: A private pointer passed to cogl_foreach_feature().
- *
- * A callback used with cogl_foreach_feature() for enumerating all
- * context level features supported by Cogl.
- *
- * Since: 0.10
- * Stability: unstable
- */
-typedef void (*CoglFeatureCallback) (CoglFeatureID feature, void *user_data);
-
-/**
- * cogl_foreach_feature:
- * @context: A #CoglContext pointer
- * @callback: (scope call): A #CoglFeatureCallback called for each
- *            supported feature
- * @user_data: (closure): Private data to pass to the callback
- *
- * Iterates through all the context level features currently supported
- * for a given @context and for each feature @callback is called.
- *
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT void
-cogl_foreach_feature (CoglContext *context,
-                      CoglFeatureCallback callback,
-                      void *user_data);
+cogl_context_has_feature (CoglContext   *context,
+                          CoglFeatureID  feature);
 
 /**
  * CoglGraphicsResetStatus:
@@ -297,7 +229,7 @@ cogl_foreach_feature (CoglContext *context,
  * @COGL_GRAPHICS_RESET_STATUS_PURGED_CONTEXT_RESET:
  *
  * All the error values that might be returned by
- * cogl_get_graphics_reset_status(). Each value's meaning corresponds
+ * cogl_context_get_graphics_reset_status(). Each value's meaning corresponds
  * to the similarly named value defined in the ARB_robustness and
  * NV_robustness_video_memory_purge extensions.
  */
@@ -311,7 +243,7 @@ typedef enum _CoglGraphicsResetStatus
 } CoglGraphicsResetStatus;
 
 /**
- * cogl_get_graphics_reset_status:
+ * cogl_context_get_graphics_reset_status:
  * @context: a #CoglContext pointer
  *
  * Returns the graphics reset status as reported by
@@ -321,14 +253,10 @@ typedef enum _CoglGraphicsResetStatus
  * extension in which case this will only ever return
  * #COGL_GRAPHICS_RESET_STATUS_NO_ERROR.
  *
- * Applications must explicitly use a backend specific method to
- * request that errors get reported such as X11's
- * cogl_xlib_renderer_request_reset_on_video_memory_purge().
- *
  * Return value: a #CoglGraphicsResetStatus
  */
 COGL_EXPORT CoglGraphicsResetStatus
-cogl_get_graphics_reset_status (CoglContext *context);
+cogl_context_get_graphics_reset_status (CoglContext *context);
 
 /**
  * cogl_context_is_hardware_accelerated:
@@ -372,6 +300,11 @@ COGL_EXPORT CoglPipeline *
 cogl_context_get_named_pipeline (CoglContext     *context,
                                  CoglPipelineKey *key);
 
+/**
+ * cogl_context_free_timestamp_query:
+ * @context: a #CoglContext pointer
+ * @query: (transfer full): a #CoglTimestampQuery
+ */
 COGL_EXPORT void
 cogl_context_free_timestamp_query (CoglContext        *context,
                                    CoglTimestampQuery *query);
@@ -392,7 +325,77 @@ cogl_context_timestamp_query_get_time_ns (CoglContext        *context,
 COGL_EXPORT int64_t
 cogl_context_get_gpu_time_ns (CoglContext *context);
 
+/**
+ * cogl_context_get_latest_sync_fd
+ * @context: a #CoglContext pointer
+ *
+ * This function is used to get support for waiting on previous
+ * GPU work through sync fds. It will return a sync fd which will
+ * signal when the previous work has completed.
+ *
+ * Return value: sync fd for latest GPU submission if available,
+ * returns -1 if not.
+ */
+COGL_EXPORT int
+cogl_context_get_latest_sync_fd (CoglContext *context);
+
+COGL_EXPORT gboolean
+cogl_context_has_winsys_feature (CoglContext       *context,
+                                 CoglWinsysFeature  feature);
+/**
+ * cogl_context_flush:
+ * @context: A #CoglContext
+ *
+ * This function should only need to be called in exceptional circumstances.
+ *
+ * As an optimization Cogl drawing functions may batch up primitives
+ * internally, so if you are trying to use raw GL outside of Cogl you stand a
+ * better chance of being successful if you ask Cogl to flush any batched
+ * geometry before making your state changes.
+ *
+ * It only ensure that the underlying driver is issued all the commands
+ * necessary to draw the batched primitives. It provides no guarantees about
+ * when the driver will complete the rendering.
+ *
+ * This provides no guarantees about the GL state upon returning and to avoid
+ * confusing Cogl you should aim to restore any changes you make before
+ * resuming use of Cogl.
+ *
+ * If you are making state changes with the intention of affecting Cogl drawing
+ * primitives you are 100% on your own since you stand a good chance of
+ * conflicting with Cogl internals. For example clutter-gst which currently
+ * uses direct GL calls to bind ARBfp programs will very likely break when Cogl
+ * starts to use ARBfb programs itself for the pipeline API.
+ */
+COGL_EXPORT void
+cogl_context_flush (CoglContext *context);
+
+/**
+ * cogl_context_get_rectangle_indices:
+ *
+ * Returns: (transfer none): a #CoglIndices
+ */
+COGL_EXPORT CoglIndices *
+cogl_context_get_rectangle_indices (CoglContext *context,
+                                    int          n_rectangles);
+
+#ifdef HAVE_EGL
+/**
+ * cogl_context_get_egl_display:
+ * @context: A #CoglContext pointer
+ *
+ * If you have done a runtime check to determine that Cogl is using
+ * EGL internally then this API can be used to retrieve the EGLDisplay
+ * handle that was setup internally. The result is undefined if Cogl
+ * is not using EGL.
+ *
+ * Note: The current window system backend can be checked using
+ * cogl_renderer_get_winsys_id().
+ *
+ * Return value: The internally setup EGLDisplay handle.
+ */
+COGL_EXPORT EGLDisplay
+cogl_context_get_egl_display (CoglContext *context);
+#endif /* HAVE_EGL */
+
 G_END_DECLS
-
-#endif /* __COGL_CONTEXT_H__ */
-

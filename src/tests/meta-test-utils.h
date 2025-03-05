@@ -17,14 +17,15 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_TEST_UTILS_H
-#define META_TEST_UTILS_H
+#pragma once
 
 #include <glib.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/sync.h>
 
 #include "backends/meta-backend-types.h"
+#include "backends/meta-virtual-monitor.h"
+#include "meta/meta-x11-types.h"
 #include "meta/window.h"
 
 #define META_TEST_CLIENT_ERROR meta_test_client_error_quark ()
@@ -47,6 +48,10 @@ GQuark meta_test_client_error_quark (void);
 
 typedef struct _MetaAsyncWaiter MetaAsyncWaiter;
 typedef struct _MetaTestClient MetaTestClient;
+
+typedef gboolean (* MetaTestCommandFunc) (int      argc,
+                                          GStrv    argv,
+                                          gpointer user_data);
 
 META_EXPORT
 gboolean meta_async_waiter_process_x11_event (MetaAsyncWaiter       *waiter,
@@ -75,6 +80,10 @@ gboolean meta_test_client_dov (MetaTestClient  *client,
                                va_list          vap);
 
 META_EXPORT
+void meta_test_client_run (MetaTestClient *client,
+                           const char     *script);
+
+META_EXPORT
 gboolean meta_test_client_do (MetaTestClient  *client,
                               GError         **error,
                               ...) G_GNUC_NULL_TERMINATED;
@@ -89,8 +98,7 @@ MetaWindow * meta_test_client_find_window (MetaTestClient  *client,
                                            GError         **error);
 
 META_EXPORT
-void meta_test_client_wait_for_window_shown (MetaTestClient *client,
-                                             MetaWindow     *window);
+void meta_wait_for_window_shown (MetaWindow *window);
 
 META_EXPORT
 gboolean meta_test_client_quit (MetaTestClient  *client,
@@ -111,6 +119,9 @@ void meta_set_custom_monitor_config_full (MetaBackend            *backend,
                                           MetaMonitorsConfigFlag  configs_flags);
 
 META_EXPORT
+void meta_wait_for_monitors_changed (MetaContext *context);
+
+META_EXPORT
 void meta_wait_for_paint (MetaContext *context);
 
 META_EXPORT
@@ -119,4 +130,22 @@ MetaVirtualMonitor * meta_create_test_monitor (MetaContext *context,
                                                int          height,
                                                float        refresh_rate);
 
-#endif /* TEST_UTILS_H */
+META_EXPORT
+void meta_flush_input (MetaContext *context);
+
+META_EXPORT
+GSubprocess * meta_launch_test_executable (GSubprocessFlags  subprocess_flags,
+                                           const char       *name,
+                                           const char       *argv0,
+                                           ...);
+
+META_EXPORT
+void meta_test_process_watch_commands (GSubprocess         *subprocess,
+                                       MetaTestCommandFunc  func,
+                                       gpointer             user_data);
+
+META_EXPORT
+void meta_wait_test_process (GSubprocess *subprocess);
+
+META_EXPORT
+void meta_wait_for_window_cursor (MetaContext *context);

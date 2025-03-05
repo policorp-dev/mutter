@@ -7,7 +7,7 @@
 #define TEX_WIDTH 8
 #define TEX_HEIGHT 8
 
-static CoglTexture2D *
+static CoglTexture *
 make_texture (void)
 {
   uint8_t tex_data[TEX_WIDTH * TEX_HEIGHT * 2], *p = tex_data;
@@ -32,11 +32,11 @@ static void
 test_texture_rg (void)
 {
   CoglPipeline *pipeline;
-  CoglTexture2D *tex;
+  CoglTexture *tex;
   int fb_width, fb_height;
   int x, y;
 
-  if (!cogl_has_feature (test_ctx, COGL_FEATURE_ID_TEXTURE_RG))
+  if (!cogl_context_has_feature (test_ctx, COGL_FEATURE_ID_TEXTURE_RG))
     {
       g_test_skip ("Missing TEXTURE_RG feature");
       return;
@@ -47,7 +47,7 @@ test_texture_rg (void)
 
   tex = make_texture ();
 
-  g_assert (cogl_texture_get_components (tex) == COGL_TEXTURE_COMPONENTS_RG);
+  g_assert_true (cogl_texture_get_components (tex) == COGL_TEXTURE_COMPONENTS_RG);
 
   pipeline = cogl_pipeline_new (test_ctx);
 
@@ -75,8 +75,8 @@ test_texture_rg (void)
                                     0);
       }
 
-  cogl_object_unref (pipeline);
-  cogl_object_unref (tex);
+  g_object_unref (pipeline);
+  g_object_unref (tex);
 }
 
 COGL_TEST_SUITE (

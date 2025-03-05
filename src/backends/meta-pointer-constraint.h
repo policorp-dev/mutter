@@ -14,16 +14,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
  */
 
-#ifndef META_POINTER_CONSTRAINT_H
-#define META_POINTER_CONSTRAINT_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -35,10 +32,12 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (MetaPointerConstraint, meta_pointer_constraint,
                       META, POINTER_CONSTRAINT, GObject);
 
-MetaPointerConstraint * meta_pointer_constraint_new (const cairo_region_t *region,
-                                                     double                min_edge_distance);
+MetaPointerConstraint * meta_pointer_constraint_new (const MtkRegion  *region,
+                                                     graphene_point_t  origin,
+                                                     double            min_edge_distance);
 
-cairo_region_t * meta_pointer_constraint_get_region (MetaPointerConstraint *constraint);
+MtkRegion * meta_pointer_constraint_get_region (MetaPointerConstraint *constraint,
+                                                graphene_point_t      *origin);
 
 double meta_pointer_constraint_get_min_edge_distance (MetaPointerConstraint *constraint);
 
@@ -77,5 +76,3 @@ void meta_pointer_constraint_impl_ensure_constrained (MetaPointerConstraintImpl 
                                                       ClutterInputDevice        *device);
 
 G_END_DECLS
-
-#endif /* META_POINTER_CONSTRAINT_H */

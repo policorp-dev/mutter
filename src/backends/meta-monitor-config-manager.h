@@ -14,13 +14,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_MONITOR_CONFIG_MANAGER_H
-#define META_MONITOR_CONFIG_MANAGER_H
+#pragma once
 
 #include "backends/meta-monitor.h"
 #include "backends/meta-monitor-manager-private.h"
@@ -36,13 +33,15 @@ typedef struct _MetaMonitorConfig
   gboolean enable_underscanning;
   gboolean has_max_bpc;
   unsigned int max_bpc;
+  MetaOutputRGBRange rgb_range;
+  MetaColorMode color_mode;
 } MetaMonitorConfig;
 
 typedef struct _MetaLogicalMonitorConfig
 {
-  MetaRectangle layout;
+  MtkRectangle layout;
   GList *monitor_configs;
-  MetaMonitorTransform transform;
+  MtkMonitorTransform transform;
   float scale;
   gboolean is_primary;
   gboolean is_presentation;
@@ -51,13 +50,13 @@ typedef struct _MetaLogicalMonitorConfig
 typedef struct _MetaMonitorsConfigKey
 {
   GList *monitor_specs;
+  MetaLogicalMonitorLayoutMode layout_mode;
 } MetaMonitorsConfigKey;
 
 enum _MetaMonitorsConfigFlag
 {
   META_MONITORS_CONFIG_FLAG_NONE = 0,
-  META_MONITORS_CONFIG_FLAG_MIGRATED = (1 << 0),
-  META_MONITORS_CONFIG_FLAG_SYSTEM_CONFIG = (1 << 1),
+  META_MONITORS_CONFIG_FLAG_SYSTEM_CONFIG = (1 << 0),
 };
 
 struct _MetaMonitorsConfig
@@ -69,6 +68,7 @@ struct _MetaMonitorsConfig
   GList *logical_monitor_configs;
 
   GList *disabled_monitor_specs;
+  GList *for_lease_monitor_specs;
 
   MetaMonitorsConfigFlag flags;
 
@@ -109,7 +109,7 @@ MetaMonitorsConfig * meta_monitor_config_manager_create_suggested (MetaMonitorCo
 META_EXPORT_TEST
 MetaMonitorsConfig * meta_monitor_config_manager_create_for_orientation (MetaMonitorConfigManager *config_manager,
                                                                          MetaMonitorsConfig       *base_config,
-                                                                         MetaMonitorTransform      transform);
+                                                                         MtkMonitorTransform       transform);
 
 META_EXPORT_TEST
 MetaMonitorsConfig * meta_monitor_config_manager_create_for_builtin_orientation (MetaMonitorConfigManager *config_manager,
@@ -144,6 +144,7 @@ void meta_monitor_config_manager_save_current (MetaMonitorConfigManager *config_
 META_EXPORT_TEST
 MetaMonitorsConfig * meta_monitors_config_new_full (GList                        *logical_monitor_configs,
                                                     GList                        *disabled_monitors,
+                                                    GList                        *for_lease_monitors,
                                                     MetaLogicalMonitorLayoutMode  layout_mode,
                                                     MetaMonitorsConfigFlag        flags);
 
@@ -187,6 +188,10 @@ META_EXPORT_TEST
 gboolean meta_logical_monitor_configs_have_monitor (GList           *logical_monitor_configs,
                                                     MetaMonitorSpec *monitor_spec);
 
+gboolean meta_logical_monitor_configs_have_visible_monitor (MetaMonitorManager *monitor_manager,
+                                                            GList              *logical_monitor_configs,
+                                                            MetaMonitor        *monitor);
+
 META_EXPORT_TEST
 gboolean meta_verify_monitor_mode_spec (MetaMonitorModeSpec *monitor_mode_spec,
                                         GError             **error);
@@ -210,11 +215,8 @@ gboolean meta_verify_monitors_config (MetaMonitorsConfig *config,
                                       MetaMonitorManager *monitor_manager,
                                       GError            **error);
 
-
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaMonitorConfig, meta_monitor_config_free)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaLogicalMonitorConfig,
                                meta_logical_monitor_config_free)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaMonitorsConfigKey,
                                meta_monitors_config_key_free)
-
-#endif /* META_MONITOR_CONFIG_MANAGER_H */

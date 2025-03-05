@@ -25,16 +25,16 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "driver/gl/cogl-gl-framebuffer-back.h"
+#include "cogl/driver/gl/cogl-gl-framebuffer-back.h"
 
 #include <gio/gio.h>
 
-#include "cogl-context-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-offscreen-private.h"
-#include "driver/gl/cogl-util-gl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-offscreen-private.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
 
 struct _CoglGlFramebufferBack
 {
@@ -44,8 +44,8 @@ struct _CoglGlFramebufferBack
   CoglFramebufferBits bits;
 };
 
-G_DEFINE_TYPE (CoglGlFramebufferBack, cogl_gl_framebuffer_back,
-               COGL_TYPE_GL_FRAMEBUFFER)
+G_DEFINE_FINAL_TYPE (CoglGlFramebufferBack, cogl_gl_framebuffer_back,
+                     COGL_TYPE_GL_FRAMEBUFFER)
 
 static gboolean
 ensure_bits_initialized (CoglGlFramebufferBack *gl_framebuffer_back)
@@ -55,7 +55,6 @@ ensure_bits_initialized (CoglGlFramebufferBack *gl_framebuffer_back)
     cogl_framebuffer_driver_get_framebuffer (driver);
   CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
   CoglFramebufferBits *bits = &gl_framebuffer_back->bits;
-  g_autoptr (GError) error = NULL;
 
   if (!gl_framebuffer_back->dirty_bitmasks)
     return TRUE;
@@ -65,39 +64,38 @@ ensure_bits_initialized (CoglGlFramebufferBack *gl_framebuffer_back)
                                         framebuffer,
                                         COGL_FRAMEBUFFER_STATE_BIND);
 
-#ifdef HAVE_COGL_GL
-  if (ctx->driver == COGL_DRIVER_GL3)
+  if (_cogl_has_private_feature (ctx, COGL_PRIVATE_FEATURE_QUERY_FRAMEBUFFER_BITS))
     {
       const struct {
         GLenum attachment, pname;
         size_t offset;
       } params[] = {
-        { 
+        {
           .attachment = GL_BACK_LEFT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE,
           .offset = offsetof (CoglFramebufferBits, red),
         },
-        { 
+        {
           .attachment = GL_BACK_LEFT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE,
           .offset = offsetof (CoglFramebufferBits, green),
         },
-        { 
+        {
           .attachment = GL_BACK_LEFT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE,
           .offset = offsetof (CoglFramebufferBits, blue),
         },
-        { 
+        {
           .attachment = GL_BACK_LEFT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE,
           .offset = offsetof (CoglFramebufferBits, alpha),
         },
-        { 
+        {
           .attachment = GL_DEPTH,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
           .offset = offsetof (CoglFramebufferBits, depth),
         },
-        { 
+        {
           .attachment = GL_STENCIL,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE,
           .offset = offsetof (CoglFramebufferBits, stencil),
@@ -117,14 +115,8 @@ ensure_bits_initialized (CoglGlFramebufferBack *gl_framebuffer_back)
         }
     }
   else
-#endif /* HAVE_COGL_GL */
     {
-      GE (ctx, glGetIntegerv (GL_RED_BITS, &bits->red));
-      GE (ctx, glGetIntegerv (GL_GREEN_BITS, &bits->green));
-      GE (ctx, glGetIntegerv (GL_BLUE_BITS, &bits->blue));
-      GE (ctx, glGetIntegerv (GL_ALPHA_BITS, &bits->alpha));
-      GE (ctx, glGetIntegerv (GL_DEPTH_BITS, &bits->depth));
-      GE (ctx, glGetIntegerv (GL_STENCIL_BITS, &bits->stencil));
+      return FALSE;
     }
 
   COGL_NOTE (FRAMEBUFFER,
@@ -227,42 +219,6 @@ cogl_gl_framebuffer_back_bind (CoglGlFramebuffer *gl_framebuffer,
     }
 }
 
-static void
-cogl_gl_framebuffer_back_flush_stereo_mode_state (CoglGlFramebuffer *gl_framebuffer)
-{
-  CoglFramebufferDriver *driver = COGL_FRAMEBUFFER_DRIVER (gl_framebuffer);
-  CoglFramebuffer *framebuffer =
-    cogl_framebuffer_driver_get_framebuffer (driver);
-  CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
-  GLenum draw_buffer = GL_BACK;
-
-  if (!ctx->glDrawBuffer)
-    return;
-
-  /* The one-shot default draw buffer setting in _cogl_framebuffer_gl_bind
-   * must have already happened. If not it would override what we set here. */
-  g_assert (ctx->was_bound_to_onscreen);
-
-  switch (cogl_framebuffer_get_stereo_mode (framebuffer))
-    {
-    case COGL_STEREO_BOTH:
-      draw_buffer = GL_BACK;
-      break;
-    case COGL_STEREO_LEFT:
-      draw_buffer = GL_BACK_LEFT;
-      break;
-    case COGL_STEREO_RIGHT:
-      draw_buffer = GL_BACK_RIGHT;
-      break;
-    }
-
-  if (ctx->current_gl_draw_buffer != draw_buffer)
-    {
-      GE (ctx, glDrawBuffer (draw_buffer));
-      ctx->current_gl_draw_buffer = draw_buffer;
-    }
-}
-
 CoglGlFramebufferBack *
 cogl_gl_framebuffer_back_new (CoglFramebuffer                    *framebuffer,
                               const CoglFramebufferDriverConfig  *driver_config,
@@ -298,6 +254,4 @@ cogl_gl_framebuffer_back_class_init (CoglGlFramebufferBackClass *klass)
   driver_class->discard_buffers = cogl_gl_framebuffer_back_discard_buffers;
 
   gl_framebuffer_class->bind = cogl_gl_framebuffer_back_bind;
-  gl_framebuffer_class->flush_stereo_mode_state =
-    cogl_gl_framebuffer_back_flush_stereo_mode_state;
 }
