@@ -1,3 +1,9 @@
+mutter (48.Policorp-1) experimental; urgency=medium
+
+  * New version in Policorp and removed super +p
+
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Wed, 05 Mar 2025 09:59:56 -0300
+
 mutter (48~rc-1) experimental; urgency=medium
 
   * New upstream release
