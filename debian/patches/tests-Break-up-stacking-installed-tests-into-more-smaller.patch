@@ -25,10 +25,10 @@ Applied-upstream: 44.beta, commit:ca70c1dfb5d5792e25df4e23f3ff89cc05dffb3e
  delete mode 100644 src/tests/mutter-all.test.in
  create mode 100644 src/tests/stacking.test.in
 
-diff --git a/src/tests/meson.build b/src/tests/meson.build
-index 775c97b..a8aeaef 100644
---- a/src/tests/meson.build
-+++ b/src/tests/meson.build
+Index: mutter-build/src/tests/meson.build
+===================================================================
+--- mutter-build.orig/src/tests/meson.build
++++ mutter-build/src/tests/meson.build
 @@ -88,19 +88,6 @@ subdir('wayland-test-clients')
  
  if have_installed_tests
@@ -72,10 +72,9 @@ index 775c97b..a8aeaef 100644
  endforeach
  
  if have_kvm_tests or have_tty_tests
-diff --git a/src/tests/mutter-all.test.in b/src/tests/mutter-all.test.in
-deleted file mode 100644
-index 12536c1..0000000
---- a/src/tests/mutter-all.test.in
+Index: mutter-build/src/tests/mutter-all.test.in
+===================================================================
+--- mutter-build.orig/src/tests/mutter-all.test.in
 +++ /dev/null
 @@ -1,9 +0,0 @@
 -[Test]
@@ -87,11 +86,10 @@ index 12536c1..0000000
 -Exec=sh -ec 'env GSETTINGS_BACKEND=memory XDG_RUNTIME_DIR="$(mktemp -d -t mutter-@apiversion@-all-tests-XXXXXX)" @libexecdir@/installed-tests/mutter-@apiversion@/mutter-installed-dbus-session.py xvfb-run -a -s "+iglx -noreset" -- @libexecdir@/installed-tests/mutter-@apiversion@/mutter-test-runner --all'
 -Type=session
 -Output=TAP
-diff --git a/src/tests/stacking.test.in b/src/tests/stacking.test.in
-new file mode 100644
-index 0000000..c26ec74
+Index: mutter-build/src/tests/stacking.test.in
+===================================================================
 --- /dev/null
-+++ b/src/tests/stacking.test.in
++++ mutter-build/src/tests/stacking.test.in
 @@ -0,0 +1,9 @@
 +[Test]
 +Description=Mutter stacking test: @stacking_test@

@@ -5,8 +5,7 @@
 Source: mutter
 Section: x11
 Priority: optional
-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Jeremy Bicha <jbicha@ubuntu.com>
+Maintainer: Edson Juliano Drosdeck <edson@policorp.com.br>
 Build-Depends: debhelper-compat (= 13),
                dh-exec,
                dh-sequence-gir,
