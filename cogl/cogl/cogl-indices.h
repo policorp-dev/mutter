@@ -31,27 +31,22 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_INDICES_H__
-#define __COGL_INDICES_H__
-
-/* We forward declare the CoglIndices type here to avoid some circular
- * dependency issues with the following headers.
- */
-typedef struct _CoglIndices CoglIndices;
-
-#include <cogl/cogl-index-buffer.h>
+#include "cogl/cogl-index-buffer.h"
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-indices
- * @short_description: Describe vertex indices stored in a #CoglIndexBuffer.
+ * CoglIndices:
+ *
+ * Describe vertex indices stored in a #CoglIndexBuffer.
  *
  * Indices allow you to avoid duplicating vertices in your vertex data
  * by virtualizing your data and instead providing a sequence of index
@@ -75,7 +70,7 @@ G_BEGIN_DECLS
  * index buffer that specifies the 6 vertices by indexing the shared
  * vertices multiple times.
  *
- * |[
+ * ```c
  *   CoglVertexP2 quad_vertices[] = {
  *     {x0, y0}, //0 = top left
  *     {x1, y1}, //1 = bottom left
@@ -84,7 +79,7 @@ G_BEGIN_DECLS
  *   };
  *   //tell the gpu how to interpret the quad as 2 triangles...
  *   unsigned char indices[] = {0, 1, 2, 0, 2, 3};
- * ]|
+ * ```
  *
  * Even in the above illustration we see a saving of 10bytes for one
  * quad compared to having data for 6 vertices and no indices but if
@@ -103,17 +98,15 @@ G_BEGIN_DECLS
  * needs to look like depending on the number of quads that need to be
  * drawn. It doesn't matter how the quads might be animated and
  * changed the indices will remain the same. Cogl even has a utility
- * (cogl_get_rectangle_indices()) to get access to re-useable indices
+ * ([method@Cogl.Context.get_rectangle_indices]) to get access to re-useable indices
  * for drawing quads as above.
  */
 
-/**
- * cogl_indices_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
+#define COGL_TYPE_INDICES (cogl_indices_get_type ())
+
 COGL_EXPORT
-GType cogl_indices_get_gtype (void);
+G_DECLARE_FINAL_TYPE (CoglIndices, cogl_indices,
+                      COGL, INDICES, GObject)
 
 COGL_EXPORT CoglIndices *
 cogl_indices_new (CoglContext *context,
@@ -121,42 +114,15 @@ cogl_indices_new (CoglContext *context,
                   const void *indices_data,
                   int n_indices);
 
-COGL_EXPORT CoglIndices *
-cogl_indices_new_for_buffer (CoglIndicesType type,
-                             CoglIndexBuffer *buffer,
-                             size_t offset);
-
+/**
+ * cogl_indices_get_buffer:
+ *
+ * Returns: (transfer none): a #CoglIndexBuffer
+ */
 COGL_EXPORT CoglIndexBuffer *
 cogl_indices_get_buffer (CoglIndices *indices);
 
 COGL_EXPORT CoglIndicesType
-cogl_indices_get_type (CoglIndices *indices);
-
-COGL_EXPORT size_t
-cogl_indices_get_offset (CoglIndices *indices);
-
-COGL_EXPORT void
-cogl_indices_set_offset (CoglIndices *indices,
-                         size_t offset);
-
-COGL_EXPORT CoglIndices *
-cogl_get_rectangle_indices (CoglContext *context, int n_rectangles);
-
-/**
- * cogl_is_indices:
- * @object: A #CoglObject pointer
- *
- * Gets whether the given object references a #CoglIndices.
- *
- * Return value: %TRUE if the object references a #CoglIndices
- *   and %FALSE otherwise.
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT gboolean
-cogl_is_indices (void *object);
+cogl_indices_get_indices_type (CoglIndices *indices);
 
 G_END_DECLS
-
-#endif /* __COGL_INDICES_H__ */
-

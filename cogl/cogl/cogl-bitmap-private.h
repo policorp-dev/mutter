@@ -28,18 +28,16 @@
  *
  */
 
-#ifndef __COGL_BITMAP_H
-#define __COGL_BITMAP_H
+#pragma once
 
 #include <glib.h>
 
-#include "cogl-object-private.h"
-#include "cogl-buffer.h"
-#include "cogl-bitmap.h"
+#include "cogl/cogl-buffer.h"
+#include "cogl/cogl-bitmap.h"
 
 struct _CoglBitmap
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   /* Pointer back to the context that this bitmap was created with */
   CoglContext *context;
@@ -78,9 +76,6 @@ struct _CoglBitmap
  * the bitmap is freed.
  *
  * Return value: a #CoglPixelBuffer representing the newly created array
- *
- * Since: 1.10
- * Stability: Unstable
  */
 CoglBitmap *
 _cogl_bitmap_new_with_malloc_buffer (CoglContext *context,
@@ -109,18 +104,12 @@ _cogl_bitmap_convert (CoglBitmap *bmp,
 CoglBitmap *
 _cogl_bitmap_convert_for_upload (CoglBitmap *src_bmp,
                                  CoglPixelFormat internal_format,
-                                 gboolean can_convert_in_place,
                                  GError **error);
 
 gboolean
 _cogl_bitmap_convert_into_bitmap (CoglBitmap *src_bmp,
                                   CoglBitmap *dst_bmp,
                                   GError **error);
-
-CoglBitmap *
-_cogl_bitmap_from_file (CoglContext *ctx,
-                        const char *filename,
-                        GError **error);
 
 gboolean
 _cogl_bitmap_unpremult (CoglBitmap *dst_bmp,
@@ -151,11 +140,6 @@ CoglBitmap *
 _cogl_bitmap_copy (CoglBitmap *src_bmp,
                    GError **error);
 
-gboolean
-_cogl_bitmap_get_size_from_file (const char *filename,
-                                 int        *width,
-                                 int        *height);
-
 void
 _cogl_bitmap_set_format (CoglBitmap *bitmap,
                          CoglPixelFormat format);
@@ -179,5 +163,3 @@ _cogl_bitmap_unmap (CoglBitmap *bitmap);
 
 CoglContext *
 _cogl_bitmap_get_context (CoglBitmap *bitmap);
-
-#endif /* __COGL_BITMAP_H */

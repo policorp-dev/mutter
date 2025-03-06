@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -24,6 +22,8 @@
 #include "compositor/meta-compositor-server.h"
 #include "compositor/meta-compositor-view.h"
 #include "core/display-private.h"
+#include "meta/meta-wayland-compositor.h"
+#include "wayland/meta-wayland.h"
 
 G_DEFINE_TYPE (MetaCompositorServer, meta_compositor_server, META_TYPE_COMPOSITOR)
 
@@ -39,32 +39,6 @@ meta_compositor_server_monotonic_to_high_res_xserver_time (MetaCompositor *compo
                                                            int64_t         monotonic_time_us)
 {
   return meta_translate_to_high_res_xserver_time (monotonic_time_us);
-}
-
-static void
-meta_compositor_server_grab_begin (MetaCompositor *compositor)
-{
-  MetaDisplay *display;
-
-  display = meta_compositor_get_display (compositor);
-  meta_display_sync_wayland_input_focus (display);
-  meta_display_cancel_touch (display);
-
-#ifdef HAVE_WAYLAND
-  meta_dnd_wayland_handle_begin_modal (compositor);
-#endif
-}
-
-static void
-meta_compositor_server_grab_end (MetaCompositor *compositor)
-{
-  MetaDisplay *display;
-
-  display = meta_compositor_get_display (compositor);
-#ifdef HAVE_WAYLAND
-  meta_dnd_wayland_handle_end_modal (compositor);
-#endif
-  meta_display_sync_wayland_input_focus (display);
 }
 
 static MetaCompositorView *
@@ -97,7 +71,5 @@ meta_compositor_server_class_init (MetaCompositorServerClass *klass)
   compositor_class->manage = meta_compositor_server_manage;
   compositor_class->monotonic_to_high_res_xserver_time =
    meta_compositor_server_monotonic_to_high_res_xserver_time;
-  compositor_class->grab_begin = meta_compositor_server_grab_begin;
-  compositor_class->grab_end = meta_compositor_server_grab_end;
   compositor_class->create_view = meta_compositor_server_create_view;
 }

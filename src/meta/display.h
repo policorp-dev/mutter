@@ -17,18 +17,16 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_DISPLAY_H
-#define META_DISPLAY_H
+#pragma once
 
 #include <glib-object.h>
-#include <X11/Xlib.h>
 
-#include <meta/types.h>
-#include <meta/prefs.h>
-#include <meta/common.h>
-#include <meta/workspace.h>
-#include <meta/meta-sound-player.h>
-#include <meta/meta-startup-notification.h>
+#include "meta/types.h"
+#include "meta/prefs.h"
+#include "meta/common.h"
+#include "meta/workspace.h"
+#include "meta/meta-sound-player.h"
+#include "meta/meta-startup-notification.h"
 
 /**
  * MetaTabList:
@@ -58,10 +56,17 @@ typedef enum
 
 typedef enum
 {
-  META_PAD_ACTION_BUTTON, /* Action is a button */
-  META_PAD_ACTION_RING,   /* Action is a ring */
-  META_PAD_ACTION_STRIP,  /* Action is a strip */
-} MetaPadActionType;
+  META_PAD_FEATURE_RING,
+  META_PAD_FEATURE_STRIP,
+} MetaPadFeatureType;
+
+typedef enum
+{
+  META_PAD_DIRECTION_UP = 1,
+  META_PAD_DIRECTION_DOWN,
+  META_PAD_DIRECTION_CW,
+  META_PAD_DIRECTION_CCW,
+} MetaPadDirection;
 
 typedef struct _MetaDisplayClass MetaDisplayClass;
 
@@ -75,12 +80,6 @@ typedef struct _MetaDisplayClass MetaDisplayClass;
 META_EXPORT
 GType meta_display_get_type (void) G_GNUC_CONST;
 
-#define meta_XFree(p) do { if ((p)) XFree ((p)); } while (0)
-
-META_EXPORT
-G_DEPRECATED_FOR (meta_backend_get_capabilities)
-gboolean meta_display_supports_extended_barriers (MetaDisplay *display);
-
 META_EXPORT
 void meta_display_close (MetaDisplay *display,
                          guint32      timestamp);
@@ -90,9 +89,6 @@ MetaContext * meta_display_get_context (MetaDisplay *display);
 
 META_EXPORT
 MetaCompositor *meta_display_get_compositor  (MetaDisplay *display);
-
-META_EXPORT
-MetaX11Display *meta_display_get_x11_display (MetaDisplay *display);
 
 META_EXPORT
 MetaWindow *meta_display_get_focus_window (MetaDisplay *display);
@@ -132,23 +128,7 @@ MetaWindow* meta_display_get_tab_current (MetaDisplay   *display,
                                           MetaWorkspace *workspace);
 
 META_EXPORT
-gboolean meta_display_begin_grab_op (MetaDisplay *display,
-                                     MetaWindow  *window,
-                                     MetaGrabOp   op,
-                                     gboolean     pointer_already_grabbed,
-                                     gboolean     frame_action,
-                                     int          button,
-                                     gulong       modmask,
-                                     guint32      timestamp,
-                                     int          root_x,
-                                     int          root_y);
-
-META_EXPORT
-void     meta_display_end_grab_op   (MetaDisplay *display,
-                                     guint32      timestamp);
-
-META_EXPORT
-MetaGrabOp meta_display_get_grab_op (MetaDisplay *display);
+gboolean meta_display_is_grabbed (MetaDisplay *display);
 
 META_EXPORT
 guint meta_display_add_keybinding    (MetaDisplay         *display,
@@ -185,23 +165,7 @@ GSList *meta_display_sort_windows_by_stacking (MetaDisplay *display,
                                                GSList      *windows);
 
 META_EXPORT
-void meta_display_add_ignored_crossing_serial (MetaDisplay  *display,
-                                               unsigned long serial);
-
-META_EXPORT
 void meta_display_clear_mouse_mode (MetaDisplay *display);
-
-META_EXPORT
-void meta_display_freeze_keyboard (MetaDisplay *display,
-                                   guint32      timestamp);
-
-META_EXPORT
-void meta_display_ungrab_keyboard (MetaDisplay *display,
-                                   guint32      timestamp);
-
-META_EXPORT
-void meta_display_unfreeze_keyboard (MetaDisplay *display,
-                                     guint32      timestamp);
 
 META_EXPORT
 gboolean meta_display_is_pointer_emulating_sequence (MetaDisplay          *display,
@@ -213,10 +177,16 @@ void    meta_display_request_pad_osd      (MetaDisplay        *display,
                                            gboolean            edition_mode);
 
 META_EXPORT
-gchar * meta_display_get_pad_action_label (MetaDisplay        *display,
+char * meta_display_get_pad_button_label (MetaDisplay        *display,
+                                          ClutterInputDevice *pad,
+                                          int                 button_number);
+
+META_EXPORT
+char * meta_display_get_pad_feature_label (MetaDisplay        *display,
                                            ClutterInputDevice *pad,
-                                           MetaPadActionType   action_type,
-                                           guint               action_number);
+                                           MetaPadFeatureType  feature,
+                                           MetaPadDirection    direction,
+                                           int                 feature_number);
 
 META_EXPORT
 void meta_display_get_size (MetaDisplay *display,
@@ -252,9 +222,9 @@ META_EXPORT
 int  meta_display_get_current_monitor  (MetaDisplay   *display);
 
 META_EXPORT
-void meta_display_get_monitor_geometry (MetaDisplay   *display,
-                                        int            monitor,
-                                        MetaRectangle *geometry);
+void meta_display_get_monitor_geometry (MetaDisplay  *display,
+                                        int           monitor,
+                                        MtkRectangle *geometry);
 
 META_EXPORT
 float meta_display_get_monitor_scale (MetaDisplay *display,
@@ -265,8 +235,8 @@ gboolean meta_display_get_monitor_in_fullscreen (MetaDisplay *display,
                                                  int          monitor);
 
 META_EXPORT
-int meta_display_get_monitor_index_for_rect (MetaDisplay   *display,
-                                             MetaRectangle *rect);
+int meta_display_get_monitor_index_for_rect (MetaDisplay  *display,
+                                             MtkRectangle *rect);
 
 META_EXPORT
 int meta_display_get_monitor_neighbor_index (MetaDisplay         *display,
@@ -310,10 +280,7 @@ MetaSelection * meta_display_get_selection (MetaDisplay *display);
 META_EXPORT
 void meta_display_set_input_focus   (MetaDisplay *display,
                                      MetaWindow  *window,
-                                     gboolean     focus_frame,
                                      guint32      timestamp);
 META_EXPORT
 void meta_display_unset_input_focus (MetaDisplay *display,
                                      guint32      timestamp);
-
-#endif

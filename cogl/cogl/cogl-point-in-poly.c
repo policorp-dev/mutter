@@ -34,10 +34,10 @@
  * http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-util.h"
-#include "cogl-point-in-poly-private.h"
+#include "cogl/cogl-util.h"
+#include "cogl/cogl-point-in-poly-private.h"
 
 #include <glib.h>
 
@@ -96,4 +96,3 @@ _cogl_util_point_in_screen_poly (float point_x,
 
   return c;
 }
-

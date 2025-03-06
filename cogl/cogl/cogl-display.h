@@ -30,23 +30,22 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_DISPLAY_H__
-#define __COGL_DISPLAY_H__
-
-#include <cogl/cogl-renderer.h>
-#include <cogl/cogl-onscreen-template.h>
+#include "cogl/cogl-renderer.h"
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-display
- * @short_description: Common aspects of a display pipeline
+ * CoglDisplay:
+ *
+ * Common aspects of a display pipeline
  *
  * The basic intention for this object is to let the application
  * configure common display preferences before creating a context, and
@@ -66,39 +65,25 @@ G_BEGIN_DECLS
  * create a GLContext.
  */
 
-typedef struct _CoglDisplay	      CoglDisplay;
+#define COGL_TYPE_DISPLAY (cogl_display_get_type ())
 
-#define COGL_DISPLAY(OBJECT) ((CoglDisplay *)OBJECT)
-
-/**
- * cogl_display_get_gtype:
- *
- * Returns: a #GType that can be used with the GLib type system.
- */
 COGL_EXPORT
-GType cogl_display_get_gtype (void);
+G_DECLARE_FINAL_TYPE (CoglDisplay,
+                      cogl_display,
+                      COGL,
+                      DISPLAY,
+                      GObject)
 
 /**
  * cogl_display_new:
  * @renderer: A #CoglRenderer
- * @onscreen_template: A #CoglOnscreenTemplate
  *
  * Explicitly allocates a new #CoglDisplay object to encapsulate the
  * common state of the display pipeline that applies to the whole
  * application.
  *
- * <note>Many applications don't need to explicitly use
- * cogl_display_new() and can just jump straight to cogl_context_new()
- * and pass a %NULL display argument so Cogl will automatically
- * connect and setup a renderer and display.</note>
- *
  * A @display can only be made for a specific choice of renderer which
  * is why this takes the @renderer argument.
- *
- * A common use for explicitly allocating a display object is to
- * define a template for allocating onscreen framebuffers which is
- * what the @onscreen_template argument is for, or alternatively
- * you can use cogl_display_set_onscreen_template().
  *
  * When a display is first allocated via cogl_display_new() it is in a
  * mutable configuration mode. It's designed this way so we can
@@ -115,12 +100,9 @@ GType cogl_display_get_gtype (void);
  *
  * Return value: (transfer full): A newly allocated #CoglDisplay
  *               object in a mutable configuration mode.
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT CoglDisplay *
-cogl_display_new (CoglRenderer *renderer,
-                  CoglOnscreenTemplate *onscreen_template);
+cogl_display_new (CoglRenderer *renderer);
 
 /**
  * cogl_display_get_renderer:
@@ -130,31 +112,9 @@ cogl_display_new (CoglRenderer *renderer,
  *
  * Return value: (transfer none): The associated #CoglRenderer
  *
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT CoglRenderer *
 cogl_display_get_renderer (CoglDisplay *display);
-
-/**
- * cogl_display_set_onscreen_template:
- * @display: a #CoglDisplay
- * @onscreen_template: A template for creating #CoglOnscreen framebuffers
- *
- * Specifies a template for creating #CoglOnscreen framebuffers.
- *
- * Depending on the system, the constraints for creating #CoglOnscreen
- * framebuffers need to be known before setting up a #CoglDisplay because the
- * final setup of the display may constrain how onscreen framebuffers may be
- * allocated. If Cogl knows how an application wants to allocate onscreen
- * framebuffers then it can try to make sure to setup the display accordingly.
- *
- * Since: 1.16
- * Stability: unstable
- */
-COGL_EXPORT void
-cogl_display_set_onscreen_template (CoglDisplay *display,
-                                    CoglOnscreenTemplate *onscreen_template);
 
 /**
  * cogl_display_setup:
@@ -184,28 +144,9 @@ cogl_display_set_onscreen_template (CoglDisplay *display,
  *
  * Return value: Returns %TRUE if there was no error, else it returns
  *               %FALSE and returns an exception via @error.
- * Since: 1.10
- * Stability: unstable
  */
 COGL_EXPORT gboolean
 cogl_display_setup (CoglDisplay *display,
-                    GError **error);
-
-/**
- * cogl_is_display:
- * @object: A #CoglObject pointer
- *
- * Gets whether the given object references a #CoglDisplay.
- *
- * Return value: %TRUE if the object references a #CoglDisplay
- *   and %FALSE otherwise.
- * Since: 1.10
- * Stability: unstable
- */
-COGL_EXPORT gboolean
-cogl_is_display (void *object);
+                    GError     **error);
 
 G_END_DECLS
-
-#endif /* __COGL_DISPLAY_H__ */
-

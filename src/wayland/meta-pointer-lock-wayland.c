@@ -14,18 +14,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
  */
 
 /**
- * SECTION:meta-pointer-lock-wayland
- * @title: MetaPointerLockWayland
- * @short_description: A #MetaPointerConstraint implementing pointer lock.
+ * MetaPointerLockWayland:
+ *
+ * A #MetaPointerConstraint implementing pointer lock.
  *
  * A MetaPointerLockConstraint implements the client pointer constraint "pointer
  * lock": the cursor should not make any movement.
@@ -43,7 +41,6 @@
 struct _MetaPointerLockWayland
 {
   GObject parent;
-  MetaWaylandPointerConstraint *constraint;
 };
 
 G_DEFINE_TYPE (MetaPointerLockWayland, meta_pointer_lock_wayland,
@@ -52,15 +49,20 @@ G_DEFINE_TYPE (MetaPointerLockWayland, meta_pointer_lock_wayland,
 static MetaPointerConstraint *
 meta_pointer_lock_wayland_create_constraint (MetaPointerConfinementWayland *confinement)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaWaylandPointerConstraint *wayland_constraint =
+    meta_pointer_confinement_wayland_get_wayland_pointer_constraint (confinement);
+  MetaWaylandSurface *surface =
+    meta_wayland_pointer_constraint_get_surface (wayland_constraint);
+  MetaWaylandCompositor *compositor = surface->compositor;
+  MetaContext *context = meta_wayland_compositor_get_context (compositor);
+  MetaBackend *backend = meta_context_get_backend (context);
   ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
   ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
   ClutterInputDevice *pointer = clutter_seat_get_pointer (seat);
-  MetaWaylandPointerConstraint *wayland_constraint;
   MetaPointerConstraint *constraint;
-  MetaWaylandSurface *surface;
   graphene_point_t point;
-  cairo_region_t *region;
+  MtkRectangle rect;
+  g_autoptr (MtkRegion) region = NULL;
   float sx, sy, x, y;
 
   clutter_seat_query_state (seat, pointer, NULL, &point, NULL);
@@ -72,10 +74,12 @@ meta_pointer_lock_wayland_create_constraint (MetaPointerConfinementWayland *conf
                                                  &sx, &sy);
 
   meta_wayland_surface_get_absolute_coordinates (surface, sx, sy, &x, &y);
-  region = cairo_region_create_rectangle (&(cairo_rectangle_int_t) { (int) x, (int) y, 1 , 1 });
+  rect = (MtkRectangle) { .x = 0, .y = 0, .width = 0, .height = 0 };
+  region = mtk_region_create_rectangle (&rect);
 
-  constraint = meta_pointer_constraint_new (region, 0.0);
-  cairo_region_destroy (region);
+  constraint = meta_pointer_constraint_new (region,
+                                            GRAPHENE_POINT_INIT (x, y),
+                                            0.0);
 
   return constraint;
 }

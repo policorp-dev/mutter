@@ -23,7 +23,7 @@
 
 #include "meta-x11-selection-output-stream-private.h"
 
-#include "meta/meta-x11-errors.h"
+#include "mtk/mtk-x11.h"
 #include "x11/meta-x11-display-private.h"
 
 typedef struct _MetaX11SelectionOutputStreamPrivate MetaX11SelectionOutputStreamPrivate;
@@ -79,16 +79,16 @@ meta_x11_selection_output_stream_notify_selection (MetaX11SelectionOutputStream 
     .property = priv->xproperty,
   };
 
-  meta_x11_error_trap_push (priv->x11_display);
-
   xdisplay = priv->x11_display->xdisplay;
+
+  mtk_x11_error_trap_push (xdisplay);
 
   XSendEvent (xdisplay,
               priv->xwindow, False, NoEventMask,
               (XEvent *) &event);
   XSync (xdisplay, False);
 
-  meta_x11_error_trap_pop (priv->x11_display);
+  mtk_x11_error_trap_pop (xdisplay);
 }
 
 static gboolean
@@ -212,7 +212,7 @@ meta_x11_selection_output_stream_perform_flush (MetaX11SelectionOutputStream *st
   xdisplay = priv->x11_display->xdisplay;
 
   /* We operate on a foreign window, better guard against catastrophe */
-  meta_x11_error_trap_push (priv->x11_display);
+  mtk_x11_error_trap_push (xdisplay);
 
   g_mutex_lock (&priv->mutex);
 
@@ -272,7 +272,7 @@ meta_x11_selection_output_stream_perform_flush (MetaX11SelectionOutputStream *st
   g_cond_broadcast (&priv->cond);
   g_mutex_unlock (&priv->mutex);
 
-  error_code = meta_x11_error_trap_pop_with_return (priv->x11_display);
+  error_code = mtk_x11_error_trap_pop_with_return (xdisplay);
 
   if (error_code != Success)
     {
@@ -657,10 +657,10 @@ meta_x11_selection_output_stream_xevent (MetaX11SelectionOutputStream *stream,
 GOutputStream *
 meta_x11_selection_output_stream_new (MetaX11Display *x11_display,
                                       Window          requestor,
-                                      const char     *selection,
-                                      const char     *target,
-                                      const char     *property,
-                                      const char     *type,
+                                      Atom            selection,
+                                      Atom            target,
+                                      Atom            property,
+                                      Atom            type,
                                       int             format,
                                       gulong          timestamp)
 {
@@ -675,10 +675,10 @@ meta_x11_selection_output_stream_new (MetaX11Display *x11_display,
 
   priv->x11_display = x11_display;
   priv->xwindow = requestor;
-  priv->xselection = XInternAtom (x11_display->xdisplay, selection, False);
-  priv->xtarget = XInternAtom (x11_display->xdisplay, target, False);
-  priv->xproperty = XInternAtom (x11_display->xdisplay, property, False);
-  priv->xtype = XInternAtom (x11_display->xdisplay, type, False);
+  priv->xselection = selection;
+  priv->xtarget = target;
+  priv->xproperty = property;
+  priv->xtype = type;
   priv->format = format;
   priv->timestamp = timestamp;
 

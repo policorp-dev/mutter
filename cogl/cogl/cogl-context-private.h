@@ -28,32 +28,28 @@
  *
  */
 
-#ifndef __COGL_CONTEXT_PRIVATE_H
-#define __COGL_CONTEXT_PRIVATE_H
+#pragma once
 
-#include "cogl-context.h"
-#include "cogl-flags.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-flags.h"
 
-#include "cogl-display-private.h"
-#include "cogl-clip-stack.h"
-#include "cogl-matrix-stack.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-buffer-private.h"
-#include "cogl-bitmask.h"
-#include "cogl-atlas.h"
-#include "cogl-driver.h"
-#include "cogl-texture-driver.h"
-#include "cogl-pipeline-cache.h"
-#include "cogl-texture-2d.h"
-#include "cogl-sampler-cache-private.h"
-#include "cogl-gl-header.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-offscreen-private.h"
-#include "cogl-onscreen-private.h"
-#include "cogl-fence-private.h"
-#include "cogl-poll-private.h"
-#include "cogl-private.h"
-#include "winsys/cogl-winsys-private.h"
+#include "cogl/cogl-display-private.h"
+#include "cogl/cogl-clip-stack.h"
+#include "cogl/cogl-matrix-stack.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-buffer-private.h"
+#include "cogl/cogl-bitmask.h"
+#include "cogl/cogl-atlas.h"
+#include "cogl/cogl-driver-private.h"
+#include "cogl/cogl-texture-driver.h"
+#include "cogl/cogl-pipeline-cache.h"
+#include "cogl/cogl-texture-2d.h"
+#include "cogl/cogl-sampler-cache-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-offscreen-private.h"
+#include "cogl/cogl-onscreen-private.h"
+#include "cogl/cogl-private.h"
+#include "cogl/winsys/cogl-winsys-private.h"
 
 typedef struct
 {
@@ -69,28 +65,18 @@ struct _CoglTimestampQuery
 
 struct _CoglContext
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   CoglDisplay *display;
 
-  CoglDriver driver;
+  CoglDriverId driver_id;
 
-  /* vtables for the driver functions */
-  const CoglDriverVtable *driver_vtable;
-  const CoglTextureDriver *texture_driver;
-
-  void *driver_context;
+  CoglDriver *driver;
+  CoglTextureDriver *texture_driver;
 
   int glsl_major;
   int glsl_minor;
-
-  /* This is the GLSL version that we will claim that snippets are
-   * written against using the #version pragma. This will be the
-   * largest version that is less than or equal to the version
-   * provided by the driver without massively altering the syntax. Eg,
-   * we wouldn't use version 1.3 even if it is available because that
-   * removes the ‘attribute’ and ‘varying’ keywords. */
-  int glsl_version_to_use;
+  gboolean glsl_es;
 
   /* Features cache */
   unsigned long features[COGL_FLAGS_N_LONGS_FOR_SIZE (_COGL_N_FEATURE_IDS)];
@@ -130,12 +116,11 @@ struct _CoglContext
 
   GString          *codegen_header_buffer;
   GString          *codegen_source_buffer;
-  GString          *codegen_boilerplate_buffer;
 
   CoglPipelineCache *pipeline_cache;
 
   /* Textures */
-  CoglTexture2D *default_gl_texture_2d_tex;
+  CoglTexture *default_gl_texture_2d_tex;
 
   /* Central list of all framebuffers so all journals can be flushed
    * at any time. */
@@ -255,9 +240,6 @@ struct _CoglContext
   GHashTable *uniform_name_hash;
   int n_uniform_names;
 
-  CoglPollSource *fences_poll_source;
-  CoglList fences;
-
   GHashTable *named_pipelines;
 
   /* This defines a list of function pointers that Cogl uses from
@@ -282,9 +264,6 @@ struct _CoglContext
 #undef COGL_EXT_END
 };
 
-COGL_EXPORT CoglContext *
-_cogl_context_get_default (void);
-
 const CoglWinsysVtable *
 _cogl_context_get_winsys (CoglContext *context);
 
@@ -298,13 +277,6 @@ gboolean
 _cogl_context_update_features (CoglContext *context,
                                GError **error);
 
-/* Obtains the context and returns retval if NULL */
-#define _COGL_GET_CONTEXT(ctxvar, retval) \
-CoglContext *ctxvar = _cogl_context_get_default (); \
-if (ctxvar == NULL) return retval;
-
-#define NO_RETVAL
-
 void
 _cogl_context_set_current_projection_entry (CoglContext *context,
                                             CoglMatrixEntry *entry);
@@ -313,4 +285,5 @@ void
 _cogl_context_set_current_modelview_entry (CoglContext *context,
                                            CoglMatrixEntry *entry);
 
-#endif /* __COGL_CONTEXT_PRIVATE_H */
+void
+_cogl_context_update_sync (CoglContext *context);

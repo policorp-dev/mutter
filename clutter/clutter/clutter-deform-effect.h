@@ -22,36 +22,50 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_DEFORM_EFFECT_H__
-#define __CLUTTER_DEFORM_EFFECT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <cogl/cogl.h>
-#include <clutter/clutter-offscreen-effect.h>
+#include "cogl/cogl.h"
+#include "clutter/clutter-offscreen-effect.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_DEFORM_EFFECT              (clutter_deform_effect_get_type ())
-#define CLUTTER_DEFORM_EFFECT(obj)              (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_DEFORM_EFFECT, ClutterDeformEffect))
-#define CLUTTER_IS_DEFORM_EFFECT(obj)           (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_DEFORM_EFFECT))
-#define CLUTTER_DEFORM_EFFECT_CLASS(klass)      (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_DEFORM_EFFECT, ClutterDeformEffectClass))
-#define CLUTTER_IS_DEFORM_EFFECT_CLASS(klass)   (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_DEFORM_EFFECT))
-#define CLUTTER_DEFORM_EFFECT_GET_CLASS(obj)    (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_DEFORM_EFFECT, ClutterDeformEffectClass))
 
-typedef struct _ClutterDeformEffect             ClutterDeformEffect;
-typedef struct _ClutterDeformEffectPrivate      ClutterDeformEffectPrivate;
-typedef struct _ClutterDeformEffectClass        ClutterDeformEffectClass;
 
-struct _ClutterDeformEffect
+/**
+ * ClutterTextureVertex:
+ * @x: Model x-coordinate
+ * @y: Model y-coordinate
+ * @z: Model z-coordinate
+ * @tx: Texture x-coordinate
+ * @ty: Texture y-coordinate
+ * @color: The color to use at this vertex. This is ignored if
+ *   use_color is %FALSE when calling cogl_polygon()
+ *
+ * Used to specify vertex information when calling cogl_polygon()
+ */
+typedef struct _ClutterTextureVertex
 {
-  /*< private >*/
-  ClutterOffscreenEffect parent_instance;
+  float x, y, z;
+  float tx, ty;
 
-  ClutterDeformEffectPrivate *priv;
-};
+  CoglColor color;
+} ClutterTextureVertex;
+
+#ifndef __GI_SCANNER__
+G_STATIC_ASSERT (sizeof (ClutterTextureVertex) == 24);
+#endif
+
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterDeformEffect,
+                          clutter_deform_effect,
+                          CLUTTER,
+                          DEFORM_EFFECT,
+                          ClutterOffscreenEffect)
 
 /**
  * ClutterDeformEffectClass:
@@ -67,29 +81,17 @@ struct _ClutterDeformEffectClass
   ClutterOffscreenEffectClass parent_class;
 
   /*< public >*/
-  void (* deform_vertex) (ClutterDeformEffect *effect,
-                          gfloat               width,
-                          gfloat               height,
-                          CoglTextureVertex   *vertex);
-
-  /*< private >*/
-  void (*_clutter_deform1) (void);
-  void (*_clutter_deform2) (void);
-  void (*_clutter_deform3) (void);
-  void (*_clutter_deform4) (void);
-  void (*_clutter_deform5) (void);
-  void (*_clutter_deform6) (void);
-  void (*_clutter_deform7) (void);
+  void (* deform_vertex) (ClutterDeformEffect  *effect,
+                          gfloat                width,
+                          gfloat                height,
+                          ClutterTextureVertex *vertex);
 };
 
 CLUTTER_EXPORT
-GType clutter_deform_effect_get_type (void) G_GNUC_CONST;
-
+void            clutter_deform_effect_set_back_pipeline (ClutterDeformEffect *effect,
+                                                         CoglPipeline        *pipeline);
 CLUTTER_EXPORT
-void            clutter_deform_effect_set_back_material (ClutterDeformEffect *effect,
-                                                         CoglHandle           material);
-CLUTTER_EXPORT
-CoglHandle      clutter_deform_effect_get_back_material (ClutterDeformEffect *effect);
+CoglPipeline*   clutter_deform_effect_get_back_pipeline (ClutterDeformEffect *effect);
 CLUTTER_EXPORT
 void            clutter_deform_effect_set_n_tiles       (ClutterDeformEffect *effect,
                                                          guint                x_tiles,
@@ -103,5 +105,3 @@ CLUTTER_EXPORT
 void            clutter_deform_effect_invalidate        (ClutterDeformEffect *effect);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_DEFORM_EFFECT_H__ */

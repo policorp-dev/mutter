@@ -22,28 +22,26 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_STAGE_MANAGER_PRIVATE_H__
-#define __CLUTTER_STAGE_MANAGER_PRIVATE_H__
+#pragma once
 
-#include <clutter/clutter-stage-manager.h>
+#include "clutter/clutter-types.h"
 
 G_BEGIN_DECLS
 
-struct _ClutterStageManager
-{
-  GObject parent_instance;
+#define CLUTTER_TYPE_STAGE_MANAGER              (clutter_stage_manager_get_type ())
 
-  GSList *stages;
-};
+G_DECLARE_FINAL_TYPE (ClutterStageManager,
+                      clutter_stage_manager,
+                      CLUTTER,
+                      STAGE_MANAGER,
+                      GObject)
 
-/* stage manager */
-void _clutter_stage_manager_add_stage         (ClutterStageManager *stage_manager,
-                                               ClutterStage        *stage);
-void _clutter_stage_manager_remove_stage      (ClutterStageManager *stage_manager,
-                                               ClutterStage        *stage);
-void _clutter_stage_manager_set_default_stage (ClutterStageManager *stage_manager,
-                                               ClutterStage        *stage);
+const GSList * clutter_stage_manager_peek_stages (ClutterStageManager *stage_manager);
+
+void _clutter_stage_manager_add_stage (ClutterStageManager *stage_manager,
+                                       ClutterStage        *stage);
+
+void _clutter_stage_manager_remove_stage (ClutterStageManager *stage_manager,
+                                          ClutterStage        *stage);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_STAGE_MANAGER_PRIVATE_H__ */

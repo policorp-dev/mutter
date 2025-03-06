@@ -1,8 +1,8 @@
-#include <clutter-build-config.h>
 #include <glib.h>
 #include <gmodule.h>
 #include <stdlib.h>
 #include <clutter/clutter.h>
+#include <clutter/clutter-mutter.h>
 #include <cogl/cogl.h>
 #include <math.h>
 
@@ -32,6 +32,7 @@ test_rectangles (TestState           *state,
   int x;
   int y;
   CoglPipeline *pipeline;
+  CoglColor color;
 
   /* Should the rectangles be randomly positioned/colored/rotated?
    *
@@ -61,14 +62,16 @@ test_rectangles (TestState           *state,
     {
       for (x = 0; x < STAGE_WIDTH; x += RECT_WIDTH)
         {
+          cogl_color_init_from_4f (&color,
+                                   1,
+                                   (1.0f / STAGE_WIDTH) * y,
+                                   (1.0f / STAGE_HEIGHT) * x,
+                                   1);
+
           cogl_framebuffer_push_matrix (framebuffer);
           cogl_framebuffer_translate (framebuffer, x, y, 0);
           cogl_framebuffer_rotate (framebuffer, 45, 0, 0, 1);
-          cogl_pipeline_set_color4f (pipeline,
-                                     1,
-                                     (1.0f / STAGE_WIDTH) * y,
-                                     (1.0f / STAGE_HEIGHT) * x,
-                                     1);
+          cogl_pipeline_set_color (pipeline, &color);
           cogl_framebuffer_draw_rectangle (framebuffer, pipeline,
                                            0, 0, RECT_WIDTH, RECT_HEIGHT);
           cogl_framebuffer_pop_matrix (framebuffer);
@@ -82,11 +85,12 @@ test_rectangles (TestState           *state,
           cogl_framebuffer_push_matrix (framebuffer);
           cogl_framebuffer_translate (framebuffer, x, y, 0);
           cogl_framebuffer_rotate (framebuffer, 0, 0, 0, 1);
-          cogl_pipeline_set_color4f (pipeline,
-                                     1,
-                                     (1.0f / STAGE_WIDTH) * x,
-                                     (1.0f / STAGE_HEIGHT) * y,
-                                     (1.0f / STAGE_WIDTH) * x);
+          cogl_color_init_from_4f (&color,
+                                   1,
+                                   (1.0f / STAGE_WIDTH) * x,
+                                   (1.0f / STAGE_HEIGHT) * y,
+                                   (1.0f / STAGE_WIDTH) * x);
+          cogl_pipeline_set_color (pipeline, &color);
           cogl_framebuffer_draw_rectangle (framebuffer, pipeline,
                                            0, 0, RECT_WIDTH, RECT_HEIGHT);
           cogl_framebuffer_pop_matrix (framebuffer);
@@ -100,9 +104,9 @@ TestCallback tests[] =
 };
 
 static void
-on_after_paint (ClutterActor        *actor,
-                ClutterPaintContext *paint_context,
-                TestState           *state)
+on_paint (ClutterActor        *actor,
+          ClutterPaintContext *paint_context,
+          TestState           *state)
 {
   tests[state->current_test] (state, paint_context);
 }
@@ -120,6 +124,7 @@ main (int argc, char *argv[])
 {
   TestState state;
   ClutterActor *stage;
+  ClutterActor *actor;
 
   g_setenv ("CLUTTER_VBLANK", "none", FALSE);
   g_setenv ("CLUTTER_SHOW_FPS", "1", FALSE);
@@ -129,15 +134,17 @@ main (int argc, char *argv[])
   state.current_test = 0;
 
   state.stage = stage = clutter_test_get_stage ();
+  actor = g_object_new (CLUTTER_TYPE_TEST_ACTOR, NULL);
+  clutter_actor_add_child (stage, actor);
 
   clutter_actor_set_size (stage, STAGE_WIDTH, STAGE_HEIGHT);
-  clutter_actor_set_background_color (CLUTTER_ACTOR (stage), CLUTTER_COLOR_White);
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Cogl Performance Test");
+  clutter_actor_set_background_color (CLUTTER_ACTOR (stage),
+                                      &COGL_COLOR_INIT (255, 255, 255, 255));
 
   /* We want continuous redrawing of the stage... */
-  clutter_threads_add_idle (queue_redraw, stage);
+  g_idle_add (queue_redraw, stage);
 
-  g_signal_connect (CLUTTER_STAGE (stage), "after-paint", G_CALLBACK (on_after_paint), &state);
+  g_signal_connect (actor, "paint", G_CALLBACK (on_paint), &state);
 
   clutter_actor_show (stage);
 

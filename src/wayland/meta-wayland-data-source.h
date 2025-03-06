@@ -21,8 +21,7 @@
  * OF THIS SOFTWARE.
  */
 
-#ifndef META_WAYLAND_DATA_SOURCE_H
-#define META_WAYLAND_DATA_SOURCE_H
+#pragma once
 
 #include <glib-object.h>
 #include <wayland-server.h>
@@ -54,7 +53,10 @@ struct _MetaWaylandDataSourceClass
   void (* drag_finished)  (MetaWaylandDataSource *source);
 };
 
-MetaWaylandDataSource * meta_wayland_data_source_new (struct wl_resource *resource);
+MetaWaylandDataSource * meta_wayland_data_source_new (MetaWaylandCompositor *compositor,
+                                                      struct wl_resource    *resource);
+
+MetaWaylandCompositor * meta_wayland_data_source_get_compositor (MetaWaylandDataSource *source);
 
 struct wl_resource * meta_wayland_data_source_get_resource (MetaWaylandDataSource *source);
 void                 meta_wayland_data_source_set_resource (MetaWaylandDataSource *source,
@@ -109,4 +111,9 @@ gboolean meta_wayland_data_source_get_drop_performed (MetaWaylandDataSource *sou
 void meta_wayland_data_source_notify_drop_performed (MetaWaylandDataSource *source);
 void meta_wayland_data_source_notify_finish (MetaWaylandDataSource *source);
 
-#endif /* META_WAYLAND_DATA_SOURCE_H */
+void
+meta_wayland_data_source_set_toplevel_drag (MetaWaylandDataSource   *source,
+                                            MetaWaylandToplevelDrag *toplevel_drag);
+
+MetaWaylandToplevelDrag *
+meta_wayland_data_source_get_toplevel_drag (MetaWaylandDataSource *source);

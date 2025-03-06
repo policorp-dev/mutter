@@ -10,11 +10,10 @@ default_plugin = shared_module('default',
   c_args: default_plugin_c_args,
   dependencies: [
     glib_dep,
-    gtk3_dep,
-    json_glib_dep,
     gsettings_desktop_schemas_dep,
     libmutter_clutter_dep,
   ],
-  install_dir: join_paths(pkglibdir, 'plugins'),
+  install_dir: pkglibdir / 'plugins',
+  install_rpath: pkglibdir,
   install: true,
 )

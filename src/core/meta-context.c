@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -28,8 +26,10 @@
 #include "backends/meta-backend-private.h"
 #include "compositor/meta-plugin-manager.h"
 #include "core/display-private.h"
+#include "core/meta-service-channel.h"
 #include "core/prefs-private.h"
 #include "core/util-private.h"
+#include "meta/meta-enums.h"
 
 #ifdef HAVE_PROFILER
 #include "core/meta-profiler.h"
@@ -44,6 +44,7 @@ enum
   PROP_0,
 
   PROP_NAME,
+  PROP_NICK,
   PROP_UNSAFE_MODE,
 
   N_PROPS
@@ -74,8 +75,10 @@ typedef enum _MetaContextState
 typedef struct _MetaContextPrivate
 {
   char *name;
+  char *nick;
   char *plugin_name;
   GType plugin_gtype;
+  GVariant *plugin_options;
   char *gnome_wm_keybindings;
 
   gboolean unsafe_mode;
@@ -97,8 +100,15 @@ typedef struct _MetaContextPrivate
 #endif
 
 #ifdef HAVE_PROFILER
+  char *trace_file;
   MetaProfiler *profiler;
 #endif
+
+#ifdef HAVE_WAYLAND
+  MetaServiceChannel *service_channel;
+#endif
+
+  MetaDebugControl *debug_control;
 } MetaContextPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (MetaContext, meta_context, G_TYPE_OBJECT)
@@ -117,6 +127,8 @@ meta_context_add_option_entries (MetaContext        *context,
                                  const char         *translation_domain)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  g_return_if_fail (META_IS_CONTEXT (context));
 
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_INIT);
 
@@ -138,6 +150,8 @@ meta_context_add_option_group (MetaContext  *context,
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_INIT);
   g_return_if_fail (priv->option_context);
 
@@ -149,6 +163,8 @@ meta_context_set_plugin_gtype (MetaContext *context,
                                GType        plugin_gtype)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  g_return_if_fail (META_IS_CONTEXT (context));
 
   g_return_if_fail (priv->state <= META_CONTEXT_STATE_CONFIGURED);
   g_return_if_fail (!priv->plugin_name);
@@ -162,6 +178,8 @@ meta_context_set_plugin_name (MetaContext *context,
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   g_return_if_fail (priv->state <= META_CONTEXT_STATE_CONFIGURED);
   g_return_if_fail (priv->plugin_gtype == G_TYPE_NONE);
 
@@ -169,10 +187,21 @@ meta_context_set_plugin_name (MetaContext *context,
 }
 
 void
+meta_context_set_plugin_options (MetaContext *context,
+                                 GVariant    *plugin_options)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  priv->plugin_options = g_variant_ref (plugin_options);
+}
+
+void
 meta_context_set_gnome_wm_keybindings (MetaContext *context,
                                        const char  *wm_keybindings)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  g_return_if_fail (META_IS_CONTEXT (context));
 
   g_return_if_fail (priv->state <= META_CONTEXT_STATE_CONFIGURED);
 
@@ -193,10 +222,13 @@ meta_context_notify_ready (MetaContext *context)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   g_return_if_fail (priv->state == META_CONTEXT_STATE_STARTED ||
                     priv->state == META_CONTEXT_STATE_RUNNING);
 
-  META_CONTEXT_GET_CLASS (context)->notify_ready (context);
+  if (META_CONTEXT_GET_CLASS (context)->notify_ready)
+    META_CONTEXT_GET_CLASS (context)->notify_ready (context);
 }
 
 const char *
@@ -204,7 +236,17 @@ meta_context_get_name (MetaContext *context)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_val_if_fail (META_IS_CONTEXT (context), NULL);
+
   return priv->name;
+}
+
+const char *
+meta_context_get_nick (MetaContext *context)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  return priv->nick;
 }
 
 /**
@@ -217,6 +259,8 @@ MetaBackend *
 meta_context_get_backend (MetaContext *context)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  g_return_val_if_fail (META_IS_CONTEXT (context), NULL);
 
   return priv->backend;
 }
@@ -232,10 +276,22 @@ meta_context_get_display (MetaContext *context)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
   return priv->display;
 }
 
 #ifdef HAVE_WAYLAND
+/**
+ * meta_context_get_wayland_compositor:
+ * @context: The #MetaContext
+ *
+ * Get the #MetaWaylandCompositor associated with the MetaContext. The might be
+ * none currently associated if the context hasn't been started or if the
+ * requested compositor type is not %META_COMPOSITOR_TYPE_WAYLAND.
+ *
+ * Returns: (transfer none) (nullable): the #MetaWaylandCompositor
+ */
 MetaWaylandCompositor *
 meta_context_get_wayland_compositor (MetaContext *context)
 {
@@ -243,17 +299,29 @@ meta_context_get_wayland_compositor (MetaContext *context)
 
   return priv->wayland_compositor;
 }
+
+MetaServiceChannel *
+meta_context_get_service_channel (MetaContext *context)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  return priv->service_channel;
+}
 #endif
 
 MetaCompositorType
 meta_context_get_compositor_type (MetaContext *context)
 {
+  g_return_val_if_fail (META_IS_CONTEXT (context), META_COMPOSITOR_TYPE_WAYLAND);
+
   return META_CONTEXT_GET_CLASS (context)->get_compositor_type (context);
 }
 
 gboolean
 meta_context_is_replacing (MetaContext *context)
 {
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
   return META_CONTEXT_GET_CLASS (context)->is_replacing (context);
 }
 
@@ -268,6 +336,25 @@ gboolean
 meta_context_is_x11_sync (MetaContext *context)
 {
   return META_CONTEXT_GET_CLASS (context)->is_x11_sync (context);
+}
+#endif
+
+#ifdef HAVE_PROFILER
+MetaProfiler *
+meta_context_get_profiler (MetaContext *context)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  return priv->profiler;
+}
+
+void
+meta_context_set_trace_file (MetaContext *context,
+                             const char  *trace_file)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  priv->trace_file = g_strdup (trace_file);
 }
 #endif
 
@@ -288,7 +375,13 @@ meta_context_real_configure (MetaContext   *context,
     }
 
   option_context = g_steal_pointer (&priv->option_context);
-  return g_option_context_parse (option_context, argc, argv, error);
+  if (!g_option_context_parse (option_context, argc, argv, error))
+    return FALSE;
+
+  priv->debug_control = g_object_new (META_TYPE_DEBUG_CONTROL,
+                                      "context", context,
+                                      NULL);
+  return TRUE;
 }
 
 /**
@@ -301,7 +394,7 @@ meta_context_real_configure (MetaContext   *context,
  * @error: a return location for errors
  *
  * Returns: %TRUE if the commandline arguments (if any) were valid and if the
- * configuration has been successfull, %FALSE otherwise
+ * configuration has been successful, %FALSE otherwise
  */
 gboolean
 meta_context_configure (MetaContext   *context,
@@ -312,6 +405,8 @@ meta_context_configure (MetaContext   *context,
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
   MetaCompositorType compositor_type;
 
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_INIT);
 
   if (!META_CONTEXT_GET_CLASS (context)->configure (context, argc, argv, error))
@@ -319,6 +414,10 @@ meta_context_configure (MetaContext   *context,
       priv->state = META_CONTEXT_STATE_TERMINATED;
       return FALSE;
     }
+
+#ifdef HAVE_PROFILER
+  priv->profiler = meta_profiler_new (priv->trace_file);
+#endif
 
   compositor_type = meta_context_get_compositor_type (context);
   switch (compositor_type)
@@ -380,6 +479,8 @@ meta_context_setup (MetaContext  *context,
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
   MetaCompositorType compositor_type;
 
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_CONFIGURED);
 
   if (!priv->plugin_name && priv->plugin_gtype == G_TYPE_NONE)
@@ -419,6 +520,9 @@ meta_context_start (MetaContext  *context,
                     GError      **error)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+  g_autoptr (GVariant) plugin_options = NULL;
+
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
 
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_SETUP);
 
@@ -430,12 +534,17 @@ meta_context_start (MetaContext  *context,
     priv->wayland_compositor = meta_wayland_compositor_new (context);
 #endif
 
-  priv->display = meta_display_new (context, error);
+  plugin_options = g_steal_pointer (&priv->plugin_options),
+  priv->display = meta_display_new (context, plugin_options, error);
   if (!priv->display)
     {
       priv->state = META_CONTEXT_STATE_TERMINATED;
       return FALSE;
     }
+
+#ifdef HAVE_WAYLAND
+  priv->service_channel = meta_service_channel_new (context);
+#endif
 
   priv->main_loop = g_main_loop_new (NULL, FALSE);
 
@@ -451,6 +560,8 @@ meta_context_run_main_loop (MetaContext  *context,
                             GError      **error)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
 
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_STARTED);
   if (!priv->main_loop)
@@ -480,6 +591,8 @@ meta_context_terminate (MetaContext *context)
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   g_warn_if_fail (priv->state == META_CONTEXT_STATE_RUNNING);
   g_warn_if_fail (g_main_loop_is_running (priv->main_loop));
 
@@ -492,6 +605,8 @@ meta_context_terminate_with_error (MetaContext *context,
 {
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   priv->termination_error = g_steal_pointer (&error);
   meta_context_terminate (context);
 }
@@ -499,6 +614,8 @@ meta_context_terminate_with_error (MetaContext *context,
 void
 meta_context_destroy (MetaContext *context)
 {
+  g_return_if_fail (META_IS_CONTEXT (context));
+
   g_object_run_dispose (G_OBJECT (context));
   g_object_unref (context);
 }
@@ -560,6 +677,8 @@ gboolean
 meta_context_raise_rlimit_nofile (MetaContext  *context,
                                   GError      **error)
 {
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
 #ifdef RLIMIT_NOFILE
   struct rlimit new_rlimit;
 
@@ -600,6 +719,8 @@ gboolean
 meta_context_restore_rlimit_nofile (MetaContext  *context,
                                     GError      **error)
 {
+  g_return_val_if_fail (META_IS_CONTEXT (context), FALSE);
+
 #ifdef RLIMIT_NOFILE
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
 
@@ -640,6 +761,9 @@ meta_context_get_property (GObject    *object,
     case PROP_NAME:
       g_value_set_string (value, priv->name);
       break;
+    case PROP_NICK:
+      g_value_set_string (value, priv->nick);
+      break;
     case PROP_UNSAFE_MODE:
       g_value_set_boolean (value, priv->unsafe_mode);
       break;
@@ -663,6 +787,9 @@ meta_context_set_property (GObject      *object,
     case PROP_NAME:
       priv->name = g_value_dup_string (value);
       break;
+    case PROP_NICK:
+      priv->nick = g_value_dup_string (value);
+      break;
     case PROP_UNSAFE_MODE:
       meta_context_set_unsafe_mode (META_CONTEXT (object),
                                     g_value_get_boolean (value));
@@ -671,6 +798,64 @@ meta_context_set_property (GObject      *object,
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
     }
+}
+
+static char *
+derive_nick (MetaContext *context)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+  const char *source = NULL;
+  g_autofree char *nick = NULL;
+  int name_i, nick_i;
+  size_t len;
+
+  if (priv->name)
+    source = priv->name;
+
+  if (priv->nick)
+    source = priv->nick;
+
+  if (!source)
+    return g_strdup (PACKAGE_NAME);
+
+  len = strlen (source);
+  nick = g_malloc0 (len + 1);
+  for (name_i = 0, nick_i = 0; name_i < len; name_i++)
+    {
+      char name_char = source[name_i];
+
+      if (g_ascii_isalpha (name_char))
+        nick[nick_i++] = g_ascii_tolower (name_char);
+      else if (g_ascii_isspace (name_char))
+        nick[nick_i++] = '-';
+      else if (g_ascii_isdigit (name_char) ||
+               name_char == '-' ||
+               name_char == '_')
+        nick[nick_i++] = name_char;
+    }
+
+  if (nick_i == 0)
+    return g_strdup (PACKAGE_NAME);
+
+  return g_steal_pointer (&nick);
+}
+
+static void
+meta_context_constructed (GObject *object)
+{
+  MetaContext *context = META_CONTEXT (object);
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+  char *nick;
+
+  nick = derive_nick (context);
+
+  if (priv->nick && nick && g_strcmp0 (priv->nick, nick) != 0)
+    g_warning ("Invalid nick '%s'! Using '%s' instead.", priv->nick, nick);
+
+  g_clear_pointer (&priv->nick, g_free);
+  priv->nick = nick;
+
+  G_OBJECT_CLASS (meta_context_parent_class)->constructed (object);
 }
 
 static void
@@ -682,6 +867,8 @@ meta_context_dispose (GObject *object)
   g_signal_emit (context, signals[PREPARE_SHUTDOWN], 0);
 
 #ifdef HAVE_WAYLAND
+  g_clear_object (&priv->service_channel);
+
   if (priv->wayland_compositor)
     meta_wayland_compositor_prepare_shutdown (priv->wayland_compositor);
 #endif
@@ -695,6 +882,8 @@ meta_context_dispose (GObject *object)
 #endif
 
   g_clear_pointer (&priv->backend, meta_backend_destroy);
+
+  g_clear_object (&priv->debug_control);
 
   g_clear_pointer (&priv->option_context, g_option_context_free);
   g_clear_pointer (&priv->main_loop, g_main_loop_unref);
@@ -710,11 +899,14 @@ meta_context_finalize (GObject *object)
 
 #ifdef HAVE_PROFILER
   g_clear_object (&priv->profiler);
+  g_clear_pointer (&priv->trace_file, g_free);
 #endif
 
+  g_clear_pointer (&priv->plugin_options, g_variant_unref);
   g_clear_pointer (&priv->gnome_wm_keybindings, g_free);
   g_clear_pointer (&priv->plugin_name, g_free);
   g_clear_pointer (&priv->name, g_free);
+  g_clear_pointer (&priv->nick, g_free);
 
   G_OBJECT_CLASS (meta_context_parent_class)->finalize (object);
 }
@@ -726,6 +918,7 @@ meta_context_class_init (MetaContextClass *klass)
 
   object_class->get_property = meta_context_get_property;
   object_class->set_property = meta_context_set_property;
+  object_class->constructed = meta_context_constructed;
   object_class->dispose = meta_context_dispose;
   object_class->finalize = meta_context_finalize;
 
@@ -733,17 +926,19 @@ meta_context_class_init (MetaContextClass *klass)
   klass->setup = meta_context_real_setup;
 
   obj_props[PROP_NAME] =
-    g_param_spec_string ("name",
-                         "name",
-                         "Human readable name",
+    g_param_spec_string ("name", NULL, NULL,
+                         NULL,
+                         G_PARAM_READWRITE |
+                         G_PARAM_CONSTRUCT_ONLY |
+                         G_PARAM_STATIC_STRINGS);
+  obj_props[PROP_NICK] =
+    g_param_spec_string ("nick", NULL, NULL,
                          NULL,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
   obj_props[PROP_UNSAFE_MODE] =
-    g_param_spec_boolean ("unsafe-mode",
-                          "unsafe mode",
-                          "Unsafe mode",
+    g_param_spec_boolean ("unsafe-mode", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE |
                           G_PARAM_EXPLICIT_NOTIFY |
@@ -772,10 +967,6 @@ meta_context_init (MetaContext *context)
   MetaContextPrivate *priv = meta_context_get_instance_private (context);
   g_autoptr (GError) error = NULL;
 
-#ifdef HAVE_PROFILER
-  priv->profiler = meta_profiler_new ();
-#endif
-
   priv->plugin_gtype = G_TYPE_NONE;
   priv->gnome_wm_keybindings = g_strdup ("Mutter");
 
@@ -794,4 +985,24 @@ meta_context_init (MetaContext *context)
       if (!g_error_matches (error, G_FILE_ERROR, G_FILE_ERROR_NOSYS))
         g_warning ("Failed to save the nofile limit: %s", error->message);
     }
+}
+
+/**
+ * meta_context_get_debug_control:
+ * @context: The #MetaContext
+ *
+ * Returns: (transfer none): the #MetaDebugControl
+ */
+MetaDebugControl *
+meta_context_get_debug_control (MetaContext *context)
+{
+  MetaContextPrivate *priv = meta_context_get_instance_private (context);
+
+  return priv->debug_control;
+}
+
+MetaSessionManager *
+meta_context_get_session_manager (MetaContext *context)
+{
+  return META_CONTEXT_GET_CLASS (context)->get_session_manager (context);
 }

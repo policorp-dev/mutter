@@ -15,7 +15,7 @@ test_events_describe (void);
 static const gchar *
 get_event_type_name (const ClutterEvent *event)
 {
-  switch (event->type)
+  switch (clutter_event_type (event))
     {
     case CLUTTER_BUTTON_PRESS:
       return "BUTTON PRESS";
@@ -120,7 +120,7 @@ static void
 key_focus_in_cb (ClutterActor *actor,
          gpointer      data)
 {
-  ClutterActor *focus_box = CLUTTER_ACTOR (data);  
+  ClutterActor *focus_box = CLUTTER_ACTOR (data);
 
   if (CLUTTER_IS_STAGE (actor))
     clutter_actor_hide (focus_box);
@@ -140,40 +140,45 @@ key_focus_in_cb (ClutterActor *actor,
 static void
 fill_keybuf (char *keybuf, ClutterKeyEvent *event)
 {
+  ClutterModifierType state;
   char utf8[6];
+  uint32_t keyval;
   int len;
 
   /* printable character, if any (ß, ∑) */
-  len = g_unichar_to_utf8 (event->unicode_value, utf8);
+  len = g_unichar_to_utf8 (clutter_event_get_key_unicode ((ClutterEvent *) event), utf8);
   utf8[len] = '\0';
   sprintf (keybuf, "'%s' ", utf8);
 
   /* key combination (<Mod1>s, <Shift><Mod1>S, <Ctrl><Mod1>Delete) */
-  len = g_unichar_to_utf8 (clutter_keysym_to_unicode (event->keyval), utf8);
+  keyval = clutter_event_get_key_symbol ((ClutterEvent *) event);
+  len = g_unichar_to_utf8 (clutter_keysym_to_unicode (keyval), utf8);
   utf8[len] = '\0';
 
-  if (event->modifier_state & CLUTTER_SHIFT_MASK)
+  state = clutter_event_get_state ((ClutterEvent *) event);
+
+  if (state & CLUTTER_SHIFT_MASK)
     strcat (keybuf, "<Shift>");
 
-  if (event->modifier_state & CLUTTER_LOCK_MASK)
+  if (state & CLUTTER_LOCK_MASK)
     strcat (keybuf, "<Lock>");
 
-  if (event->modifier_state & CLUTTER_CONTROL_MASK)
+  if (state & CLUTTER_CONTROL_MASK)
     strcat (keybuf, "<Control>");
 
-  if (event->modifier_state & CLUTTER_MOD1_MASK)
+  if (state & CLUTTER_MOD1_MASK)
     strcat (keybuf, "<Mod1>");
 
-  if (event->modifier_state & CLUTTER_MOD2_MASK)
+  if (state & CLUTTER_MOD2_MASK)
     strcat (keybuf, "<Mod2>");
 
-  if (event->modifier_state & CLUTTER_MOD3_MASK)
+  if (state & CLUTTER_MOD3_MASK)
     strcat (keybuf, "<Mod3>");
 
-  if (event->modifier_state & CLUTTER_MOD4_MASK)
+  if (state & CLUTTER_MOD4_MASK)
     strcat (keybuf, "<Mod4>");
 
-  if (event->modifier_state & CLUTTER_MOD5_MASK)
+  if (state & CLUTTER_MOD5_MASK)
     strcat (keybuf, "<Mod5>");
 
   strcat (keybuf, utf8);
@@ -184,21 +189,25 @@ input_cb (ClutterActor *actor,
           ClutterEvent *event,
           gpointer      data)
 {
-  ClutterActor *stage = clutter_actor_get_stage (actor); 
+  ClutterActor *stage = clutter_actor_get_stage (actor);
   ClutterActor *source_actor;
   graphene_point_t position;
   gchar *state;
   gchar keybuf[128];
   ClutterInputDevice *device, *source;
   const gchar *device_name, *source_name = NULL;
+  ClutterEventType event_type;
 
   device = clutter_event_get_device (event);
   device_name = clutter_input_device_get_device_name (device);
+  event_type = clutter_event_type (event);
 
-  if (event->type == CLUTTER_KEY_PRESS ||
-      event->type == CLUTTER_KEY_RELEASE)
+  if (event_type == CLUTTER_KEY_PRESS ||
+      event_type == CLUTTER_KEY_RELEASE)
     {
       source_actor = clutter_stage_get_key_focus (CLUTTER_STAGE (stage));
+      if (source_actor == NULL)
+        source_actor = stage;
     }
   else
     {
@@ -215,16 +224,16 @@ input_cb (ClutterActor *actor,
 
   state = get_event_state_string (event);
 
-  switch (event->type)
+  switch (event_type)
     {
     case CLUTTER_KEY_PRESS:
-      fill_keybuf (keybuf, &event->key);
+      fill_keybuf (keybuf, (ClutterKeyEvent *) event);
       printf ("[%s] KEY PRESS %s",
               clutter_actor_get_name (source_actor),
               keybuf);
       break;
     case CLUTTER_KEY_RELEASE:
-      fill_keybuf (keybuf, &event->key);
+      fill_keybuf (keybuf, (ClutterKeyEvent *) event);
       printf ("[%s] KEY RELEASE %s",
               clutter_actor_get_name (source_actor),
               keybuf);
@@ -362,7 +371,7 @@ input_cb (ClutterActor *actor,
 
   if (source_actor == actor)
     g_print (" *source*");
-  
+
   g_print ("\n");
 
   return FALSE;
@@ -376,23 +385,19 @@ test_events_main (int argc, char *argv[])
   clutter_test_init (&argc, &argv);
 
   stage = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Events");
   clutter_actor_set_name (stage, "Stage");
   g_signal_connect (stage, "destroy", G_CALLBACK (clutter_test_quit), NULL);
   g_signal_connect (stage, "event", G_CALLBACK (input_cb), (char *) "stage");
 
   focus_box = clutter_actor_new ();
-  clutter_actor_set_background_color (focus_box, CLUTTER_COLOR_Black);
+  clutter_actor_set_background_color (focus_box, &COGL_COLOR_INIT (0, 0, 0, 255));
   clutter_actor_set_name (focus_box, "Focus Box");
-  clutter_container_add (CLUTTER_CONTAINER(stage), focus_box, NULL);
+  clutter_actor_add_child (stage, focus_box);
 
   actor = clutter_actor_new ();
-  clutter_actor_set_background_color (actor, CLUTTER_COLOR_Green);
+  clutter_actor_set_background_color (actor, &COGL_COLOR_INIT (0, 255, 0, 255));
   clutter_actor_set_name (actor, "Green Box");
-  clutter_actor_set_size (actor, 100, 100);
-  clutter_actor_set_position (actor, 250, 100);
-  clutter_actor_set_reactive (actor, TRUE);
-  clutter_container_add (CLUTTER_CONTAINER (stage), actor, NULL);
+  clutter_actor_add_child (stage, actor);
   g_signal_connect (actor, "event", G_CALLBACK (input_cb), (char *) "green box");
   g_signal_connect (actor, "key-focus-in", G_CALLBACK (key_focus_in_cb),
                     focus_box);
@@ -402,11 +407,11 @@ test_events_main (int argc, char *argv[])
 
   /* non reactive */
   actor = clutter_actor_new ();
-  clutter_actor_set_background_color (actor, CLUTTER_COLOR_Black);
+  clutter_actor_set_background_color (actor, &COGL_COLOR_INIT (0, 0, 0, 255));
   clutter_actor_set_name (actor, "Black Box");
   clutter_actor_set_size (actor, 400, 50);
   clutter_actor_set_position (actor, 100, 250);
-  clutter_container_add (CLUTTER_CONTAINER(stage), actor, NULL);
+  clutter_actor_add_child (stage, actor);
   g_signal_connect (actor, "event", G_CALLBACK (input_cb), (char *) "blue box");
   g_signal_connect (actor, "key-focus-in", G_CALLBACK (key_focus_in_cb),
                     focus_box);
@@ -415,7 +420,7 @@ test_events_main (int argc, char *argv[])
 
   /* non reactive group, with reactive child */
   actor = clutter_actor_new ();
-  clutter_actor_set_background_color (actor, CLUTTER_COLOR_Yellow);
+  clutter_actor_set_background_color (actor, &COGL_COLOR_INIT (255, 255, 0, 255));
   clutter_actor_set_name (actor, "Yellow Box");
   clutter_actor_set_size (actor, 100, 100);
   clutter_actor_set_reactive (actor, TRUE);
@@ -424,20 +429,20 @@ test_events_main (int argc, char *argv[])
 
   /* note group not reactive */
   group = clutter_actor_new ();
-  clutter_container_add (CLUTTER_CONTAINER (group), actor, NULL);
-  clutter_container_add (CLUTTER_CONTAINER (stage), group, NULL);
+  clutter_actor_add_child (group, actor);
+  clutter_actor_add_child (stage, group);
   clutter_actor_set_position (group, 100, 350);
 
   /* border actor */
   actor = clutter_actor_new ();
-  clutter_actor_set_background_color (actor, CLUTTER_COLOR_Magenta);
+  clutter_actor_set_background_color (actor, &COGL_COLOR_INIT (255, 0, 255, 255));
   clutter_actor_set_name (actor, "Border Box");
   clutter_actor_set_size (actor, 100, 100);
   clutter_actor_set_position (actor,
                               (clutter_actor_get_width (stage) - 100) / 2,
                               clutter_actor_get_height (stage) - 100);
   clutter_actor_set_reactive (actor, TRUE);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), actor);
+  clutter_actor_add_child (stage, actor);
   g_signal_connect (actor, "event", G_CALLBACK (input_cb), NULL);
 
   clutter_actor_show (CLUTTER_ACTOR (stage));

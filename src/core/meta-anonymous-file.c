@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Sebastian Wick <sebastian@sebastianwick.net>
  */
@@ -138,6 +136,9 @@ create_anonymous_file (off_t size)
         return -1;
     }
 
+  if (size == 0)
+    return fd;
+
 #if defined(HAVE_POSIX_FALLOCATE)
   do
     {
@@ -189,7 +190,6 @@ meta_anonymous_file_new (size_t         size,
                          const uint8_t *data)
 {
   MetaAnonymousFile *file;
-  void *map;
 
   file = g_malloc0 (sizeof *file);
   if (!file)
@@ -203,13 +203,17 @@ meta_anonymous_file_new (size_t         size,
   if (file->fd == -1)
     goto err_free;
 
-  map = mmap (NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file->fd, 0);
-  if (map == MAP_FAILED)
-    goto err_close;
+  if (size > 0)
+    {
+      void *map;
 
-  memcpy (map, data, size);
+      map = mmap (NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file->fd, 0);
+      if (map == MAP_FAILED)
+        goto err_close;
 
-  munmap (map, size);
+      memcpy (map, data, size);
+      munmap (map, size);
+    }
 
 #if defined(HAVE_MEMFD_CREATE)
   /* try to put seals on the file to make it read-only so that we can
@@ -310,6 +314,9 @@ meta_anonymous_file_open_fd (MetaAnonymousFile        *file,
    */
   fd = create_anonymous_file (file->size);
   if (fd == -1)
+    return fd;
+
+  if (file->size == 0)
     return fd;
 
   src = mmap (NULL, file->size, PROT_READ, MAP_PRIVATE, file->fd, 0);

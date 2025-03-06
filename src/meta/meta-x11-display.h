@@ -17,26 +17,25 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_X11_DISPLAY_H
-#define META_X11_DISPLAY_H
+#pragma once
 
 #include <glib-object.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/Xfixes.h>
 
-#include <meta/common.h>
-#include <meta/prefs.h>
-#include <meta/types.h>
+#include "meta/common.h"
+#include "meta/prefs.h"
+#include "meta/types.h"
+#include "meta/meta-x11-types.h"
+
+typedef void (* MetaX11DisplayEventFunc) (MetaX11Display *x11_display,
+                                          XEvent         *xev,
+                                          gpointer        user_data);
 
 #define META_TYPE_X11_DISPLAY (meta_x11_display_get_type ())
 
 META_EXPORT
 G_DECLARE_FINAL_TYPE (MetaX11Display, meta_x11_display, META, X11_DISPLAY, GObject)
-
-META_EXPORT
-gboolean meta_x11_init_gdk_display (GError **error);
-
-META_EXPORT
-int      meta_x11_display_get_screen_number (MetaX11Display *x11_display);
 
 META_EXPORT
 Display *meta_x11_display_get_xdisplay      (MetaX11Display *x11_display);
@@ -45,29 +44,27 @@ META_EXPORT
 Window   meta_x11_display_get_xroot         (MetaX11Display *x11_display);
 
 META_EXPORT
-int      meta_x11_display_get_xinput_opcode     (MetaX11Display *x11_display);
+void meta_x11_display_set_stage_input_region (MetaX11Display *x11_display,
+                                              XRectangle     *rects,
+                                              int             n_rects);
 
 META_EXPORT
-int      meta_x11_display_get_damage_event_base (MetaX11Display *x11_display);
+unsigned int meta_x11_display_add_event_func (MetaX11Display          *x11_display,
+                                              MetaX11DisplayEventFunc  event_func,
+                                              gpointer                 user_data,
+                                              GDestroyNotify           destroy_notify);
 
 META_EXPORT
-int      meta_x11_display_get_shape_event_base  (MetaX11Display *x11_display);
+void meta_x11_display_remove_event_func (MetaX11Display *x11_display,
+                                         unsigned int    id);
 
 META_EXPORT
-gboolean meta_x11_display_has_shape             (MetaX11Display *x11_display);
+void     meta_x11_display_redirect_windows (MetaX11Display *x11_display,
+                                            MetaDisplay    *display);
 
 META_EXPORT
-void meta_x11_display_set_cm_selection (MetaX11Display *x11_display);
+Window meta_x11_display_lookup_xwindow (MetaX11Display *x11_display,
+                                        MetaWindow     *window);
 
 META_EXPORT
-gboolean meta_x11_display_xwindow_is_a_no_focus_window (MetaX11Display *x11_display,
-                                                        Window xwindow);
-
-META_EXPORT
-void     meta_x11_display_set_stage_input_region (MetaX11Display *x11_display,
-                                                  XserverRegion   region);
-
-META_EXPORT
-void     meta_x11_display_clear_stage_input_region (MetaX11Display *x11_display);
-
-#endif /* META_X11_DISPLAY_H */
+MetaX11Display * meta_display_get_x11_display (MetaDisplay *display);

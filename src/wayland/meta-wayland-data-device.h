@@ -20,8 +20,7 @@
  * OF THIS SOFTWARE.
  */
 
-#ifndef META_WAYLAND_DATA_DEVICE_H
-#define META_WAYLAND_DATA_DEVICE_H
+#pragma once
 
 #include <glib-object.h>
 #include <wayland-server.h>
@@ -30,6 +29,7 @@
 #include "meta/meta-selection-source.h"
 #include "wayland/meta-wayland-data-offer.h"
 #include "wayland/meta-wayland-data-source.h"
+#include "wayland/meta-wayland-input.h"
 #include "wayland/meta-wayland-types.h"
 
 typedef struct _MetaWaylandDragGrab MetaWaylandDragGrab;
@@ -37,6 +37,8 @@ typedef struct _MetaWaylandDataSourceFuncs MetaWaylandDataSourceFuncs;
 
 struct _MetaWaylandDataDevice
 {
+  MetaWaylandSeat *seat;
+
   uint32_t selection_serial;
   MetaWaylandDataSource *selection_data_source;
   MetaWaylandDataSource *dnd_data_source;
@@ -52,12 +54,13 @@ struct _MetaWaylandDataDevice
 
 void meta_wayland_data_device_manager_init (MetaWaylandCompositor *compositor);
 
-void meta_wayland_data_device_init (MetaWaylandDataDevice *data_device);
+void meta_wayland_data_device_init (MetaWaylandDataDevice *data_device,
+                                    MetaWaylandSeat       *seat);
 
-void meta_wayland_data_device_set_keyboard_focus (MetaWaylandDataDevice *data_device);
+MetaWaylandSeat * meta_wayland_data_device_get_seat (MetaWaylandDataDevice *data_device);
 
-gboolean meta_wayland_data_device_is_dnd_surface (MetaWaylandDataDevice *data_device,
-                                                  MetaWaylandSurface    *surface);
+void meta_wayland_data_device_set_focus (MetaWaylandDataDevice *data_device,
+                                         MetaWaylandSurface    *surface);
 
 MetaWaylandDragGrab *
      meta_wayland_data_device_get_current_grab   (MetaWaylandDataDevice *data_device);
@@ -72,20 +75,32 @@ void     meta_wayland_data_device_unset_dnd_selection (MetaWaylandDataDevice *da
 const MetaWaylandDragDestFuncs *
          meta_wayland_data_device_get_drag_dest_funcs (void);
 
-void     meta_wayland_data_device_start_drag     (MetaWaylandDataDevice                 *data_device,
-                                                  struct wl_client                      *client,
-                                                  const MetaWaylandPointerGrabInterface *funcs,
-                                                  MetaWaylandSurface                    *surface,
-                                                  MetaWaylandDataSource                 *source,
-                                                  MetaWaylandSurface                    *icon_surface);
+void meta_wayland_data_device_start_drag (MetaWaylandDataDevice           *data_device,
+                                          struct wl_client                *client,
+                                          const MetaWaylandEventInterface *event_iface,
+                                          MetaWaylandSurface              *surface,
+                                          MetaWaylandDataSource           *source,
+                                          MetaWaylandSurface              *icon_surface,
+                                          ClutterInputDevice              *device,
+                                          ClutterEventSequence            *sequence,
+                                          graphene_point_t                 drag_start);
 
 void     meta_wayland_data_device_end_drag       (MetaWaylandDataDevice                 *data_device);
+
+MetaWaylandToplevelDrag *
+meta_wayland_data_device_get_toplevel_drag (MetaWaylandDataDevice *data_device);
 
 void     meta_wayland_drag_grab_set_focus        (MetaWaylandDragGrab             *drag_grab,
                                                   MetaWaylandSurface              *surface);
 MetaWaylandSurface *
          meta_wayland_drag_grab_get_focus        (MetaWaylandDragGrab             *drag_grab);
-void     meta_wayland_drag_grab_update_feedback_actor (MetaWaylandDragGrab *drag_grab,
-                                                       const ClutterEvent  *event);
 
-#endif /* META_WAYLAND_DATA_DEVICE_H */
+MetaWaylandSeat * meta_wayland_drag_grab_get_seat (MetaWaylandDragGrab *drag_grab);
+
+ClutterInputDevice * meta_wayland_drag_grab_get_device (MetaWaylandDragGrab    *drag_grab,
+                                                        ClutterEventSequence  **sequence);
+
+MetaWaylandSurface * meta_wayland_drag_grab_get_origin (MetaWaylandDragGrab *drag_grab);
+
+MetaWaylandDataSource *
+meta_wayland_drag_grab_get_data_source (MetaWaylandDragGrab *drag_grab);

@@ -28,16 +28,16 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_PIPELINE_STATE_H__
-#define __COGL_PIPELINE_STATE_H__
-
-#include <cogl/cogl-pipeline.h>
-#include <cogl/cogl-color.h>
-#include <cogl/cogl-depth-state.h>
+#include "cogl/cogl-pipeline.h"
+#include "cogl/cogl-color.h"
+#include "cogl/cogl-depth-state.h"
+#include "cogl/deprecated/cogl-program.h"
 
 G_BEGIN_DECLS
 
@@ -54,57 +54,10 @@ G_BEGIN_DECLS
  * semi-transparent red. See cogl_color_premultiply().
  *
  * The default value is (1.0, 1.0, 1.0, 1.0)
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_color (CoglPipeline    *pipeline,
                          const CoglColor *color);
-
-/**
- * cogl_pipeline_set_color4ub:
- * @pipeline: A #CoglPipeline object
- * @red: The red component
- * @green: The green component
- * @blue: The blue component
- * @alpha: The alpha component
- *
- * Sets the basic color of the pipeline, used when no lighting is enabled.
- *
- * The default value is (0xff, 0xff, 0xff, 0xff)
- *
- * Since: 2.0
- * Stability: Unstable
- */
-COGL_EXPORT void
-cogl_pipeline_set_color4ub (CoglPipeline *pipeline,
-			    uint8_t red,
-                            uint8_t green,
-                            uint8_t blue,
-                            uint8_t alpha);
-
-/**
- * cogl_pipeline_set_color4f:
- * @pipeline: A #CoglPipeline object
- * @red: The red component
- * @green: The green component
- * @blue: The blue component
- * @alpha: The alpha component
- *
- * Sets the basic color of the pipeline, used when no lighting is enabled.
- *
- * The default value is (1.0, 1.0, 1.0, 1.0)
- *
- * Since: 2.0
- * Stability: Unstable
- */
-COGL_EXPORT void
-cogl_pipeline_set_color4f (CoglPipeline *pipeline,
-                           float         red,
-                           float         green,
-                           float         blue,
-                           float         alpha);
 
 /**
  * cogl_pipeline_get_color:
@@ -112,9 +65,6 @@ cogl_pipeline_set_color4f (CoglPipeline *pipeline,
  * @color: (out): The location to store the color
  *
  * Retrieves the current pipeline color.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_get_color (CoglPipeline *pipeline,
@@ -169,9 +119,6 @@ typedef enum
  * and which continue on to the blending stage.
  *
  * The default is %COGL_PIPELINE_ALPHA_FUNC_ALWAYS
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_alpha_test_function (CoglPipeline         *pipeline,
@@ -183,9 +130,6 @@ cogl_pipeline_set_alpha_test_function (CoglPipeline         *pipeline,
  * @pipeline: A #CoglPipeline object
  *
  * Return value: The alpha test function of @pipeline.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT CoglPipelineAlphaFunc
 cogl_pipeline_get_alpha_test_function (CoglPipeline *pipeline);
@@ -195,9 +139,6 @@ cogl_pipeline_get_alpha_test_function (CoglPipeline *pipeline);
  * @pipeline: A #CoglPipeline object
  *
  * Return value: The alpha test reference value of @pipeline.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT float
 cogl_pipeline_get_alpha_test_reference (CoglPipeline *pipeline);
@@ -205,7 +146,7 @@ cogl_pipeline_get_alpha_test_reference (CoglPipeline *pipeline);
 /**
  * cogl_pipeline_set_blend:
  * @pipeline: A #CoglPipeline object
- * @blend_string: A <link linkend="cogl-Blend-Strings">Cogl blend string</link>
+ * @blend_string: A Cogl blend string
  *   describing the desired blend function.
  * @error: return location for a #GError that may report lack of driver
  *   support if you give separate blend string statements for the alpha
@@ -214,64 +155,50 @@ cogl_pipeline_get_alpha_test_reference (CoglPipeline *pipeline);
  *   warning will be printed out using GLib's logging facilities if an
  *   error is encountered.
  *
- * If not already familiar; please refer <link linkend="cogl-Blend-Strings">here</link>
- * for an overview of what blend strings are, and their syntax.
- *
  * Blending occurs after the alpha test function, and combines fragments with
  * the framebuffer.
 
  * Currently the only blend function Cogl exposes is ADD(). So any valid
  * blend statements will be of the form:
  *
- * |[
+ * ```
  *   &lt;channel-mask&gt;=ADD(SRC_COLOR*(&lt;factor&gt;), DST_COLOR*(&lt;factor&gt;))
- * ]|
+ * ```
  *
  * This is the list of source-names usable as blend factors:
- * <itemizedlist>
- *   <listitem><para>SRC_COLOR: The color of the incoming fragment</para></listitem>
- *   <listitem><para>DST_COLOR: The color of the framebuffer</para></listitem>
- *   <listitem><para>CONSTANT: The constant set via cogl_pipeline_set_blend_constant()</para></listitem>
- * </itemizedlist>
  *
- * The source names can be used according to the
- * <link linkend="cogl-Blend-String-syntax">color-source and factor syntax</link>,
- * so for example "(1-SRC_COLOR[A])" would be a valid factor, as would
- * "(CONSTANT[RGB])"
+ * - `SRC_COLOR`: The color of the incoming fragment
+ * - `DST_COLOR`: The color of the framebuffer
+ * - `CONSTANT`: The constant set via cogl_pipeline_set_blend_constant()
  *
  * These can also be used as factors:
- * <itemizedlist>
- *   <listitem>0: (0, 0, 0, 0)</listitem>
- *   <listitem>1: (1, 1, 1, 1)</listitem>
- *   <listitem>SRC_ALPHA_SATURATE_FACTOR: (f,f,f,1) where f = MIN(SRC_COLOR[A],1-DST_COLOR[A])</listitem>
- * </itemizedlist>
  *
- * <note>Remember; all color components are normalized to the range [0, 1]
- * before computing the result of blending.</note>
+ * - `0`: (0, 0, 0, 0)
+ * - `1`: (1, 1, 1, 1)
+ * - `SRC_ALPHA_SATURATE_FACTOR`: (f,f,f,1) where `f = MIN(SRC_COLOR[A],1-DST_COLOR[A])`
  *
- * <example id="cogl-Blend-Strings-blend-unpremul">
- *   <title>Blend Strings/1</title>
- *   <para>Blend a non-premultiplied source over a destination with
- *   premultiplied alpha:</para>
- *   <programlisting>
+ * Remember; all color components are normalized to the range [0, 1]
+ * before computing the result of blending.
+ *
+ * - Blend Strings/1:
+ * Blend a non-premultiplied source over a destination with
+ * premultiplied alpha:
+ *   ```
  * "RGB = ADD(SRC_COLOR*(SRC_COLOR[A]), DST_COLOR*(1-SRC_COLOR[A]))"
  * "A   = ADD(SRC_COLOR, DST_COLOR*(1-SRC_COLOR[A]))"
- *   </programlisting>
- * </example>
+ *   ```
  *
- * <example id="cogl-Blend-Strings-blend-premul">
- *   <title>Blend Strings/2</title>
- *   <para>Blend a premultiplied source over a destination with
- *   premultiplied alpha</para>
- *   <programlisting>
+ * Blend Strings/2:
+ *   Blend a premultiplied source over a destination with
+ *   premultiplied alpha
+ *   ```
  * "RGBA = ADD(SRC_COLOR, DST_COLOR*(1-SRC_COLOR[A]))"
- *   </programlisting>
- * </example>
+ *   ```
  *
  * The default blend string is:
- * |[
+ * ```
  *    RGBA = ADD (SRC_COLOR, DST_COLOR*(1-SRC_COLOR[A]))
- * ]|
+ * ```
  *
  * That gives normal alpha-blending when the calculated color for the pipeline
  * is in premultiplied form.
@@ -280,9 +207,6 @@ cogl_pipeline_get_alpha_test_reference (CoglPipeline *pipeline);
  *   described blending is supported by the underlying driver/hardware. If
  *   there was an error, %FALSE is returned and @error is set accordingly (if
  *   present).
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT gboolean
 cogl_pipeline_set_blend (CoglPipeline *pipeline,
@@ -296,9 +220,6 @@ cogl_pipeline_set_blend (CoglPipeline *pipeline,
  *
  * When blending is setup to reference a CONSTANT blend factor then
  * blending will depend on the constant set with this function.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_blend_constant (CoglPipeline *pipeline,
@@ -321,9 +242,6 @@ cogl_pipeline_set_blend_constant (CoglPipeline *pipeline,
  * pipeline will have undefined results. This is the default value so
  * if an application wants to draw points it must make sure to use a
  * pipeline that has an explicit point size set on it.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_point_size (CoglPipeline *pipeline,
@@ -337,9 +255,6 @@ cogl_pipeline_set_point_size (CoglPipeline *pipeline,
  * used with the vertex buffer API.
  *
  * Return value: the point size of the @pipeline.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT float
 cogl_pipeline_get_point_size (CoglPipeline *pipeline);
@@ -360,9 +275,6 @@ cogl_pipeline_get_point_size (CoglPipeline *pipeline);
  * If per-vertex point size is enabled and this attribute is not used
  * and cogl_point_size_out is not written to then the results are
  * undefined.
- *
- * Since: 2.0
- * Stability: Unstable
  * Return value: %TRUE if the change succeeded or %FALSE otherwise
  */
 COGL_EXPORT gboolean
@@ -373,9 +285,6 @@ cogl_pipeline_set_per_vertex_point_size (CoglPipeline *pipeline,
 /**
  * cogl_pipeline_get_per_vertex_point_size:
  * @pipeline: a #CoglPipeline pointer
- *
- * Since: 2.0
- * Stability: Unstable
  * Return value: %TRUE if the pipeline has per-vertex point size
  *   enabled or %FALSE otherwise. The per-vertex point size can be
  *   enabled with cogl_pipeline_set_per_vertex_point_size().
@@ -391,35 +300,32 @@ cogl_pipeline_get_per_vertex_point_size (CoglPipeline *pipeline);
  * @pipeline using cogl_pipeline_set_user_program().
  *
  * Return value: (transfer none): The current user program or %NULL.
- *
- * Since: 2.0
- * Stability: Unstable
  */
-COGL_EXPORT CoglHandle
+COGL_EXPORT CoglProgram*
 cogl_pipeline_get_user_program (CoglPipeline *pipeline);
 
 /**
  * cogl_pipeline_set_user_program:
  * @pipeline: a #CoglPipeline object.
- * @program: A #CoglHandle to a linked CoglProgram
+ * @program: A linked CoglProgram
  *
  * Associates a linked CoglProgram with the given pipeline so that the
  * program can take full control of vertex and/or fragment processing.
  *
  * This is an example of how it can be used to associate an ARBfp
  * program with a #CoglPipeline:
- * |[
- * CoglHandle shader;
- * CoglHandle program;
+ * ```c
+ * CoglShader *shader;
+ * CoglProgram *program;
  * CoglPipeline *pipeline;
  *
- * shader = cogl_create_shader (COGL_SHADER_TYPE_FRAGMENT);
+ * shader = cogl_shader_new (COGL_SHADER_TYPE_FRAGMENT);
  * cogl_shader_source (shader,
  *                     "!!ARBfp1.0\n"
  *                     "MOV result.color,fragment.color;\n"
  *                     "END\n");
  *
- * program = cogl_create_program ();
+ * program = cogl_program_new ();
  * cogl_program_attach_shader (program, shader);
  * cogl_program_link (program);
  *
@@ -428,7 +334,7 @@ cogl_pipeline_get_user_program (CoglPipeline *pipeline);
  *
  * cogl_set_source_color4ub (0xff, 0x00, 0x00, 0xff);
  * cogl_rectangle (0, 0, 100, 100);
- * ]|
+ * ```
  *
  * It is possibly worth keeping in mind that this API is not part of
  * the long term design for how we want to expose shaders to Cogl
@@ -436,16 +342,13 @@ cogl_pipeline_get_user_program (CoglPipeline *pipeline);
  * cogl_shader APIs in favour of a "snippet" framework) but in the
  * meantime we hope this will handle most practical GLSL and ARBfp
  * requirements.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_user_program (CoglPipeline *pipeline,
-                                CoglHandle program);
+                                CoglProgram  *program);
 
 /**
- * cogl_pipeline_set_depth_state: (skip)
+ * cogl_pipeline_set_depth_state:
  * @pipeline: A #CoglPipeline object
  * @state: A #CoglDepthState struct
  * @error: A #GError to report failures to setup the given @state.
@@ -458,11 +361,8 @@ cogl_pipeline_set_user_program (CoglPipeline *pipeline,
  * Note: Since some platforms do not support the depth range feature
  * it is possible for this function to fail and report an @error.
  *
- * Returns: TRUE if the GPU supports all the given @state else %FALSE
+ * Returns: %TRUE if the GPU supports all the given @state else %FALSE
  *          and returns an @error.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT gboolean
 cogl_pipeline_set_depth_state (CoglPipeline *pipeline,
@@ -470,15 +370,12 @@ cogl_pipeline_set_depth_state (CoglPipeline *pipeline,
                                GError **error);
 
 /**
- * cogl_pipeline_get_depth_state: (skip)
+ * cogl_pipeline_get_depth_state:
  * @pipeline: A #CoglPipeline object
  * @state_out: (out): A destination #CoglDepthState struct
  *
  * Retrieves the current depth state configuration for the given
  * @pipeline as previously set using cogl_pipeline_set_depth_state().
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_get_depth_state (CoglPipeline *pipeline,
@@ -520,9 +417,6 @@ typedef enum
  * order to represent which faces are facing inside and outside the
  * model. This order can be specified by calling
  * cogl_pipeline_set_front_face_winding().
- *
- * Status: Unstable
- * Since: 2.0
  */
 COGL_EXPORT void
 cogl_pipeline_set_cull_face_mode (CoglPipeline *pipeline,
@@ -533,9 +427,6 @@ cogl_pipeline_set_cull_face_mode (CoglPipeline *pipeline,
  *
  * Return value: the cull face mode that was previously set with
  * cogl_pipeline_set_cull_face_mode().
- *
- * Status: Unstable
- * Since: 2.0
  */
 COGL_EXPORT CoglPipelineCullFaceMode
 cogl_pipeline_get_cull_face_mode (CoglPipeline *pipeline);
@@ -552,9 +443,6 @@ cogl_pipeline_get_cull_face_mode (CoglPipeline *pipeline);
  * primitives with vertices in a counter-clockwise order and
  * %COGL_WINDING_CLOCKWISE sets them to be clockwise. The default is
  * %COGL_WINDING_COUNTER_CLOCKWISE.
- *
- * Status: Unstable
- * Since: 2.0
  */
 COGL_EXPORT void
 cogl_pipeline_set_front_face_winding (CoglPipeline *pipeline,
@@ -573,9 +461,6 @@ cogl_pipeline_set_front_face_winding (CoglPipeline *pipeline,
  * %COGL_WINDING_COUNTER_CLOCKWISE.
  *
  * Returns: The @pipeline front face winding
- *
- * Status: Unstable
- * Since: 2.0
  */
 COGL_EXPORT CoglWinding
 cogl_pipeline_get_front_face_winding (CoglPipeline *pipeline);
@@ -596,9 +481,6 @@ cogl_pipeline_get_front_face_winding (CoglPipeline *pipeline);
  * This function should be used to set uniforms that are of type
  * float. It can also be used to set a single member of a float array
  * uniform.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_uniform_1f (CoglPipeline *pipeline,
@@ -621,9 +503,6 @@ cogl_pipeline_set_uniform_1f (CoglPipeline *pipeline,
  * This function should be used to set uniforms that are of type
  * int. It can also be used to set a single member of a int array
  * uniform or a sampler uniform.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_uniform_1i (CoglPipeline *pipeline,
@@ -650,9 +529,6 @@ cogl_pipeline_set_uniform_1i (CoglPipeline *pipeline,
  * single vec4 uniform you would use 4 for @n_components and 1 for
  * @count. To set an array of 8 float values, you could use 1 for
  * @n_components and 8 for @count.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_uniform_float (CoglPipeline *pipeline,
@@ -681,9 +557,6 @@ cogl_pipeline_set_uniform_float (CoglPipeline *pipeline,
  * ivec4 uniform you would use 4 for @n_components and 1 for
  * @count. To set an array of 8 int values, you could use 1 for
  * @n_components and 8 for @count.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_uniform_int (CoglPipeline *pipeline,
@@ -718,9 +591,6 @@ cogl_pipeline_set_uniform_int (CoglPipeline *pipeline,
  * row-major order. You can pass a #graphene_matrix_t by calling by passing
  * the result of graphene_matrix_to_float() in @value and setting
  * @transpose to %FALSE.
- *
- * Since: 2.0
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_set_uniform_matrix (CoglPipeline *pipeline,
@@ -739,14 +609,9 @@ cogl_pipeline_set_uniform_matrix (CoglPipeline *pipeline,
  * replace some part of the pipeline as defined by the hook point in
  * @snippet. Note that some hook points are specific to a layer and
  * must be added with cogl_pipeline_add_layer_snippet() instead.
- *
- * Since: 1.10
- * Stability: Unstable
  */
 COGL_EXPORT void
 cogl_pipeline_add_snippet (CoglPipeline *pipeline,
                            CoglSnippet *snippet);
 
 G_END_DECLS
-
-#endif /* __COGL_PIPELINE_STATE_H__ */

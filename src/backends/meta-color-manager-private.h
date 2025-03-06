@@ -15,8 +15,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_COLOR_MANAGER_PRIVATE_H
-#define META_COLOR_MANAGER_PRIVATE_H
+#pragma once
 
 #include <colord.h>
 #include <lcms2.h>
@@ -28,6 +27,8 @@ struct _MetaColorManagerClass
 {
   GObjectClass parent_class;
 };
+
+void meta_color_manager_monitors_changed (MetaColorManager *color_manager);
 
 CdClient * meta_color_manager_get_cd_client (MetaColorManager *color_manager);
 
@@ -42,4 +43,4 @@ int meta_color_manager_get_num_color_devices (MetaColorManager *color_manager);
 
 cmsContext meta_color_manager_get_lcms_context (MetaColorManager *color_manager);
 
-#endif /* META_COLOR_MANAGER_PRIVATE_H */
+unsigned int meta_color_manager_get_temperature (MetaColorManager *color_manager);

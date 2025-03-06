@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -44,6 +42,9 @@ meta_compositor_native_before_paint (MetaCompositor     *compositor,
   meta_compositor_view_native_maybe_assign_scanout (compositor_view_native,
                                                     compositor);
 #endif
+
+  meta_compositor_view_native_maybe_update_frame_sync_surface (compositor_view_native,
+                                                               compositor);
 
   parent_class = META_COMPOSITOR_CLASS (meta_compositor_native_parent_class);
   parent_class->before_paint (compositor, compositor_view);

@@ -15,9 +15,13 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-paint-context-private.h"
+#include "clutter/clutter-paint-context-private.h"
+
+#include "clutter/clutter-color-state.h"
+#include "clutter/clutter-frame.h"
+#include "clutter/clutter-stage-view-private.h"
 
 struct _ClutterPaintContext
 {
@@ -28,9 +32,15 @@ struct _ClutterPaintContext
   GList *framebuffers;
 
   ClutterStageView *view;
+  ClutterFrame *frame;
 
-  cairo_region_t *redraw_clip;
+  MtkRegion *redraw_clip;
   GArray *clip_frusta;
+
+  GList *target_color_states;
+  GList *color_states;
+
+  ClutterColorState *framebuffer_color_state;
 };
 
 G_DEFINE_BOXED_TYPE (ClutterPaintContext, clutter_paint_context,
@@ -38,20 +48,27 @@ G_DEFINE_BOXED_TYPE (ClutterPaintContext, clutter_paint_context,
                      clutter_paint_context_unref)
 
 ClutterPaintContext *
-clutter_paint_context_new_for_view (ClutterStageView     *view,
-                                    const cairo_region_t *redraw_clip,
-                                    GArray               *clip_frusta,
-                                    ClutterPaintFlag      paint_flags)
+clutter_paint_context_new_for_view (ClutterStageView *view,
+                                    const MtkRegion  *redraw_clip,
+                                    GArray           *clip_frusta,
+                                    ClutterPaintFlag  paint_flags)
 {
   ClutterPaintContext *paint_context;
+  ClutterColorState *target_color_state;
   CoglFramebuffer *framebuffer;
 
   paint_context = g_new0 (ClutterPaintContext, 1);
   g_ref_count_init (&paint_context->ref_count);
   paint_context->view = view;
-  paint_context->redraw_clip = cairo_region_copy (redraw_clip);
+  paint_context->redraw_clip = mtk_region_copy (redraw_clip);
   paint_context->clip_frusta = g_array_ref (clip_frusta);
   paint_context->paint_flags = paint_flags;
+  g_set_object (&paint_context->framebuffer_color_state,
+                clutter_stage_view_get_color_state (view));
+
+  target_color_state = paint_context->framebuffer_color_state;
+  clutter_paint_context_push_target_color_state (paint_context,
+                                                 target_color_state);
 
   framebuffer = clutter_stage_view_get_framebuffer (view);
   clutter_paint_context_push_framebuffer (paint_context, framebuffer);
@@ -63,16 +80,25 @@ clutter_paint_context_new_for_view (ClutterStageView     *view,
  * clutter_paint_context_new_for_framebuffer: (skip)
  */
 ClutterPaintContext *
-clutter_paint_context_new_for_framebuffer (CoglFramebuffer      *framebuffer,
-                                           const cairo_region_t *redraw_clip,
-                                           ClutterPaintFlag      paint_flags)
+clutter_paint_context_new_for_framebuffer (CoglFramebuffer   *framebuffer,
+                                           const MtkRegion   *redraw_clip,
+                                           ClutterPaintFlag   paint_flags,
+                                           ClutterColorState *color_state)
 {
   ClutterPaintContext *paint_context;
+  ClutterColorState *target_color_state;
 
   paint_context = g_new0 (ClutterPaintContext, 1);
   g_ref_count_init (&paint_context->ref_count);
-  paint_context->redraw_clip = cairo_region_copy (redraw_clip);
   paint_context->paint_flags = paint_flags;
+  g_set_object (&paint_context->framebuffer_color_state, color_state);
+
+  target_color_state = paint_context->framebuffer_color_state;
+  clutter_paint_context_push_target_color_state (paint_context,
+                                                 target_color_state);
+
+  if (redraw_clip)
+    paint_context->redraw_clip = mtk_region_copy (redraw_clip);
 
   clutter_paint_context_push_framebuffer (paint_context, framebuffer);
 
@@ -89,10 +115,19 @@ clutter_paint_context_ref (ClutterPaintContext *paint_context)
 static void
 clutter_paint_context_dispose (ClutterPaintContext *paint_context)
 {
+  if (paint_context->framebuffer_color_state)
+    {
+      clutter_paint_context_pop_target_color_state (paint_context);
+      g_clear_object (&paint_context->framebuffer_color_state);
+    }
+
+  g_warn_if_fail (!paint_context->color_states);
+  g_warn_if_fail (!paint_context->target_color_states);
   g_list_free_full (paint_context->framebuffers, g_object_unref);
   paint_context->framebuffers = NULL;
-  g_clear_pointer (&paint_context->redraw_clip, cairo_region_destroy);
+  g_clear_pointer (&paint_context->redraw_clip, mtk_region_unref);
   g_clear_pointer (&paint_context->clip_frusta, g_array_unref);
+  g_clear_pointer (&paint_context->frame, clutter_frame_unref);
 }
 
 void
@@ -131,7 +166,7 @@ clutter_paint_context_pop_framebuffer (ClutterPaintContext *paint_context)
                         paint_context->framebuffers);
 }
 
-const cairo_region_t *
+const MtkRegion *
 clutter_paint_context_get_redraw_clip (ClutterPaintContext *paint_context)
 {
   return paint_context->redraw_clip;
@@ -195,4 +230,88 @@ ClutterPaintFlag
 clutter_paint_context_get_paint_flags (ClutterPaintContext *paint_context)
 {
   return paint_context->paint_flags;
+}
+
+void
+clutter_paint_context_assign_frame (ClutterPaintContext *paint_context,
+                                    ClutterFrame        *frame)
+{
+  g_assert (paint_context != NULL);
+  g_assert (paint_context->frame == NULL);
+  g_assert (frame != NULL);
+
+  paint_context->frame = clutter_frame_ref (frame);
+}
+
+/**
+ * clutter_paint_context_get_frame: (skip)
+ * @paint_context: The #ClutterPaintContext
+ *
+ * Retrieves the #ClutterFrame assigned to @paint_context, if any. A frame is
+ * only assigned when the paint context is created as part of a frame scheduled
+ * by the frame clock, and won't be assigned e.g. on offscreen paints.
+ *
+ * Returns: (transfer none)(nullable): The #ClutterFrame associated with the
+ *   @paint_context, or %NULL
+ */
+ClutterFrame *
+clutter_paint_context_get_frame (ClutterPaintContext *paint_context)
+{
+  return paint_context->frame;
+}
+
+void
+clutter_paint_context_push_target_color_state (ClutterPaintContext *paint_context,
+                                               ClutterColorState   *color_state)
+{
+  paint_context->target_color_states =
+    g_list_prepend (paint_context->target_color_states, color_state);
+}
+
+void
+clutter_paint_context_pop_target_color_state (ClutterPaintContext *paint_context)
+{
+  g_return_if_fail (paint_context->target_color_states);
+
+  paint_context->target_color_states =
+    g_list_delete_link (paint_context->target_color_states,
+                        paint_context->target_color_states);
+}
+
+void
+clutter_paint_context_push_color_state (ClutterPaintContext *paint_context,
+                                        ClutterColorState   *color_state)
+{
+  paint_context->color_states = g_list_prepend (paint_context->color_states,
+                                                color_state);
+}
+
+void
+clutter_paint_context_pop_color_state (ClutterPaintContext *paint_context)
+{
+  g_return_if_fail (paint_context->color_states);
+
+  paint_context->color_states =
+    g_list_delete_link (paint_context->color_states,
+                        paint_context->color_states);
+}
+
+/**
+ * clutter_paint_context_get_target_color_state: (skip)
+ */
+ClutterColorState *
+clutter_paint_context_get_target_color_state (ClutterPaintContext *paint_context)
+{
+  return CLUTTER_COLOR_STATE (paint_context->target_color_states->data);
+}
+
+/**
+  * clutter_paint_context_get_color_state: (skip)
+  */
+ClutterColorState *
+clutter_paint_context_get_color_state (ClutterPaintContext *paint_context)
+{
+  g_return_val_if_fail (paint_context->color_states, NULL);
+
+  return CLUTTER_COLOR_STATE (paint_context->color_states->data);
 }

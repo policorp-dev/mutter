@@ -31,27 +31,16 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_PIPELINE_STATE_PRIVATE_H
-#define __COGL_PIPELINE_STATE_PRIVATE_H
-
-CoglPipeline *
-_cogl_pipeline_get_user_program (CoglPipeline *pipeline);
+#pragma once
 
 gboolean
 _cogl_pipeline_has_vertex_snippets (CoglPipeline *pipeline);
-
-gboolean
-_cogl_pipeline_has_fragment_snippets (CoglPipeline *pipeline);
 
 gboolean
 _cogl_pipeline_has_non_layer_vertex_snippets (CoglPipeline *pipeline);
 
 gboolean
 _cogl_pipeline_has_non_layer_fragment_snippets (CoglPipeline *pipeline);
-
-gboolean
-_cogl_pipeline_color_equal (CoglPipeline *authority0,
-                            CoglPipeline *authority1);
 
 gboolean
 _cogl_pipeline_alpha_func_state_equal (CoglPipeline *authority0,
@@ -81,10 +70,6 @@ _cogl_pipeline_per_vertex_point_size_equal (CoglPipeline *authority0,
                                             CoglPipeline *authority1);
 
 gboolean
-_cogl_pipeline_logic_ops_state_equal (CoglPipeline *authority0,
-                                      CoglPipeline *authority1);
-
-gboolean
 _cogl_pipeline_user_shader_equal (CoglPipeline *authority0,
                                   CoglPipeline *authority1);
 
@@ -107,10 +92,6 @@ _cogl_pipeline_fragment_snippets_state_equal (CoglPipeline *authority0,
 void
 _cogl_pipeline_hash_color_state (CoglPipeline *authority,
                                  CoglPipelineHashState *state);
-
-void
-_cogl_pipeline_hash_layers_state (CoglPipeline *authority,
-                                  CoglPipelineHashState *state);
 
 void
 _cogl_pipeline_hash_alpha_func_state (CoglPipeline *authority,
@@ -145,10 +126,6 @@ _cogl_pipeline_hash_per_vertex_point_size_state (CoglPipeline *authority,
                                                  CoglPipelineHashState *state);
 
 void
-_cogl_pipeline_hash_logic_ops_state (CoglPipeline *authority,
-                                     CoglPipelineHashState *state);
-
-void
 _cogl_pipeline_hash_cull_face_state (CoglPipeline *authority,
                                      CoglPipelineHashState *state);
 
@@ -168,5 +145,3 @@ void
 _cogl_pipeline_compare_uniform_differences (unsigned long *differences,
                                             CoglPipeline *pipeline0,
                                             CoglPipeline *pipeline1);
-
-#endif /* __COGL_PIPELINE_STATE_PRIVATE_H */

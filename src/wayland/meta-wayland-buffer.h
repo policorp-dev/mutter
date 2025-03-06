@@ -14,21 +14,18 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_WAYLAND_BUFFER_H
-#define META_WAYLAND_BUFFER_H
+#pragma once
 
-#include <cairo.h>
 #include <wayland-server.h>
 
 #include "cogl/cogl.h"
+#include "meta/meta-multi-texture.h"
 #include "wayland/meta-wayland-types.h"
 #include "wayland/meta-wayland-egl-stream.h"
 #include "wayland/meta-wayland-dma-buf.h"
@@ -54,30 +51,36 @@ struct _MetaWaylandBuffer
   struct wl_resource *resource;
   struct wl_listener destroy_listener;
 
+  unsigned int use_count;
+
   gboolean is_y_inverted;
 
   MetaWaylandBufferType type;
 
   struct {
-    CoglTexture *texture;
+    MetaMultiTexture *texture;
   } egl_image;
 
 #ifdef HAVE_WAYLAND_EGLSTREAM
   struct {
     MetaWaylandEglStream *stream;
-    CoglTexture *texture;
+    MetaMultiTexture *texture;
   } egl_stream;
 #endif
 
   struct {
     MetaWaylandDmaBufBuffer *dma_buf;
-    CoglTexture *texture;
+    MetaMultiTexture *texture;
   } dma_buf;
 
   struct {
     MetaWaylandSinglePixelBuffer *single_pixel_buffer;
-    CoglTexture *texture;
+    MetaMultiTexture *texture;
   } single_pixel;
+
+  GHashTable *tainted_scanout_onscreens;
+
+  GPtrArray *release_points;
 };
 
 #define META_TYPE_WAYLAND_BUFFER (meta_wayland_buffer_get_type ())
@@ -90,16 +93,18 @@ struct wl_resource *    meta_wayland_buffer_get_resource        (MetaWaylandBuff
 gboolean                meta_wayland_buffer_is_realized         (MetaWaylandBuffer     *buffer);
 gboolean                meta_wayland_buffer_realize             (MetaWaylandBuffer     *buffer);
 gboolean                meta_wayland_buffer_attach              (MetaWaylandBuffer     *buffer,
-                                                                 CoglTexture          **texture,
+                                                                 MetaMultiTexture     **texture,
                                                                  GError               **error);
 CoglSnippet *           meta_wayland_buffer_create_snippet      (MetaWaylandBuffer     *buffer);
+void                    meta_wayland_buffer_inc_use_count       (MetaWaylandBuffer     *buffer);
+void                    meta_wayland_buffer_dec_use_count       (MetaWaylandBuffer     *buffer);
 gboolean                meta_wayland_buffer_is_y_inverted       (MetaWaylandBuffer     *buffer);
 void                    meta_wayland_buffer_process_damage      (MetaWaylandBuffer     *buffer,
-                                                                 CoglTexture           *texture,
-                                                                 cairo_region_t        *region);
+                                                                 MetaMultiTexture      *texture,
+                                                                 MtkRegion             *region);
 CoglScanout *           meta_wayland_buffer_try_acquire_scanout (MetaWaylandBuffer     *buffer,
-                                                                 CoglOnscreen          *onscreen);
+                                                                 CoglOnscreen          *onscreen,
+                                                                 const graphene_rect_t *src_rect,
+                                                                 const MtkRectangle    *dst_rect);
 
 void meta_wayland_init_shm (MetaWaylandCompositor *compositor);
-
-#endif /* META_WAYLAND_BUFFER_H */

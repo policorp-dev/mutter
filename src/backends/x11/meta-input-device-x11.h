@@ -17,8 +17,7 @@
  * Author: Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef META_INPUT_DEVICE_X11_H
-#define META_INPUT_DEVICE_X11_H
+#pragma once
 
 #include <X11/extensions/XInput2.h>
 
@@ -32,21 +31,14 @@
 G_BEGIN_DECLS
 
 #define META_TYPE_INPUT_DEVICE_X11 (meta_input_device_x11_get_type ())
-#define META_INPUT_DEVICE_X11(o) (G_TYPE_CHECK_INSTANCE_CAST ((o), META_TYPE_INPUT_DEVICE_X11, MetaInputDeviceX11))
-#define META_IS_INPUT_DEVICE_X11(o) (G_TYPE_CHECK_INSTANCE_TYPE ((o), META_TYPE_INPUT_DEVICE_X11))
-#define META_INPUT_DEVICE_X11_CLASS(c) (G_TYPE_CHECK_CLASS_CAST ((c), META_TYPE_INPUT_DEVICE_X11, MetaInputDeviceX11Class))
-#define META_IS_INPUT_DEVICE_X11_CLASS(c) (G_TYPE_CHECK_CLASS_TYPE ((c), META_TYPE_INPUT_DEVICE_X11))
-#define META_INPUT_DEVICE_X11_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), META_TYPE_INPUT_DEVICE_X11, MetaInputDeviceX11Class))
+
+G_DECLARE_FINAL_TYPE (MetaInputDeviceX11,
+                      meta_input_device_x11,
+                      META, INPUT_DEVICE_X11,
+                      MetaInputDevice)
 
 typedef struct _MetaInputDeviceX11 MetaInputDeviceX11;
-typedef struct _MetaInputDeviceX11Class MetaInputDeviceX11Class;
 
-GType meta_input_device_x11_get_type (void) G_GNUC_CONST;
-
-void  meta_input_device_x11_translate_state (ClutterEvent    *event,
-                                             XIModifierState *modifiers_state,
-                                             XIButtonState   *buttons_state,
-                                             XIGroupState    *group_state);
 void  meta_input_device_x11_update_tool     (ClutterInputDevice     *device,
                                              ClutterInputDeviceTool *tool);
 ClutterInputDeviceTool * meta_input_device_x11_get_current_tool (ClutterInputDevice *device);
@@ -98,5 +90,3 @@ gboolean meta_input_device_x11_get_scroll_delta (ClutterInputDevice     *device,
 void meta_input_device_x11_reset_scroll_info (ClutterInputDevice *device);
 
 G_END_DECLS
-
-#endif /* META_INPUT_DEVICE_X11_H */

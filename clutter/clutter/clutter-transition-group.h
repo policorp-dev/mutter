@@ -21,52 +21,25 @@
  * Author: Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_TRANSITION_GROUP_H__
-#define __CLUTTER_TRANSITION_GROUP_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-types.h>
-#include <clutter/clutter-transition.h>
+#include "clutter/clutter-types.h"
+#include "clutter/clutter-transition.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_TRANSITION_GROUP                   (clutter_transition_group_get_type ())
-#define CLUTTER_TRANSITION_GROUP(obj)                   (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TRANSITION_GROUP, ClutterTransitionGroup))
-#define CLUTTER_IS_TRANSITION_GROUP(obj)                (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_TRANSITION_GROUP))
-#define CLUTTER_TRANSITION_GROUP_CLASS(klass)           (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_TRANSITION_GROUP, ClutterTransitionGroupClass))
-#define CLUTTER_IS_TRANSITION_GROUP_CLASS(klass)        (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_TRANSITION_GROUP))
-#define CLUTTER_TRANSITION_GROUP_GET_CLASS(obj)         (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_TRANSITION_GROUP, ClutterTransitionGroup))
-
-typedef struct _ClutterTransitionGroupPrivate           ClutterTransitionGroupPrivate;
-typedef struct _ClutterTransitionGroupClass             ClutterTransitionGroupClass;
-
-struct _ClutterTransitionGroup
-{
-  /*< private >*/
-  ClutterTransition parent_instance;
-
-  ClutterTransitionGroupPrivate *priv;
-};
-
-/**
- * ClutterTransitionGroupClass:
- *
- * The #ClutterTransitionGroupClass structure
- * contains only private data.
- */
-struct _ClutterTransitionGroupClass
-{
-  /*< private >*/
-  ClutterTransitionClass parent_class;
-
-  gpointer _padding[8];
-};
 
 CLUTTER_EXPORT
-GType clutter_transition_group_get_type (void) G_GNUC_CONST;
+G_DECLARE_FINAL_TYPE (ClutterTransitionGroup,
+                      clutter_transition_group,
+                      CLUTTER,
+                      TRANSITION_GROUP,
+                      ClutterTransition)
 
 CLUTTER_EXPORT
 ClutterTransition *     clutter_transition_group_new            (void);
@@ -81,5 +54,3 @@ CLUTTER_EXPORT
 void                    clutter_transition_group_remove_all             (ClutterTransitionGroup *group);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_TRANSITION_GROUP_H__ */

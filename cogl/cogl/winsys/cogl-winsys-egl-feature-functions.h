@@ -99,6 +99,12 @@ COGL_WINSYS_FEATURE_BEGIN (create_context,
                            COGL_EGL_WINSYS_FEATURE_CREATE_CONTEXT)
 COGL_WINSYS_FEATURE_END ()
 
+COGL_WINSYS_FEATURE_BEGIN (no_config_context,
+                           "KHR\0",
+                           "no_config_context\0",
+                           COGL_EGL_WINSYS_FEATURE_NO_CONFIG_CONTEXT)
+COGL_WINSYS_FEATURE_END ()
+
 COGL_WINSYS_FEATURE_BEGIN (buffer_age,
                            "EXT\0",
                            "buffer_age\0",
@@ -153,6 +159,15 @@ COGL_WINSYS_FEATURE_FUNCTION (EGLint, eglClientWaitSync,
                                EGLint flags,
                                EGLTimeKHR timeout))
 COGL_WINSYS_FEATURE_FUNCTION (EGLBoolean, eglDestroySync,
+                              (EGLDisplay dpy,
+                               EGLSyncKHR sync))
+COGL_WINSYS_FEATURE_END ()
+
+COGL_WINSYS_FEATURE_BEGIN (native_fence_sync,
+                           "ANDROID\0",
+                           "native_fence_sync\0",
+                           COGL_EGL_WINSYS_FEATURE_NATIVE_FENCE_SYNC)
+COGL_WINSYS_FEATURE_FUNCTION (EGLint, eglDupNativeFenceFD,
                               (EGLDisplay dpy,
                                EGLSyncKHR sync))
 COGL_WINSYS_FEATURE_END ()

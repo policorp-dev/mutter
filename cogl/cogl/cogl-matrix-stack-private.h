@@ -32,13 +32,11 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef _COGL_MATRIX_STACK_PRIVATE_H_
-#define _COGL_MATRIX_STACK_PRIVATE_H_
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-matrix-stack.h"
-#include "cogl-context.h"
-#include "cogl-framebuffer.h"
+#include "cogl/cogl-matrix-stack.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-framebuffer.h"
 
 typedef enum _CoglMatrixOp
 {
@@ -58,10 +56,9 @@ struct _CoglMatrixEntry
   CoglMatrixOp op;
   unsigned int ref_count;
 
-#ifdef COGL_DEBUG_ENABLED
-  /* used for performance tracing */
+  /* Debugging, only used when defined(COGL_ENABLE_DEBUG)
+   * Used for performance tracing */
   int composite_gets;
-#endif
 };
 
 typedef struct _CoglMatrixEntryTranslate
@@ -137,7 +134,7 @@ typedef union _CoglMatrixEntryFull
 
 struct _CoglMatrixStack
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   CoglContext *context;
 
@@ -164,5 +161,3 @@ _cogl_matrix_entry_cache_maybe_update (CoglMatrixEntryCache *cache,
 
 void
 _cogl_matrix_entry_cache_destroy (CoglMatrixEntryCache *cache);
-
-#endif /* _COGL_MATRIX_STACK_PRIVATE_H_ */

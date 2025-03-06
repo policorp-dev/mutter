@@ -23,10 +23,10 @@
  *
  */
 
-#ifndef COGL_GL_FRAMEBUFFER_FBO_H
-#define COGL_GL_FRAMEBUFFER_FBO_H
+#pragma once
 
-#include "driver/gl/cogl-framebuffer-gl-private.h"
+#include "cogl/driver/gl/cogl-framebuffer-gl-private.h"
+#include "cogl/cogl-framebuffer-private.h"
 
 #define COGL_TYPE_GL_FRAMEBUFFER_FBO (cogl_gl_framebuffer_fbo_get_type ())
 G_DECLARE_FINAL_TYPE (CoglGlFramebufferFbo, cogl_gl_framebuffer_fbo,
@@ -37,5 +37,3 @@ CoglGlFramebufferFbo *
 cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                              const CoglFramebufferDriverConfig  *driver_config,
                              GError                            **error);
-
-#endif /* COGL_GL_FRAMEBUFFER_FBO_H */

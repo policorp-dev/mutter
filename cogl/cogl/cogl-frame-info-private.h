@@ -28,12 +28,10 @@
  *
  */
 
-#ifndef __COGL_FRAME_INFO_PRIVATE_H
-#define __COGL_FRAME_INFO_PRIVATE_H
+#pragma once
 
-#include "cogl-frame-info.h"
-#include "cogl-object-private.h"
-#include "cogl-context.h"
+#include "cogl/cogl-frame-info.h"
+#include "cogl/cogl-context.h"
 
 typedef enum _CoglFrameInfoFlag
 {
@@ -61,7 +59,7 @@ typedef enum _CoglFrameInfoFlag
 
 struct _CoglFrameInfo
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   CoglContext *context;
 
@@ -76,12 +74,18 @@ struct _CoglFrameInfo
   unsigned int sequence;
 
   CoglTimestampQuery *timestamp_query;
+  gboolean has_valid_gpu_rendering_duration;
   int64_t gpu_time_before_buffer_swap_ns;
   int64_t cpu_time_before_buffer_swap_us;
+
+  gboolean has_target_presentation_time;
+  int64_t target_presentation_time_us;
 };
 
 COGL_EXPORT
 CoglFrameInfo *cogl_frame_info_new (CoglContext *context,
                                     int64_t      global_frame_counter);
 
-#endif /* __COGL_FRAME_INFO_PRIVATE_H */
+COGL_EXPORT
+void cogl_frame_info_set_target_presentation_time (CoglFrameInfo *info,
+                                                   int64_t        presentation_time_us);

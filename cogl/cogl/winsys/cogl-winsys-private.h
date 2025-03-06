@@ -28,26 +28,15 @@
  *
  */
 
-#ifndef __COGL_WINSYS_PRIVATE_H
-#define __COGL_WINSYS_PRIVATE_H
+#pragma once
 
-#include "cogl-renderer.h"
-#include "cogl-scanout.h"
+#include "cogl/cogl-renderer.h"
+#include "cogl/cogl-scanout.h"
 
-#ifdef COGL_HAS_XLIB
-#include "cogl-texture-pixmap-x11-private.h"
-#endif
-
-#ifdef COGL_HAS_XLIB
+#ifdef HAVE_X11
 #include <X11/Xutil.h>
-#include "cogl-texture-pixmap-x11-private.h"
+#include "cogl/winsys/cogl-texture-pixmap-x11-private.h"
 #endif
-
-#ifdef COGL_HAS_EGL_SUPPORT
-#include "cogl-egl-private.h"
-#endif
-
-#include "cogl-poll.h"
 
 COGL_EXPORT uint32_t
 _cogl_winsys_error_quark (void);
@@ -62,6 +51,32 @@ typedef enum /*< prefix=COGL_WINSYS_ERROR >*/
   COGL_WINSYS_ERROR_MAKE_CURRENT,
 } CoglWinsysError;
 
+/**
+ * CoglRendererConstraint:
+ * @COGL_RENDERER_CONSTRAINT_USES_X11: Require the renderer to be X11 based
+ * @COGL_RENDERER_CONSTRAINT_USES_XLIB: Require the renderer to be X11
+ *                                      based and use Xlib
+ * @COGL_RENDERER_CONSTRAINT_USES_EGL: Require the renderer to be EGL based
+ *
+ * These constraint flags are hard-coded features of the different renderer
+ * backends. Sometimes a platform may support multiple rendering options which
+ * Cogl will usually choose from automatically. Some of these features are
+ * important to higher level applications and frameworks though, such as
+ * whether a renderer is X11 based because an application might only support
+ * X11 based input handling. An application might also need to ensure EGL is
+ * used internally too if they depend on access to an EGLDisplay for some
+ * purpose.
+ *
+ * Applications should ideally minimize how many of these constraints
+ * they depend on to ensure maximum portability.
+ */
+typedef enum
+{
+  COGL_RENDERER_CONSTRAINT_USES_X11 = (1 << 0),
+  COGL_RENDERER_CONSTRAINT_USES_XLIB = (1 << 1),
+  COGL_RENDERER_CONSTRAINT_USES_EGL = (1 << 2),
+} CoglRendererConstraint;
+
 typedef struct _CoglWinsysVtable
 {
   CoglWinsysID id;
@@ -73,8 +88,7 @@ typedef struct _CoglWinsysVtable
 
   GCallback
   (*renderer_get_proc_address) (CoglRenderer *renderer,
-                                const char   *name,
-                                gboolean      in_core);
+                                const char   *name);
 
   gboolean
   (*renderer_connect) (CoglRenderer *renderer,
@@ -93,11 +107,23 @@ typedef struct _CoglWinsysVtable
   void
   (*display_destroy) (CoglDisplay *display);
 
+  GArray *
+  (* renderer_query_drm_modifiers) (CoglRenderer           *renderer,
+                                    CoglPixelFormat         format,
+                                    CoglDrmModifierFilter   filter,
+                                    GError                **error);
+
+  uint64_t
+  (* renderer_get_implicit_drm_modifier) (CoglRenderer *renderer);
+
   CoglDmaBufHandle *
-  (*renderer_create_dma_buf) (CoglRenderer  *renderer,
-                              int            width,
-                              int            height,
-                              GError       **error);
+  (*renderer_create_dma_buf) (CoglRenderer     *renderer,
+                              CoglPixelFormat   format,
+                              uint64_t         *modifiers,
+                              int               n_modifiers,
+                              int               width,
+                              int               height,
+                              GError          **error);
 
   gboolean
   (*renderer_is_dma_buf_supported) (CoglRenderer *renderer);
@@ -114,7 +140,7 @@ typedef struct _CoglWinsysVtable
 
   /* Optional functions */
 
-#ifdef COGL_HAS_XLIB
+#ifdef HAVE_X11
   gboolean
   (*texture_pixmap_x11_create) (CoglTexturePixmapX11 *tex_pixmap);
   void
@@ -133,22 +159,12 @@ typedef struct _CoglWinsysVtable
                                      CoglTexturePixmapStereoMode stereo_mode);
 #endif
 
-  void *
-  (*fence_add) (CoglContext *ctx);
-
-  gboolean
-  (*fence_is_complete) (CoglContext *ctx,
-                        void        *fence);
-
   void
-  (*fence_destroy) (CoglContext *ctx,
-                    void        *fence);
+  (*update_sync) (CoglContext *ctx);
+
+  int
+  (*get_sync_fd) (CoglContext *ctx);
 
 } CoglWinsysVtable;
 
 typedef const CoglWinsysVtable *(*CoglWinsysVtableGetter) (void);
-
-gboolean
-_cogl_winsys_has_feature (CoglWinsysFeature feature);
-
-#endif /* __COGL_WINSYS_PRIVATE_H */

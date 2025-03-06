@@ -25,9 +25,9 @@
  */
 
 /**
- * SECTION:meta-monitor-manager-xrandr
- * @title: MetaMonitorManagerXrandr
- * @short_description: A subclass of #MetaMonitorManager using XRadR
+ * MetaMonitorManagerXrandr:
+ *
+ * A subclass of #MetaMonitorManager using XRadR
  *
  * #MetaMonitorManagerXrandr is a subclass of #MetaMonitorManager which
  * implements its functionality using the RandR X protocol.
@@ -58,7 +58,7 @@
 #include "backends/x11/meta-output-xrandr.h"
 #include "clutter/clutter.h"
 #include "meta/main.h"
-#include "meta/meta-x11-errors.h"
+#include "mtk/mtk-x11.h"
 
 /* Look for DPI_FALLBACK in:
  * http://git.gnome.org/browse/gnome-settings-daemon/tree/plugins/xsettings/gsd-xsettings-manager.c
@@ -141,6 +141,7 @@ meta_monitor_manager_xrandr_read_current_state (MetaMonitorManager *manager)
   BOOL dpms_capable, dpms_enabled;
   CARD16 dpms_state;
   MetaPowerSave power_save_mode;
+  MetaPowerSaveChangeReason reason;
 
   dpms_capable = DPMSCapable (xdisplay);
 
@@ -151,7 +152,11 @@ meta_monitor_manager_xrandr_read_current_state (MetaMonitorManager *manager)
   else
     power_save_mode = META_POWER_SAVE_UNSUPPORTED;
 
-  meta_monitor_manager_power_save_mode_changed (manager, power_save_mode);
+
+  reason = META_POWER_SAVE_CHANGE_REASON_HOTPLUG;
+  meta_monitor_manager_power_save_mode_changed (manager,
+                                                power_save_mode,
+                                                reason);
 
   parent_class->read_current_state (manager);
 }
@@ -180,30 +185,32 @@ meta_monitor_manager_xrandr_set_power_save_mode (MetaMonitorManager *manager,
     return;
   }
 
+  mtk_x11_error_trap_push (manager_xrandr->xdisplay);
   DPMSForceLevel (manager_xrandr->xdisplay, state);
   DPMSSetTimeouts (manager_xrandr->xdisplay, 0, 0, 0);
+  mtk_x11_error_trap_pop (manager_xrandr->xdisplay);
 }
 
 static xcb_randr_rotation_t
-meta_monitor_transform_to_xrandr (MetaMonitorTransform transform)
+mtk_monitor_transform_to_xrandr (MtkMonitorTransform transform)
 {
   switch (transform)
     {
-    case META_MONITOR_TRANSFORM_NORMAL:
+    case MTK_MONITOR_TRANSFORM_NORMAL:
       return XCB_RANDR_ROTATION_ROTATE_0;
-    case META_MONITOR_TRANSFORM_90:
+    case MTK_MONITOR_TRANSFORM_90:
       return XCB_RANDR_ROTATION_ROTATE_90;
-    case META_MONITOR_TRANSFORM_180:
+    case MTK_MONITOR_TRANSFORM_180:
       return XCB_RANDR_ROTATION_ROTATE_180;
-    case META_MONITOR_TRANSFORM_270:
+    case MTK_MONITOR_TRANSFORM_270:
       return XCB_RANDR_ROTATION_ROTATE_270;
-    case META_MONITOR_TRANSFORM_FLIPPED:
+    case MTK_MONITOR_TRANSFORM_FLIPPED:
       return XCB_RANDR_ROTATION_REFLECT_X | XCB_RANDR_ROTATION_ROTATE_0;
-    case META_MONITOR_TRANSFORM_FLIPPED_90:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_90:
       return XCB_RANDR_ROTATION_REFLECT_X | XCB_RANDR_ROTATION_ROTATE_90;
-    case META_MONITOR_TRANSFORM_FLIPPED_180:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_180:
       return XCB_RANDR_ROTATION_REFLECT_X | XCB_RANDR_ROTATION_ROTATE_180;
-    case META_MONITOR_TRANSFORM_FLIPPED_270:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_270:
       return XCB_RANDR_ROTATION_REFLECT_X | XCB_RANDR_ROTATION_ROTATE_270;
     }
 
@@ -476,8 +483,8 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
    *
    * Firefox and Evince apparently believe what X tells them.
    */
-  width_mm = (width / DPI_FALLBACK) * 25.4 + 0.5;
-  height_mm = (height / DPI_FALLBACK) * 25.4 + 0.5;
+  width_mm = (int) ((width / DPI_FALLBACK) * 25.4 + 0.5);
+  height_mm = (int) ((height / DPI_FALLBACK) * 25.4 + 0.5);
   XRRSetScreenSize (manager_xrandr->xdisplay, DefaultRootWindow (manager_xrandr->xdisplay),
                     width, height, width_mm, height_mm);
 
@@ -495,6 +502,7 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
           int x, y;
           xcb_randr_rotation_t rotation;
           xcb_randr_mode_t mode;
+          MetaCrtcConfig *crtc_config;
 
           crtc_mode = crtc_assignment->mode;
 
@@ -523,7 +531,7 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
           x = (int) roundf (crtc_assignment->layout.origin.x);
           y = (int) roundf (crtc_assignment->layout.origin.y);
           rotation =
-            meta_monitor_transform_to_xrandr (crtc_assignment->transform);
+            mtk_monitor_transform_to_xrandr (crtc_assignment->transform);
           mode =  meta_crtc_mode_get_id (crtc_mode);
           if (!xrandr_set_crtc_config (manager_xrandr,
                                        crtc,
@@ -538,21 +546,23 @@ apply_crtc_assignments (MetaMonitorManager    *manager,
               const MetaCrtcModeInfo *crtc_mode_info =
                 meta_crtc_mode_get_info (crtc_mode);
 
-              meta_warning ("Configuring CRTC %d with mode %d (%d x %d @ %f) at position %d, %d and transform %u failed",
-                            (unsigned) meta_crtc_get_id (crtc),
-                            (unsigned) mode,
-                            crtc_mode_info->width, crtc_mode_info->height,
-                            (float) crtc_mode_info->refresh_rate,
-                            (int) roundf (crtc_assignment->layout.origin.x),
-                            (int) roundf (crtc_assignment->layout.origin.y),
-                            crtc_assignment->transform);
+              g_warning ("Configuring CRTC %d with mode %d (%d x %d @ %f) "
+                         "at position %d, %d and transform %u failed",
+                         (unsigned) meta_crtc_get_id (crtc),
+                         (unsigned) mode,
+                         crtc_mode_info->width, crtc_mode_info->height,
+                         (float) crtc_mode_info->refresh_rate,
+                         (int) roundf (crtc_assignment->layout.origin.x),
+                         (int) roundf (crtc_assignment->layout.origin.y),
+                         crtc_assignment->transform);
               continue;
             }
 
-          meta_crtc_set_config (crtc,
-                                &crtc_assignment->layout,
-                                crtc_mode,
-                                crtc_assignment->transform);
+          crtc_config = meta_crtc_config_new (&crtc_assignment->layout,
+                                              crtc_mode,
+                                              crtc_assignment->transform);
+          meta_crtc_set_config (crtc, crtc_config,
+                                crtc_assignment->backend_private);
         }
     }
 
@@ -650,14 +660,6 @@ meta_monitor_manager_xrandr_apply_monitors_config (MetaMonitorManager      *mana
   g_ptr_array_free (output_assignments, TRUE);
 
   return TRUE;
-}
-
-static void
-meta_monitor_manager_xrandr_change_backlight (MetaMonitorManager *manager,
-					      MetaOutput         *output,
-					      gint                value)
-{
-  meta_output_xrandr_change_backlight (META_OUTPUT_XRANDR (output), value);
 }
 
 static MetaMonitorXrandrData *
@@ -763,9 +765,11 @@ meta_monitor_manager_xrandr_tiled_monitor_added (MetaMonitorManager *manager,
       xrandr_monitor_info->outputs[i] = meta_output_get_id (output);
     }
 
+  mtk_x11_error_trap_push (manager_xrandr->xdisplay);
   XRRSetMonitor (manager_xrandr->xdisplay,
                  DefaultRootWindow (manager_xrandr->xdisplay),
                  xrandr_monitor_info);
+  mtk_x11_error_trap_pop (manager_xrandr->xdisplay);
   XRRFreeMonitors (xrandr_monitor_info);
 }
 
@@ -819,17 +823,6 @@ meta_monitor_manager_xrandr_init_monitors (MetaMonitorManagerXrandr *manager_xra
                           m[i].name);
     }
   XRRFreeMonitors (m);
-}
-
-static gboolean
-meta_monitor_manager_xrandr_is_transform_handled (MetaMonitorManager  *manager,
-                                                  MetaCrtc            *crtc,
-                                                  MetaMonitorTransform transform)
-{
-  g_warn_if_fail ((meta_crtc_get_all_transforms (crtc) & transform) ==
-                  transform);
-
-  return TRUE;
 }
 
 static float
@@ -966,10 +959,8 @@ meta_monitor_manager_xrandr_class_init (MetaMonitorManagerXrandrClass *klass)
   manager_class->ensure_initial_config = meta_monitor_manager_xrandr_ensure_initial_config;
   manager_class->apply_monitors_config = meta_monitor_manager_xrandr_apply_monitors_config;
   manager_class->set_power_save_mode = meta_monitor_manager_xrandr_set_power_save_mode;
-  manager_class->change_backlight = meta_monitor_manager_xrandr_change_backlight;
   manager_class->tiled_monitor_added = meta_monitor_manager_xrandr_tiled_monitor_added;
   manager_class->tiled_monitor_removed = meta_monitor_manager_xrandr_tiled_monitor_removed;
-  manager_class->is_transform_handled = meta_monitor_manager_xrandr_is_transform_handled;
   manager_class->calculate_monitor_mode_scale = meta_monitor_manager_xrandr_calculate_monitor_mode_scale;
   manager_class->calculate_supported_scales = meta_monitor_manager_xrandr_calculate_supported_scales;
   manager_class->get_capabilities = meta_monitor_manager_xrandr_get_capabilities;

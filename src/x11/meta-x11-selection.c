@@ -12,16 +12,12 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
 #include "config.h"
-
-#include <gdk/gdkx.h>
 
 #include "core/meta-selection-private.h"
 #include "meta/meta-selection-source-memory.h"
@@ -125,10 +121,11 @@ mimetypes_to_bytes (GList   *mimetypes,
 }
 
 static void
-send_selection_notify (XSelectionRequestEvent *request_event,
+send_selection_notify (MetaX11Display         *x11_display,
+                       XSelectionRequestEvent *request_event,
                        gboolean                accepted)
 {
-  Display *xdisplay = GDK_DISPLAY_XDISPLAY (gdk_display_get_default ());
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   XSelectionEvent event;
 
   memset(&event, 0, sizeof (XSelectionEvent));
@@ -184,12 +181,13 @@ meta_x11_selection_find_target (MetaX11Display     *x11_display,
                                 MetaSelectionType   selection_type,
                                 Atom                selection_atom)
 {
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   GList* mimetypes = NULL;
-  const gchar *atom_name;
+  char *atom_name;
   char *retval;
 
   mimetypes = meta_selection_get_mimetypes (selection, selection_type);
-  atom_name = gdk_x11_get_xatom_name (selection_atom);
+  atom_name = XGetAtomName (xdisplay, selection_atom);
 
   if (g_list_find_custom (mimetypes, atom_name, (GCompareFunc) g_strcmp0))
     {
@@ -213,6 +211,7 @@ meta_x11_selection_find_target (MetaX11Display     *x11_display,
     }
 
   g_list_free_full (mimetypes, g_free);
+  XFree (atom_name);
 
   return retval;
 }
@@ -221,6 +220,8 @@ static gboolean
 meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
                                              XEvent         *xevent)
 {
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
+  Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   XSelectionRequestEvent *event = (XSelectionRequestEvent *) xevent;
   MetaSelectionType selection_type;
   MetaSelection *selection;
@@ -232,9 +233,9 @@ meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
   if (x11_display->selection.xwindow != event->owner)
     return FALSE;
 
-  selection = meta_display_get_selection (meta_get_display ());
+  selection = meta_display_get_selection (display);
 
-  if (event->target == gdk_x11_get_xatom_by_name ("TARGETS"))
+  if (event->target == XInternAtom (xdisplay, "TARGETS", False))
     {
       GBytes *bytes;
 
@@ -242,15 +243,18 @@ meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
 
       if (!mimetypes)
         {
-          send_selection_notify (event, FALSE);
+          send_selection_notify (x11_display, event, FALSE);
           return FALSE;
         }
 
-      output = meta_x11_selection_output_stream_new (x11_display, event->requestor,
-                                                     gdk_x11_get_xatom_name (event->selection),
-                                                     gdk_x11_get_xatom_name (event->target),
-                                                     gdk_x11_get_xatom_name (event->property),
-                                                     "ATOM", 32, event->time);
+      output = meta_x11_selection_output_stream_new (x11_display,
+                                                     event->requestor,
+                                                     event->selection,
+                                                     event->target,
+                                                     event->property,
+                                                     XInternAtom (xdisplay, "ATOM", False),
+                                                     32,
+                                                     event->time);
 
       bytes = mimetypes_to_bytes (mimetypes, x11_display->xdisplay);
       g_list_free_full (mimetypes, g_free);
@@ -264,12 +268,12 @@ meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
       g_bytes_unref (bytes);
       return TRUE;
     }
-  else if (event->target == gdk_x11_get_xatom_by_name ("DELETE"))
+  else if (event->target == XInternAtom (xdisplay, "DELETE", False))
     {
       /* DnD only, this is just handled through other means on our non-x11
        * sources, so just go with it.
        */
-      send_selection_notify (event, TRUE);
+      send_selection_notify (x11_display, event, TRUE);
     }
   else
     {
@@ -282,10 +286,10 @@ meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
         {
           output = meta_x11_selection_output_stream_new (x11_display,
                                                          event->requestor,
-                                                         gdk_x11_get_xatom_name (event->selection),
-                                                         gdk_x11_get_xatom_name (event->target),
-                                                         gdk_x11_get_xatom_name (event->property),
-                                                         gdk_x11_get_xatom_name (event->target),
+                                                         event->selection,
+                                                         event->target,
+                                                         event->property,
+                                                         event->target,
                                                          8, event->time);
 
           meta_selection_transfer_async (selection,
@@ -300,7 +304,7 @@ meta_x11_selection_handle_selection_request (MetaX11Display *x11_display,
         }
       else
         {
-          send_selection_notify (event, FALSE);
+          send_selection_notify (x11_display, event, FALSE);
         }
     }
 
@@ -342,26 +346,25 @@ source_new_cb (GObject      *object,
   g_free (data);
 }
 
-static gboolean
-unset_clipboard_owner (gpointer data)
+static void
+unset_clipboard_owner (gpointer user_data)
 {
-  MetaDisplay *display = meta_get_display ();
+  MetaX11Display *x11_display = user_data;
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
   MetaSelection *selection = meta_display_get_selection (display);
-  MetaX11Display *x11_display = meta_display_get_x11_display (display);
 
   meta_selection_unset_owner (selection, META_SELECTION_CLIPBOARD,
                               x11_display->selection.owners[META_SELECTION_CLIPBOARD]);
   g_clear_object (&x11_display->selection.owners[META_SELECTION_CLIPBOARD]);
 
   x11_display->selection.timeout_id = 0;
-
-  return G_SOURCE_REMOVE;
 }
 
 static gboolean
 meta_x11_selection_handle_xfixes_selection_notify (MetaX11Display *x11_display,
                                                    XEvent         *xevent)
 {
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
   XFixesSelectionNotifyEvent *event = (XFixesSelectionNotifyEvent *) xevent;
   Display *xdisplay = x11_display->xdisplay;
   MetaSelectionType selection_type;
@@ -370,7 +373,7 @@ meta_x11_selection_handle_xfixes_selection_notify (MetaX11Display *x11_display,
   if (!atom_to_selection_type (xdisplay, event->selection, &selection_type))
     return FALSE;
 
-  selection = meta_display_get_selection (meta_get_display ());
+  selection = meta_display_get_selection (display);
 
   if (selection_type == META_SELECTION_CLIPBOARD)
     g_clear_handle_id (&x11_display->selection.timeout_id, g_source_remove);
@@ -404,9 +407,9 @@ meta_x11_selection_handle_xfixes_selection_notify (MetaX11Display *x11_display,
            * selection. Restoring the clipboard in this case would overwrite the
            * new selection, so this will be cancelled when a new selection
            * arrives. */
-          x11_display->selection.timeout_id = g_timeout_add (10,
-                                                             unset_clipboard_owner,
-                                                             NULL);
+          x11_display->selection.timeout_id = g_timeout_add_once (10,
+                                                                  unset_clipboard_owner,
+                                                                  x11_display);
         }
       else
         {
@@ -477,8 +480,8 @@ notify_selection_owner (MetaX11Display      *x11_display,
 void
 meta_x11_selection_init (MetaX11Display *x11_display)
 {
+  MetaDisplay *display = meta_x11_display_get_display (x11_display);
   XSetWindowAttributes attributes = { 0 };
-  MetaDisplay *display = meta_get_display ();
   MetaSelection *selection;
   guint mask, i;
 

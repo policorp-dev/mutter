@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -25,7 +23,10 @@
 
 #include "core/display-private.h"
 #include "meta/meta-launch-context.h"
+
+#ifdef HAVE_X11_CLIENT
 #include "x11/meta-startup-notification-x11.h"
+#endif
 
 typedef struct _MetaLaunchContext MetaLaunchContext;
 
@@ -101,12 +102,6 @@ meta_launch_context_get_property (GObject    *object,
 }
 
 static void
-meta_launch_context_finalize (GObject *object)
-{
-  G_OBJECT_CLASS (meta_launch_context_parent_class)->finalize (object);
-}
-
-static void
 meta_launch_context_constructed (GObject *object)
 {
   MetaLaunchContext *context = META_LAUNCH_CONTEXT (object);
@@ -143,6 +138,7 @@ meta_launch_context_get_startup_notify_id (GAppLaunchContext *launch_context,
   if (context->workspace)
     workspace_idx = meta_workspace_index (context->workspace);
 
+#ifdef HAVE_X11_CLIENT
   if (display->x11_display)
     {
       /* If there is a X11 display, we prefer going entirely through
@@ -156,6 +152,7 @@ meta_launch_context_get_startup_notify_id (GAppLaunchContext *launch_context,
                                               context->timestamp,
                                               workspace_idx);
     }
+#endif
 
   if (!startup_id)
     {
@@ -174,8 +171,9 @@ meta_launch_context_get_startup_notify_id (GAppLaunchContext *launch_context,
             g_desktop_app_info_get_filename (G_DESKTOP_APP_INFO (info));
         }
 
-      sn = meta_display_get_startup_notification (context->display);
+      sn = meta_display_get_startup_notification (display);
       seq = g_object_new (META_TYPE_STARTUP_SEQUENCE,
+                          "display", context->display,
                           "id", startup_id,
                           "application-id", application_id,
                           "name", g_app_info_get_name (info),
@@ -214,7 +212,6 @@ meta_launch_context_class_init (MetaLaunchContextClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GAppLaunchContextClass *ctx_class = G_APP_LAUNCH_CONTEXT_CLASS (klass);
 
-  object_class->finalize = meta_launch_context_finalize;
   object_class->constructed = meta_launch_context_constructed;
   object_class->set_property = meta_launch_context_set_property;
   object_class->get_property = meta_launch_context_get_property;
@@ -223,21 +220,15 @@ meta_launch_context_class_init (MetaLaunchContextClass *klass)
   ctx_class->launch_failed = meta_launch_context_launch_failed;
 
   props[PROP_DISPLAY] =
-    g_param_spec_object ("display",
-                         "display",
-                         "Display",
+    g_param_spec_object ("display", NULL, NULL,
                          META_TYPE_DISPLAY,
                          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
   props[PROP_WORKSPACE] =
-    g_param_spec_object ("workspace",
-                         "workspace",
-                         "Workspace",
+    g_param_spec_object ("workspace", NULL, NULL,
                          META_TYPE_WORKSPACE,
                          G_PARAM_READWRITE);
   props[PROP_TIMESTAMP] =
-    g_param_spec_uint ("timestamp",
-                       "timestamp",
-                       "Timestamp",
+    g_param_spec_uint ("timestamp", NULL, NULL,
                        0, G_MAXUINT32, 0,
                        G_PARAM_READWRITE);
 

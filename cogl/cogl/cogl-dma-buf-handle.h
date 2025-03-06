@@ -29,33 +29,35 @@
  *   Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
  */
 
+#pragma once
 
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_DMA_BUF_HANDLE_H__
-#define __COGL_DMA_BUF_HANDLE_H__
-
-#include <cogl/cogl-types.h>
-#include <cogl/cogl-framebuffer.h>
+#include "cogl/cogl-types.h"
+#include "cogl/cogl-framebuffer.h"
 
 /**
  * cogl_dma_buf_handle_new: (skip)
  */
 COGL_EXPORT CoglDmaBufHandle *
 cogl_dma_buf_handle_new (CoglFramebuffer *framebuffer,
-                         int              dmabuf_fd,
                          int              width,
                          int              height,
-                         int              stride,
-                         int              offset,
+                         uint32_t         format,
+                         uint64_t         modifier,
+                         int              n_planes,
+                         int             *fds,
+                         uint32_t        *strides,
+                         uint32_t        *offsets,
                          int              bpp,
                          gpointer         user_data,
                          GDestroyNotify   destroy_func);
 
 /**
- * cogl_dma_buf_handle_free: (skip)
+ * cogl_dma_buf_handle_free:
+ * @dmabuf_handle: (transfer full): a #CoglDmaBufHandle
  *
  * Releases @dmabuf_handle; it is a programming error to release
  * an already released handle.
@@ -81,7 +83,7 @@ cogl_dma_buf_handle_munmap (CoglDmaBufHandle  *dmabuf_handle,
                             GError           **error);
 
 /**
- * cogl_dma_buf_handle_get_framebuffer: (skip)
+ * cogl_dma_buf_handle_get_framebuffer:
  *
  * Retrieves the #CoglFramebuffer, backed by an exported DMABuf buffer,
  * of @dmabuf_handle.
@@ -92,17 +94,18 @@ COGL_EXPORT CoglFramebuffer *
 cogl_dma_buf_handle_get_framebuffer (CoglDmaBufHandle *dmabuf_handle);
 
 /**
- * cogl_dma_buf_handle_get_fd: (skip)
+ * cogl_dma_buf_handle_get_fd:
  *
  * Retrieves the file descriptor of @dmabuf_handle.
  *
  * Returns: a valid file descriptor
  */
 COGL_EXPORT int
-cogl_dma_buf_handle_get_fd (CoglDmaBufHandle *dmabuf_handle);
+cogl_dma_buf_handle_get_fd (CoglDmaBufHandle *dmabuf_handle,
+                            int               plane);
 
 /**
- * cogl_dmabuf_handle_get_width: (skip)
+ * cogl_dmabuf_handle_get_width:
  *
  * Returns: the buffer width
  */
@@ -110,7 +113,7 @@ COGL_EXPORT int
 cogl_dma_buf_handle_get_width (CoglDmaBufHandle *dmabuf_handle);
 
 /**
- * cogl_dmabuf_handle_get_height: (skip)
+ * cogl_dmabuf_handle_get_height:
  *
  * Returns: the buffer height
  */
@@ -118,29 +121,45 @@ COGL_EXPORT int
 cogl_dma_buf_handle_get_height (CoglDmaBufHandle *dmabuf_handle);
 
 /**
- * cogl_dmabuf_handle_get_stride: (skip)
+ * cogl_dmabuf_handle_get_stride:
  *
  * Returns: the buffer stride
  */
 COGL_EXPORT int
-cogl_dma_buf_handle_get_stride (CoglDmaBufHandle *dmabuf_handle);
+cogl_dma_buf_handle_get_stride (CoglDmaBufHandle *dmabuf_handle,
+                                int               plane);
 
 /**
- * cogl_dmabuf_handle_get_offset: (skip)
+ * cogl_dmabuf_handle_get_offset:
  *
  * Returns: the buffer offset
  */
 COGL_EXPORT int
-cogl_dma_buf_handle_get_offset (CoglDmaBufHandle *dmabuf_handle);
+cogl_dma_buf_handle_get_offset (CoglDmaBufHandle *dmabuf_handle,
+                                int               plane);
 
 /**
- * cogl_dmabuf_handle_get_bpp: (skip)
+ * cogl_dmabuf_handle_get_bpp:
  *
  * Returns: the number of bytes per pixel
  */
 COGL_EXPORT int
 cogl_dma_buf_handle_get_bpp (CoglDmaBufHandle *dmabuf_handle);
 
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (CoglDmaBufHandle, cogl_dma_buf_handle_free)
+/**
+ * cogl_dmabuf_handle_get_n_planes: (skip)
+ *
+ * Returns: the number of planes
+ */
+COGL_EXPORT int
+cogl_dma_buf_handle_get_n_planes (CoglDmaBufHandle *dmabuf_handle);
 
-#endif /* __COGL_DMA_BUF_HANDLE_H__ */
+/**
+ * cogl_dmabuf_handle_get_modifier: (skip)
+ *
+ * Returns: the the format modifier
+ */
+COGL_EXPORT uint64_t
+cogl_dma_buf_handle_get_modifier (CoglDmaBufHandle *dmabuf_handle);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (CoglDmaBufHandle, cogl_dma_buf_handle_free)

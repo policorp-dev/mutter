@@ -23,13 +23,11 @@
  *
  */
 
-#ifndef META_STAGE_IMPL_PRIVATE_H
-#define META_STAGE_IMPL_PRIVATE_H
-
-#include <cairo.h>
+#pragma once
 
 #include "backends/meta-backend-types.h"
 #include "clutter/clutter.h"
+#include "clutter/clutter-stage-window.h"
 
 G_BEGIN_DECLS
 
@@ -49,7 +47,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaStageImpl, g_object_unref)
 
 struct _MetaStageImpl
 {
-  GObject parent_instance;
+  ClutterStageWindow parent_instance;
 
  /* the stage wrapper */
   ClutterStage *wrapper;
@@ -57,20 +55,14 @@ struct _MetaStageImpl
 
 struct _MetaStageImplClass
 {
-  GObjectClass parent_class;
+  ClutterStageWindowClass parent_class;
 };
 
 GType meta_stage_impl_get_type (void) G_GNUC_CONST;
 
 MetaBackend * meta_stage_impl_get_backend (MetaStageImpl *stage_impl);
 
-void meta_stage_impl_presented (MetaStageImpl    *stage_impl,
-                                CoglFrameEvent    frame_event,
-                                ClutterFrameInfo *frame_info);
-
 void meta_stage_impl_add_onscreen_frame_info (MetaStageImpl    *stage_impl,
                                               ClutterStageView *view);
 
 G_END_DECLS
-
-#endif /* META_STAGE_IMPL_PRIVATE_H */

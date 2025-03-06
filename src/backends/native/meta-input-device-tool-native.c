@@ -21,8 +21,17 @@
 
 #include "backends/native/meta-input-thread.h"
 
-G_DEFINE_TYPE (MetaInputDeviceToolNative, meta_input_device_tool_native,
-               CLUTTER_TYPE_INPUT_DEVICE_TOOL)
+struct _MetaInputDeviceToolNative
+{
+  ClutterInputDeviceTool parent_instance;
+  struct libinput_tablet_tool *tool;
+  GHashTable *button_map;
+  graphene_point_t pressure_curve[2];
+  MetaBezier *bezier;
+};
+
+G_DEFINE_FINAL_TYPE (MetaInputDeviceToolNative, meta_input_device_tool_native,
+                     CLUTTER_TYPE_INPUT_DEVICE_TOOL)
 
 static void
 meta_input_device_tool_native_finalize (GObject *object)
@@ -31,6 +40,7 @@ meta_input_device_tool_native_finalize (GObject *object)
 
   g_hash_table_unref (tool->button_map);
   libinput_tablet_tool_unref (tool->tool);
+  meta_bezier_free (tool->bezier);
 
   G_OBJECT_CLASS (meta_input_device_tool_native_parent_class)->finalize (object);
 }
@@ -47,6 +57,20 @@ static void
 meta_input_device_tool_native_init (MetaInputDeviceToolNative *tool)
 {
   tool->button_map = g_hash_table_new (NULL, NULL);
+}
+
+static void
+init_pressurecurve (MetaInputDeviceToolNative *tool)
+{
+  MetaBezier *bezier = meta_bezier_new (N_PRESSURECURVE_POINTS);
+
+  g_clear_pointer (&tool->bezier, meta_bezier_free);
+  meta_bezier_init (bezier,
+                    tool->pressure_curve[0].x,
+                    tool->pressure_curve[0].y,
+                    tool->pressure_curve[1].x,
+                    tool->pressure_curve[1].y);
+  tool->bezier = bezier;
 }
 
 static ClutterInputAxisFlags
@@ -86,14 +110,18 @@ meta_input_device_tool_native_new (struct libinput_tablet_tool *tool,
 
   evdev_tool->tool = libinput_tablet_tool_ref (tool);
 
+  init_pressurecurve (evdev_tool);
+
   return CLUTTER_INPUT_DEVICE_TOOL (evdev_tool);
 }
 
 void
 meta_input_device_tool_native_set_pressure_curve_in_impl (ClutterInputDeviceTool *tool,
-                                                          double                  curve[4])
+                                                          double                  curve[4],
+                                                          double                  range[2])
 {
   MetaInputDeviceToolNative *evdev_tool;
+  graphene_point_t p1, p2;
 
   g_return_if_fail (META_IS_INPUT_DEVICE_TOOL_NATIVE (tool));
   g_return_if_fail (curve[0] >= 0 && curve[0] <= 1 &&
@@ -101,17 +129,27 @@ meta_input_device_tool_native_set_pressure_curve_in_impl (ClutterInputDeviceTool
                     curve[2] >= 0 && curve[2] <= 1 &&
                     curve[3] >= 0 && curve[3] <= 1);
 
+  p1.x = (float) curve[0];
+  p1.y = (float) curve[1];
+  p2.x = (float) curve[2];
+  p2.y = (float) curve[3];
   evdev_tool = META_INPUT_DEVICE_TOOL_NATIVE (tool);
-  evdev_tool->pressure_curve[0] = curve[0];
-  evdev_tool->pressure_curve[1] = curve[1];
-  evdev_tool->pressure_curve[2] = curve[2];
-  evdev_tool->pressure_curve[3] = curve[3];
+
+  if (!graphene_point_equal (&p1, &evdev_tool->pressure_curve[0]) ||
+      !graphene_point_equal (&p2, &evdev_tool->pressure_curve[1]))
+    {
+      evdev_tool->pressure_curve[0] = p1;
+      evdev_tool->pressure_curve[1] = p2;
+      init_pressurecurve (evdev_tool);
+    }
+
+  libinput_tablet_tool_config_pressure_range_set (evdev_tool->tool, range[0], range[1]);
 }
 
 void
-meta_input_device_tool_native_set_button_code_in_impl (ClutterInputDeviceTool *tool,
-                                                       uint32_t                button,
-                                                       uint32_t                evcode)
+meta_input_device_tool_native_set_button_code_in_impl (ClutterInputDeviceTool     *tool,
+                                                       uint32_t                    button,
+                                                       GDesktopStylusButtonAction  action)
 {
   MetaInputDeviceToolNative *evdev_tool;
 
@@ -119,36 +157,15 @@ meta_input_device_tool_native_set_button_code_in_impl (ClutterInputDeviceTool *t
 
   evdev_tool = META_INPUT_DEVICE_TOOL_NATIVE (tool);
 
-  if (evcode == 0)
+  if (action == G_DESKTOP_STYLUS_BUTTON_ACTION_DEFAULT)
     {
       g_hash_table_remove (evdev_tool->button_map, GUINT_TO_POINTER (button));
     }
   else
     {
       g_hash_table_insert (evdev_tool->button_map, GUINT_TO_POINTER (button),
-                           GUINT_TO_POINTER (evcode));
+                           GUINT_TO_POINTER (action));
     }
-}
-
-static double
-calculate_bezier_position (double pos,
-                           double x1,
-                           double y1,
-                           double x2,
-                           double y2)
-{
-  double int1_y, int2_y;
-
-  pos = CLAMP (pos, 0, 1);
-
-  /* Intersection between 0,0 and x1,y1 */
-  int1_y = pos * y1;
-
-  /* Intersection between x2,y2 and 1,1 */
-  int2_y = (pos * (1 - y2)) + y2;
-
-  /* Find the new position in the line traced by the previous points */
-  return (pos * (int2_y - int1_y)) + int1_y;
 }
 
 double
@@ -156,19 +173,19 @@ meta_input_device_tool_native_translate_pressure_in_impl (ClutterInputDeviceTool
                                                           double                  pressure)
 {
   MetaInputDeviceToolNative *evdev_tool;
+  double factor;
 
   g_return_val_if_fail (META_IS_INPUT_DEVICE_TOOL_NATIVE (tool), pressure);
 
   evdev_tool = META_INPUT_DEVICE_TOOL_NATIVE (tool);
 
-  return calculate_bezier_position (CLAMP (pressure, 0, 1),
-                                    evdev_tool->pressure_curve[0],
-                                    evdev_tool->pressure_curve[1],
-                                    evdev_tool->pressure_curve[2],
-                                    evdev_tool->pressure_curve[3]);
+  pressure = CLAMP (pressure, 0.0, 1.0);
+  factor = meta_bezier_lookup (evdev_tool->bezier, pressure);
+
+  return pressure * factor;
 }
 
-uint32_t
+GDesktopStylusButtonAction
 meta_input_device_tool_native_get_button_code_in_impl (ClutterInputDeviceTool *tool,
                                                        uint32_t                button)
 {

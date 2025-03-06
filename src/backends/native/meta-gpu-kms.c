@@ -15,9 +15,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -45,7 +43,6 @@
 #include "backends/native/meta-kms-update.h"
 #include "backends/native/meta-kms-utils.h"
 #include "backends/native/meta-kms.h"
-#include "backends/native/meta-launcher.h"
 #include "backends/native/meta-output-kms.h"
 
 struct _MetaGpuKms
@@ -134,6 +131,23 @@ meta_gpu_kms_is_platform_device (MetaGpuKms *gpu_kms)
   return !!(flags & META_KMS_DEVICE_FLAG_PLATFORM_DEVICE);
 }
 
+gboolean
+meta_gpu_kms_disable_vrr (MetaGpuKms *gpu_kms)
+{
+  MetaGpu *gpu = META_GPU (gpu_kms);
+  MetaBackend *backend = meta_gpu_get_backend (gpu);
+  MetaSettings *settings = meta_backend_get_settings (backend);
+  MetaKmsDeviceFlag flags;
+
+  if (!meta_settings_is_experimental_feature_enabled (
+        settings,
+        META_EXPERIMENTAL_FEATURE_VARIABLE_REFRESH_RATE))
+    return TRUE;
+
+  flags = meta_kms_device_get_flags (gpu_kms->kms_device);
+  return !!(flags & META_KMS_DEVICE_FLAG_DISABLE_VRR);
+}
+
 static int
 compare_outputs (gconstpointer one,
                  gconstpointer two)
@@ -147,8 +161,9 @@ compare_outputs (gconstpointer one,
 }
 
 MetaCrtcMode *
-meta_gpu_kms_get_mode_from_kms_mode (MetaGpuKms  *gpu_kms,
-                                     MetaKmsMode *kms_mode)
+meta_gpu_kms_get_mode_from_kms_mode (MetaGpuKms              *gpu_kms,
+                                     MetaKmsMode             *kms_mode,
+                                     MetaCrtcRefreshRateMode  refresh_rate_mode)
 {
   MetaGpu *gpu = META_GPU (gpu_kms);
   GList *l;
@@ -156,10 +171,22 @@ meta_gpu_kms_get_mode_from_kms_mode (MetaGpuKms  *gpu_kms,
   for (l = meta_gpu_get_modes (gpu); l; l = l->next)
     {
       MetaCrtcModeKms *crtc_mode_kms = l->data;
+      MetaCrtcMode *crtc_mode;
+      const MetaCrtcModeInfo *crtc_mode_info;
 
-      if (meta_kms_mode_equal (kms_mode,
-                               meta_crtc_mode_kms_get_kms_mode (crtc_mode_kms)))
-        return META_CRTC_MODE (crtc_mode_kms);
+      if (!meta_kms_mode_equal (kms_mode,
+                                meta_crtc_mode_kms_get_kms_mode (crtc_mode_kms)))
+        continue;
+
+      crtc_mode = META_CRTC_MODE (crtc_mode_kms);
+
+      crtc_mode_info = meta_crtc_mode_get_info (crtc_mode);
+      g_assert (crtc_mode_info != NULL);
+
+      if (refresh_rate_mode != crtc_mode_info->refresh_rate_mode)
+        continue;
+
+      return META_CRTC_MODE (crtc_mode_kms);
     }
 
   g_assert_not_reached ();
@@ -259,7 +286,19 @@ init_modes (MetaGpuKms *gpu_kms)
       MetaKmsMode *kms_mode = value;
       MetaCrtcModeKms *mode;
 
-      mode = meta_crtc_mode_kms_new (kms_mode, mode_id);
+      if (!meta_gpu_kms_disable_vrr (gpu_kms))
+        {
+          mode = meta_crtc_mode_kms_new (kms_mode,
+                                         META_CRTC_REFRESH_RATE_MODE_VARIABLE,
+                                         mode_id);
+          modes = g_list_append (modes, mode);
+
+          mode_id++;
+        }
+
+      mode = meta_crtc_mode_kms_new (kms_mode,
+                                     META_CRTC_REFRESH_RATE_MODE_FIXED,
+                                     mode_id);
       modes = g_list_append (modes, mode);
 
       mode_id++;
@@ -308,13 +347,14 @@ init_outputs (MetaGpuKms *gpu_kms)
   for (l = meta_kms_device_get_connectors (gpu_kms->kms_device); l; l = l->next)
     {
       MetaKmsConnector *kms_connector = l->data;
-      const MetaKmsConnectorState *connector_state;
       MetaOutputKms *output_kms;
       MetaOutput *old_output;
       GError *error = NULL;
 
-      connector_state = meta_kms_connector_get_current_state (kms_connector);
-      if (!connector_state || connector_state->non_desktop)
+      if (!meta_kms_connector_get_current_state (kms_connector))
+        continue;
+
+      if (meta_kms_connector_is_non_desktop (kms_connector))
         continue;
 
       old_output =
@@ -364,18 +404,7 @@ meta_gpu_kms_read_current (MetaGpu  *gpu,
 gboolean
 meta_gpu_kms_can_have_outputs (MetaGpuKms *gpu_kms)
 {
-  GList *l;
-  int n_connected_connectors = 0;
-
-  for (l = meta_kms_device_get_connectors (gpu_kms->kms_device); l; l = l->next)
-    {
-      MetaKmsConnector *kms_connector = l->data;
-
-      if (meta_kms_connector_get_current_state (kms_connector))
-        n_connected_connectors++;
-    }
-
-  return n_connected_connectors > 0;
+  return !!meta_kms_device_get_connectors (gpu_kms->kms_device);
 }
 
 MetaGpuKms *

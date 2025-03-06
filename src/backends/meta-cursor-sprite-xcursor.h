@@ -16,14 +16,13 @@
  *
  */
 
-#ifndef META_CURSOR_SPRITE_XCURSOR_H
-#define META_CURSOR_SPRITE_XCURSOR_H
+#pragma once
 
 #include <glib-object.h>
-#include <X11/Xcursor/Xcursor.h>
 
 #include "backends/meta-cursor.h"
 #include "meta/types.h"
+#include "third_party/xcursor/xcursor.h"
 
 #define META_TYPE_CURSOR_SPRITE_XCURSOR meta_cursor_sprite_xcursor_get_type ()
 G_DECLARE_FINAL_TYPE (MetaCursorSpriteXcursor, meta_cursor_sprite_xcursor,
@@ -39,7 +38,11 @@ MetaCursor meta_cursor_sprite_xcursor_get_cursor (MetaCursorSpriteXcursor *sprit
 
 XcursorImage * meta_cursor_sprite_xcursor_get_current_image (MetaCursorSpriteXcursor *sprite_xcursor);
 
-Cursor meta_create_x_cursor (Display    *xdisplay,
-                             MetaCursor  cursor);
+void meta_cursor_sprite_xcursor_get_scaled_image_size (MetaCursorSpriteXcursor *sprite_xcursor,
+                                                       int                     *width,
+                                                       int                     *height);
 
-#endif /* META_CURSOR_SPRITE_XCURSOR_H */
+META_EXPORT_TEST
+const char * meta_cursor_get_name (MetaCursor cursor);
+
+const char * meta_cursor_get_legacy_name (MetaCursor cursor);

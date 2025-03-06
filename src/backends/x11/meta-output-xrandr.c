@@ -27,9 +27,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -46,6 +44,7 @@
 #include "backends/meta-crtc.h"
 #include "backends/x11/meta-monitor-manager-xrandr.h"
 #include "meta/util.h"
+#include "mtk/mtk-x11.h"
 
 struct _MetaOutputXrandr
 {
@@ -126,7 +125,7 @@ output_set_underscanning_xrandr (MetaOutput *output,
       crtc_mode_info = meta_crtc_mode_get_info (crtc_config->mode);
 
       prop = XInternAtom (xdisplay, "underscan hborder", False);
-      border_value = crtc_mode_info->width * 0.05;
+      border_value = (uint32_t) (crtc_mode_info->width * 0.05);
 
       xcb_randr_change_output_property (XGetXCBConnection (xdisplay),
                                         (XID) meta_output_get_id (output),
@@ -135,7 +134,7 @@ output_set_underscanning_xrandr (MetaOutput *output,
                                         1, &border_value);
 
       prop = XInternAtom (xdisplay, "underscan vborder", False);
-      border_value = crtc_mode_info->height * 0.05;
+      border_value = (uint32_t) (crtc_mode_info->height * 0.05);
 
       xcb_randr_change_output_property (XGetXCBConnection (xdisplay),
                                         (XID) meta_output_get_id (output),
@@ -188,41 +187,6 @@ meta_output_xrandr_apply_mode (MetaOutputXrandr *output_xrandr)
     {
       output_set_max_bpc_xrandr (output, max_bpc);
     }
-}
-
-static int
-normalize_backlight (MetaOutput *output,
-                     int         hw_value)
-{
-  const MetaOutputInfo *output_info = meta_output_get_info (output);
-
-  return round ((double) (hw_value - output_info->backlight_min) /
-                (output_info->backlight_max - output_info->backlight_min) * 100.0);
-}
-
-void
-meta_output_xrandr_change_backlight (MetaOutputXrandr *output_xrandr,
-                                     int               value)
-{
-  MetaOutput *output = META_OUTPUT (output_xrandr);
-  const MetaOutputInfo *output_info = meta_output_get_info (output);
-  Display *xdisplay = xdisplay_from_output (output);
-  Atom atom;
-  int hw_value;
-
-  hw_value = round ((double) value / 100.0 * output_info->backlight_max +
-                    output_info->backlight_min);
-
-  atom = XInternAtom (xdisplay, "Backlight", False);
-
-  xcb_randr_change_output_property (XGetXCBConnection (xdisplay),
-                                    (XID) meta_output_get_id (output),
-                                    atom, XCB_ATOM_INTEGER, 32,
-                                    XCB_PROP_MODE_REPLACE,
-                                    1, &hw_value);
-
-  /* We're not selecting for property notifies, so update the value immediately */
-  meta_output_set_backlight (output, normalize_backlight (output, hw_value));
 }
 
 static gboolean
@@ -455,11 +419,11 @@ output_get_max_bpc_range_xrandr (Display      *xdisplay,
 
   atom = XInternAtom (xdisplay, "max bpc", False);
 
-  meta_clutter_x11_trap_x_errors ();
+  mtk_x11_error_trap_push (xdisplay);
   property_info = XRRQueryOutputProperty (xdisplay,
                                           (XID) output_id,
                                           atom);
-  meta_clutter_x11_untrap_x_errors ();
+  mtk_x11_error_trap_pop (xdisplay);
 
   if (!property_info)
     return FALSE;
@@ -511,7 +475,6 @@ static int
 output_get_backlight_xrandr (MetaOutput *output)
 {
   Display *xdisplay = xdisplay_from_output (output);
-  int value = -1;
   Atom atom, actual_type;
   int actual_format;
   unsigned long nitems, bytes_after;
@@ -526,13 +489,9 @@ output_get_backlight_xrandr (MetaOutput *output)
                         &nitems, &bytes_after, &buffer);
 
   if (actual_type != XA_INTEGER || actual_format != 32 || nitems < 1)
-    return FALSE;
-
-  value = ((int*)buffer)[0];
-  if (value > 0)
-    return normalize_backlight (output, value);
-  else
     return -1;
+
+  return ((int *) buffer)[0];
 }
 
 static void
@@ -561,7 +520,8 @@ output_info_init_backlight_limits_xrandr (MetaOutputInfo     *output_info,
 
   if (!reply->range || reply->length != 2)
     {
-      meta_verbose ("backlight %s was not range", output_info->name);
+      meta_topic (META_DEBUG_BACKEND,
+                  "backlight %s was not range", output_info->name);
       return;
     }
 
@@ -756,6 +716,8 @@ output_info_get_connector_type_from_name (const MetaOutputInfo *output_info)
     return META_CONNECTOR_TYPE_HDMIA;
   if (g_str_has_prefix (name, "VGA"))
     return META_CONNECTOR_TYPE_VGA;
+  if (g_str_has_prefix (name, "DPI"))
+    return META_CONNECTOR_TYPE_DPI;
   /* SNA uses DP, not DisplayPort. Test for both. */
   if (g_str_has_prefix (name, "DP") || g_str_has_prefix (name, "DisplayPort"))
     return META_CONNECTOR_TYPE_DisplayPort;
@@ -824,19 +786,19 @@ output_get_panel_orientation_transform (Display  *xdisplay,
                         &nitems, &bytes_after, &buffer);
 
   if (actual_type != XA_ATOM || actual_format != 32 || nitems < 1)
-    return META_MONITOR_TRANSFORM_NORMAL;
+    return MTK_MONITOR_TRANSFORM_NORMAL;
 
   str = XGetAtomName (xdisplay, *(Atom *)buffer);
   if (strcmp (str, "Upside Down") == 0)
-    return META_MONITOR_TRANSFORM_180;
+    return MTK_MONITOR_TRANSFORM_180;
 
   if (strcmp (str, "Left Side Up") == 0)
-    return META_MONITOR_TRANSFORM_90;
+    return MTK_MONITOR_TRANSFORM_90;
 
   if (strcmp (str, "Right Side Up") == 0)
-    return META_MONITOR_TRANSFORM_270;
+    return MTK_MONITOR_TRANSFORM_270;
 
-  return META_MONITOR_TRANSFORM_NORMAL;
+  return MTK_MONITOR_TRANSFORM_NORMAL;
 }
 
 static void
@@ -874,6 +836,21 @@ output_info_init_tile_info (MetaOutputInfo *output_info,
   XFree (prop);
 }
 
+static gboolean
+sanity_check_duplicate (MetaCrtcMode **modes,
+                        size_t         n_modes,
+                        MetaCrtcMode  *mode)
+{
+  size_t i;
+
+  for (i = 0; i < n_modes; i++)
+    {
+      if (meta_crtc_mode_get_id (modes[i]) == meta_crtc_mode_get_id (mode))
+        return FALSE;
+    }
+
+  return TRUE;
+}
 
 static void
 output_info_init_modes (MetaOutputInfo *output_info,
@@ -896,8 +873,17 @@ output_info_init_modes (MetaOutputInfo *output_info,
 
           if (xrandr_output->modes[i] == (XID) meta_crtc_mode_get_id (mode))
             {
-              output_info->modes[n_actual_modes] = mode;
-              n_actual_modes += 1;
+              if (sanity_check_duplicate (output_info->modes, n_actual_modes, mode))
+                {
+                  output_info->modes[n_actual_modes] = g_object_ref (mode);
+                  n_actual_modes += 1;
+                }
+              else
+                {
+                  g_warning ("X11 server advertized duplicate identical modes "
+                             "(0x%" G_GINT64_MODIFIER "x)",
+                             meta_crtc_mode_get_id (mode));
+                }
               break;
             }
         }
@@ -953,6 +939,22 @@ find_assigned_crtc (MetaGpu       *gpu,
   return NULL;
 }
 
+static void
+on_backlight_changed (MetaOutput *output)
+{
+  Display *xdisplay = xdisplay_from_output (output);
+  int value = meta_output_get_backlight (output);
+  Atom atom;
+
+  atom = XInternAtom (xdisplay, "Backlight", False);
+
+  xcb_randr_change_output_property (XGetXCBConnection (xdisplay),
+                                    (XID) meta_output_get_id (output),
+                                    atom, XCB_ATOM_INTEGER, 32,
+                                    XCB_PROP_MODE_REPLACE,
+                                    1, &value);
+}
+
 MetaOutputXrandr *
 meta_output_xrandr_new (MetaGpuXrandr *gpu_xrandr,
                         XRROutputInfo *xrandr_output,
@@ -984,7 +986,7 @@ meta_output_xrandr_new (MetaGpuXrandr *gpu_xrandr,
       g_bytes_unref (edid);
     }
 
-  output_info->subpixel_order = COGL_SUBPIXEL_ORDER_UNKNOWN;
+  output_info->subpixel_order = META_SUBPIXEL_ORDER_UNKNOWN;
   output_info->hotplug_mode_update = output_get_hotplug_mode_update (xdisplay,
                                                                      output_id);
   output_info->suggested_x = output_get_suggested_x (xdisplay, output_id);
@@ -995,7 +997,7 @@ meta_output_xrandr_new (MetaGpuXrandr *gpu_xrandr,
   output_info->panel_orientation_transform =
     output_get_panel_orientation_transform (xdisplay, output_id);
 
-  if (meta_monitor_transform_is_rotated (output_info->panel_orientation_transform))
+  if (mtk_monitor_transform_is_rotated (output_info->panel_orientation_transform))
     {
       output_info->width_mm = xrandr_output->mm_height;
       output_info->height_mm = xrandr_output->mm_width;
@@ -1061,7 +1063,11 @@ meta_output_xrandr_new (MetaGpuXrandr *gpu_xrandr,
     }
 
   if (!(output_info->backlight_min == 0 && output_info->backlight_max == 0))
-    meta_output_set_backlight (output, output_get_backlight_xrandr (output));
+    {
+      meta_output_set_backlight (output, output_get_backlight_xrandr (output));
+      g_signal_connect (output, "backlight-changed",
+                        G_CALLBACK (on_backlight_changed), NULL);
+    }
 
   if (output_info->n_modes == 0 || output_info->n_possible_crtcs == 0)
     {

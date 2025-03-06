@@ -14,18 +14,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
 /**
- * SECTION:meta-backend-x11
- * @title: MetaBackendX11
- * @short_description: A X11 MetaBackend
+ * MetaBackendX11:
+ *
+ * A X11 MetaBackend
  *
  * MetaBackendX11 is an implementation of #MetaBackend using X and X
  * extensions, like XInput and XKB.
@@ -59,8 +57,14 @@
 #include "core/display-private.h"
 #include "meta/meta-cursor-tracker.h"
 #include "meta/util.h"
+#include "mtk/mtk-x11.h"
+#include "x11/window-x11.h"
 
-struct _MetaBackendX11Private
+#ifdef HAVE_LOGIND
+#include "backends/meta-launcher.h"
+#endif
+
+typedef struct _MetaBackendX11Private
 {
   /* The host X11 display */
   Display *xdisplay;
@@ -95,19 +99,11 @@ struct _MetaBackendX11Private
   MetaLogicalMonitor *cached_current_logical_monitor;
 
   MetaX11Barriers *barriers;
-};
-typedef struct _MetaBackendX11Private MetaBackendX11Private;
+} MetaBackendX11Private;
 
-static GInitableIface *initable_parent_iface;
-
-static void
-initable_iface_init (GInitableIface *initable_iface);
-
-G_DEFINE_TYPE_WITH_CODE (MetaBackendX11, meta_backend_x11, META_TYPE_BACKEND,
-                         G_ADD_PRIVATE (MetaBackendX11)
-                         G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
-                                                initable_iface_init));
-
+G_DEFINE_TYPE_WITH_PRIVATE (MetaBackendX11,
+                            meta_backend_x11,
+                            META_TYPE_BACKEND)
 
 static void
 uint64_to_xsync_value (uint64_t    value,
@@ -346,8 +342,13 @@ handle_host_xevent (MetaBackend *backend,
 {
   MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
   MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
   gboolean bypass_clutter = FALSE;
+#ifdef HAVE_X11
+  MetaContext *context = meta_backend_get_context (backend);
   MetaDisplay *display;
+#endif
 
   switch (event->type)
     {
@@ -362,7 +363,8 @@ handle_host_xevent (MetaBackend *backend,
 
   XGetEventData (priv->xdisplay, &event->xcookie);
 
-  display = meta_get_display ();
+#ifdef HAVE_X11
+  display = meta_context_get_display (context);
   if (display)
     {
       MetaCompositor *compositor = display->compositor;
@@ -372,6 +374,7 @@ handle_host_xevent (MetaBackend *backend,
       if (meta_plugin_manager_xevent_filter (plugin_mgr, event))
         bypass_clutter = TRUE;
     }
+#endif
 
   bypass_clutter = (meta_backend_x11_handle_host_xevent (x11, event) ||
                     bypass_clutter);
@@ -407,6 +410,17 @@ handle_host_xevent (MetaBackend *backend,
                                                                      layout_group);
                 }
               break;
+            case XkbControlsNotify:
+              /* 'event_type' is set to zero on notifying us of updates in
+               * response to client requests (including our own) and non-zero
+               * to notify us of key/mouse events causing changes (like
+               * pressing shift 5 times to enable sticky keys).
+               *
+               * We only want to update our settings when it's in response to an
+               * explicit user input event, so require a non-zero event_type.
+               */
+              if (xkb_ev->ctrls.event_type != 0)
+                meta_seat_x11_check_xkb_a11y_settings_changed (seat);
             default:
               break;
             }
@@ -418,7 +432,7 @@ handle_host_xevent (MetaBackend *backend,
       if (handle_input_event (x11, event))
         goto done;
 
-      meta_x11_handle_event (backend, event);
+      meta_backend_x11_handle_event (backend, event);
     }
 
 done:
@@ -509,9 +523,8 @@ on_monitors_changed (MetaMonitorManager *manager,
                      MetaBackend        *backend)
 {
   MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
-  MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
 
-  priv->cached_current_logical_monitor = NULL;
+  meta_backend_x11_reset_cached_logical_monitor (x11);
 }
 
 static void
@@ -525,15 +538,12 @@ on_kbd_a11y_changed (MetaInputSettings   *input_settings,
   meta_seat_x11_apply_kbd_a11y_settings (seat, a11y_settings);
 }
 
-static void
-meta_backend_x11_post_init (MetaBackend *backend)
+static gboolean
+meta_backend_x11_init_render (MetaBackend  *backend,
+                              GError      **error)
 {
   MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
   MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
-  MetaMonitorManager *monitor_manager;
-  ClutterBackend *clutter_backend;
-  ClutterSeat *seat;
-  MetaInputSettings *input_settings;
   int major, minor;
 
   priv->source = x_event_source_new (backend);
@@ -558,7 +568,19 @@ meta_backend_x11_post_init (MetaBackend *backend)
     meta_fatal ("X server doesn't have the XKB extension, version %d.%d or newer",
                 XKB_X11_MIN_MAJOR_XKB_VERSION, XKB_X11_MIN_MINOR_XKB_VERSION);
 
-  META_BACKEND_CLASS (meta_backend_x11_parent_class)->post_init (backend);
+  return TRUE;
+}
+
+static gboolean
+meta_backend_x11_init_post (MetaBackend  *backend,
+                            GError      **error)
+{
+  MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
+  MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
+  MetaMonitorManager *monitor_manager;
+  ClutterBackend *clutter_backend;
+  ClutterSeat *seat;
+  MetaInputSettings *input_settings;
 
   monitor_manager = meta_backend_get_monitor_manager (backend);
   g_signal_connect (monitor_manager, "monitors-changed-internal",
@@ -589,12 +611,42 @@ meta_backend_x11_post_init (MetaBackend *backend)
           XkbLockModifiers (priv->xdisplay, XkbUseCoreKbd, num_mask, num_mask);
         }
     }
+
+  return TRUE;
 }
 
-static ClutterBackend *
-meta_backend_x11_create_clutter_backend (MetaBackend *backend)
+#ifdef HAVE_LOGIND
+static gboolean
+meta_backend_x11_create_launcher (MetaBackend   *backend,
+                                  MetaLauncher **launcher_out,
+                                  GError       **error)
 {
-  return CLUTTER_BACKEND (meta_clutter_backend_x11_new (backend));
+  g_autoptr (MetaLauncher) launcher = NULL;
+  g_autoptr (GError) local_error = NULL;
+
+  *launcher_out = NULL;
+
+  launcher = meta_launcher_new (backend, &local_error);
+
+  if (!launcher)
+    {
+      meta_topic (META_DEBUG_BACKEND,
+                  "Creating launcher for the X11 backend failed: %s",
+                  local_error->message);
+
+      return TRUE;
+    }
+
+  *launcher_out = g_steal_pointer (&launcher);
+  return TRUE;
+}
+#endif
+
+static ClutterBackend *
+meta_backend_x11_create_clutter_backend (MetaBackend    *backend,
+                                         ClutterContext *context)
+{
+  return CLUTTER_BACKEND (meta_clutter_backend_x11_new (backend, context));
 }
 
 static MetaColorManager *
@@ -692,6 +744,71 @@ meta_backend_x11_ungrab_device (MetaBackend *backend,
 }
 
 static void
+meta_backend_x11_freeze_keyboard (MetaBackend *backend,
+                                  uint32_t     timestamp)
+{
+  MetaBackendX11 *backend_x11;
+  Window xwindow;
+  Display *xdisplay;
+
+  unsigned char mask_bits[XIMaskLen (XI_LASTEVENT)] = { 0 };
+  XIEventMask mask = { XIAllMasterDevices, sizeof (mask_bits), mask_bits };
+
+  XISetMask (mask.mask, XI_KeyPress);
+  XISetMask (mask.mask, XI_KeyRelease);
+
+  /* Grab the keyboard, so we get key releases and all key
+   * presses
+   */
+
+  backend_x11 = META_BACKEND_X11 (backend);
+  xwindow = meta_backend_x11_get_xwindow (backend_x11);
+  xdisplay = meta_backend_x11_get_xdisplay (backend_x11);
+
+  /* Strictly, we only need to set grab_mode on the keyboard device
+   * while the pointer should always be XIGrabModeAsync. Unfortunately
+   * there is a bug in the X server, only fixed (link below) in 1.15,
+   * which swaps these arguments for keyboard devices. As such, we set
+   * both the device and the paired device mode which works around
+   * that bug and also works on fixed X servers.
+   *
+   * http://cgit.freedesktop.org/xorg/xserver/commit/?id=9003399708936481083424b4ff8f18a16b88b7b3
+   */
+  XIGrabDevice (xdisplay,
+                META_VIRTUAL_CORE_KEYBOARD_ID,
+                xwindow,
+                timestamp,
+                None,
+                XIGrabModeSync, XIGrabModeSync,
+                False, /* owner_events */
+                &mask);
+}
+
+static void
+meta_backend_x11_unfreeze_keyboard (MetaBackend *backend,
+                                    uint32_t     timestamp)
+{
+  Display *xdisplay = meta_backend_x11_get_xdisplay (META_BACKEND_X11 (backend));
+
+  XIAllowEvents (xdisplay, META_VIRTUAL_CORE_KEYBOARD_ID,
+                 XIAsyncDevice, timestamp);
+  /* We shouldn't need to unfreeze the pointer device here, however we
+   * have to, due to the workaround we do in grab_keyboard().
+   */
+  XIAllowEvents (xdisplay, META_VIRTUAL_CORE_POINTER_ID,
+                 XIAsyncDevice, timestamp);
+}
+
+static void
+meta_backend_x11_ungrab_keyboard (MetaBackend *backend,
+                                  uint32_t     timestamp)
+{
+  Display *xdisplay = meta_backend_x11_get_xdisplay (META_BACKEND_X11 (backend));
+
+  XIUngrabDevice (xdisplay, META_VIRTUAL_CORE_KEYBOARD_ID, timestamp);
+}
+
+static void
 meta_backend_x11_finish_touch_sequence (MetaBackend          *backend,
                                         ClutterEventSequence *sequence,
                                         MetaSequenceState     state)
@@ -699,6 +816,7 @@ meta_backend_x11_finish_touch_sequence (MetaBackend          *backend,
   MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
   MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
   int event_mode;
+  int err;
 
   if (state == META_SEQUENCE_ACCEPTED)
     event_mode = XIAcceptTouch;
@@ -707,10 +825,17 @@ meta_backend_x11_finish_touch_sequence (MetaBackend          *backend,
   else
     g_return_if_reached ();
 
+  mtk_x11_error_trap_push (priv->xdisplay);
   XIAllowTouchEvents (priv->xdisplay,
                       META_VIRTUAL_CORE_POINTER_ID,
                       clutter_event_sequence_get_slot (sequence),
                       DefaultRootWindow (priv->xdisplay), event_mode);
+  err = mtk_x11_error_trap_pop_with_return (priv->xdisplay);
+  if (err)
+    {
+      g_debug ("XIAllowTouchEvents failed event_mode %d with error %d",
+               event_mode, err);
+    }
 
   if (state == META_SEQUENCE_REJECTED)
     {
@@ -787,10 +912,10 @@ meta_backend_x11_get_keymap_layout_group (MetaBackend *backend)
 }
 
 void
-meta_backend_x11_handle_event (MetaBackendX11 *x11,
-                               XEvent      *xevent)
+meta_backend_x11_reset_cached_logical_monitor (MetaBackendX11 *backend_x11)
 {
-  MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
+  MetaBackendX11Private *priv =
+    meta_backend_x11_get_instance_private (backend_x11);
 
   priv->cached_current_logical_monitor = NULL;
 }
@@ -864,12 +989,11 @@ init_xinput (MetaBackendX11  *backend_x11,
 }
 
 static gboolean
-meta_backend_x11_initable_init (GInitable    *initable,
-                                GCancellable *cancellable,
-                                GError      **error)
+meta_backend_x11_init_basic (MetaBackend  *backend,
+                             GError      **error)
 {
-  MetaContext *context = meta_backend_get_context (META_BACKEND (initable));
-  MetaBackendX11 *x11 = META_BACKEND_X11 (initable);
+  MetaContext *context = meta_backend_get_context (backend);
+  MetaBackendX11 *x11 = META_BACKEND_X11 (backend);
   MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
   Display *xdisplay;
   const char *xdisplay_name;
@@ -905,15 +1029,7 @@ meta_backend_x11_initable_init (GInitable    *initable,
   if (priv->have_xinput_23)
     priv->barriers = meta_x11_barriers_new (x11);
 
-  return initable_parent_iface->init (initable, cancellable, error);
-}
-
-static void
-initable_iface_init (GInitableIface *initable_iface)
-{
-  initable_parent_iface = g_type_interface_peek_parent (initable_iface);
-
-  initable_iface->init = meta_backend_x11_initable_init;
+  return TRUE;
 }
 
 static void
@@ -941,6 +1057,9 @@ meta_backend_x11_dispose (GObject *object)
     }
 
   G_OBJECT_CLASS (meta_backend_x11_parent_class)->dispose (object);
+
+  g_clear_pointer (&priv->barriers, meta_x11_barriers_free);
+  g_clear_pointer (&priv->xdisplay, XCloseDisplay);
 }
 
 static void
@@ -950,6 +1069,8 @@ meta_backend_x11_finalize (GObject *object)
   MetaBackendX11Private *priv = meta_backend_x11_get_instance_private (x11);
 
   g_clear_pointer (&priv->keymap, xkb_keymap_unref);
+
+  mtk_x11_errors_deinit ();
 
   G_OBJECT_CLASS (meta_backend_x11_parent_class)->finalize (object);
 }
@@ -962,12 +1083,22 @@ meta_backend_x11_class_init (MetaBackendX11Class *klass)
 
   object_class->dispose = meta_backend_x11_dispose;
   object_class->finalize = meta_backend_x11_finalize;
+
+  backend_class->init_basic = meta_backend_x11_init_basic;
+  backend_class->init_render = meta_backend_x11_init_render;
+  backend_class->init_post = meta_backend_x11_init_post;
+
+#ifdef HAVE_LOGIND
+  backend_class->create_launcher = meta_backend_x11_create_launcher;
+#endif
   backend_class->create_clutter_backend = meta_backend_x11_create_clutter_backend;
   backend_class->create_color_manager = meta_backend_x11_create_color_manager;
   backend_class->create_default_seat = meta_backend_x11_create_default_seat;
-  backend_class->post_init = meta_backend_x11_post_init;
   backend_class->grab_device = meta_backend_x11_grab_device;
   backend_class->ungrab_device = meta_backend_x11_ungrab_device;
+  backend_class->freeze_keyboard = meta_backend_x11_freeze_keyboard;
+  backend_class->unfreeze_keyboard = meta_backend_x11_unfreeze_keyboard;
+  backend_class->ungrab_keyboard = meta_backend_x11_ungrab_keyboard;
   backend_class->finish_touch_sequence = meta_backend_x11_finish_touch_sequence;
   backend_class->get_current_logical_monitor = meta_backend_x11_get_current_logical_monitor;
   backend_class->get_keymap = meta_backend_x11_get_keymap;
@@ -978,6 +1109,7 @@ static void
 meta_backend_x11_init (MetaBackendX11 *x11)
 {
   XInitThreads ();
+  mtk_x11_errors_init ();
 }
 
 Display *
@@ -1029,19 +1161,22 @@ meta_backend_x11_sync_pointer (MetaBackendX11 *backend_x11)
   ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
   ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
   ClutterInputDevice *pointer = clutter_seat_get_pointer (seat);
-  ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
   ClutterModifierType modifiers;
   ClutterEvent *event;
   graphene_point_t pos;
 
-  event = clutter_event_new (CLUTTER_MOTION);
   clutter_seat_query_state (seat, pointer, NULL, &pos, &modifiers);
-  clutter_event_set_flags (event, CLUTTER_EVENT_FLAG_SYNTHETIC);
-  clutter_event_set_coords (event, pos.x, pos.y);
-  clutter_event_set_device (event, pointer);
-  clutter_event_set_state (event, modifiers);
-  clutter_event_set_source_device (event, NULL);
-  clutter_event_set_stage (event, stage);
+
+  event = clutter_event_motion_new (CLUTTER_EVENT_FLAG_SYNTHETIC,
+                                    CLUTTER_CURRENT_TIME,
+                                    pointer,
+                                    NULL,
+                                    modifiers,
+                                    pos,
+                                    GRAPHENE_POINT_INIT (0, 0),
+                                    GRAPHENE_POINT_INIT (0, 0),
+                                    GRAPHENE_POINT_INIT (0, 0),
+                                    NULL);
 
   clutter_event_put (event);
   clutter_event_free (event);

@@ -27,7 +27,7 @@
 
 /**
  * ClutterDeformEffect:
- * 
+ *
  * A base class for effects deforming the geometry of an actor
  *
  * #ClutterDeformEffect is an abstract class providing all the plumbing
@@ -41,30 +41,45 @@
  * ## Implementing ClutterDeformEffect
  *
  * Sub-classes of #ClutterDeformEffect should override the
- * #ClutterDeformEffectClass.deform_vertex() virtual function; this function
+ * [vfunc@Clutter.DeformEffect.deform_vertex] virtual function; this function
  * is called on every vertex that needs to be deformed by the effect.
  * Each passed vertex is an in-out parameter that initially contains the
  * position of the vertex and should be modified according to a specific
  * deformation algorithm.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-deform-effect.h"
+#include "cogl/cogl.h"
 
-#include <cogl/cogl.h>
-
-#include "clutter-color.h"
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-offscreen-effect-private.h"
-#include "clutter-paint-node.h"
-#include "clutter-paint-nodes.h"
-#include "clutter-private.h"
+#include "clutter/clutter-deform-effect.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-paint-node.h"
+#include "clutter/clutter-paint-nodes.h"
+#include "clutter/clutter-private.h"
 
 #define DEFAULT_N_TILES         32
 
-struct _ClutterDeformEffectPrivate
+/**
+ * ClutterVertexP3T2C4:
+ * @x: The x component of a position attribute
+ * @y: The y component of a position attribute
+ * @z: The z component of a position attribute
+ * @s: The s component of a texture coordinate attribute
+ * @t: The t component of a texture coordinate attribute
+ * @r: The red component of a color attribute
+ * @b: The green component of a color attribute
+ * @g: The blue component of a color attribute
+ * @a: The alpha component of a color attribute
+ */
+typedef struct {
+   float x, y, z;
+   float s, t;
+   uint8_t r, g, b, a;
+} ClutterVertexP3T2C4;
+
+typedef struct _ClutterDeformEffectPrivate
 {
   CoglPipeline *back_pipeline;
 
@@ -82,7 +97,7 @@ struct _ClutterDeformEffectPrivate
   gulong allocation_id;
 
   guint is_dirty : 1;
-};
+} ClutterDeformEffectPrivate;
 
 enum
 {
@@ -91,7 +106,7 @@ enum
   PROP_X_TILES,
   PROP_Y_TILES,
 
-  PROP_BACK_MATERIAL,
+  PROP_BACK_PIPELINE,
 
   PROP_LAST
 };
@@ -103,10 +118,10 @@ G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (ClutterDeformEffect,
                                      CLUTTER_TYPE_OFFSCREEN_EFFECT)
 
 static void
-clutter_deform_effect_real_deform_vertex (ClutterDeformEffect *effect,
-                                          gfloat               width,
-                                          gfloat               height,
-                                          CoglTextureVertex   *vertex)
+clutter_deform_effect_real_deform_vertex (ClutterDeformEffect  *effect,
+                                          gfloat                width,
+                                          gfloat                height,
+                                          ClutterTextureVertex *vertex)
 {
   g_warning ("%s: Deformation effect of type '%s' does not implement "
              "the required ClutterDeformEffect::deform_vertex virtual "
@@ -116,10 +131,10 @@ clutter_deform_effect_real_deform_vertex (ClutterDeformEffect *effect,
 }
 
 static void
-clutter_deform_effect_deform_vertex (ClutterDeformEffect *effect,
-                                     gfloat               width,
-                                     gfloat               height,
-                                     CoglTextureVertex   *vertex)
+clutter_deform_effect_deform_vertex (ClutterDeformEffect  *effect,
+                                     gfloat                width,
+                                     gfloat                height,
+                                     ClutterTextureVertex *vertex)
 {
   CLUTTER_DEFORM_EFFECT_GET_CLASS (effect)->deform_vertex (effect,
                                                            width, height,
@@ -131,14 +146,19 @@ vbo_invalidate (ClutterActor        *actor,
                 GParamSpec          *pspec,
                 ClutterDeformEffect *effect)
 {
-  effect->priv->is_dirty = TRUE;
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (effect);
+
+  priv->is_dirty = TRUE;
 }
 
 static void
 clutter_deform_effect_set_actor (ClutterActorMeta *meta,
                                  ClutterActor     *actor)
 {
-  ClutterDeformEffectPrivate *priv = CLUTTER_DEFORM_EFFECT (meta)->priv;
+  ClutterDeformEffect *effect = CLUTTER_DEFORM_EFFECT (meta);
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (effect);
 
   if (priv->allocation_id != 0)
     {
@@ -168,15 +188,16 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
                                     ClutterPaintNode       *node,
                                     ClutterPaintContext    *paint_context)
 {
-  ClutterDeformEffect *self= CLUTTER_DEFORM_EFFECT (effect);
-  ClutterDeformEffectPrivate *priv = self->priv;
+  ClutterDeformEffect *self = CLUTTER_DEFORM_EFFECT (effect);
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
   CoglPipeline *pipeline;
   CoglDepthState depth_state;
 
   if (priv->is_dirty)
     {
       gboolean mapped_buffer;
-      CoglVertexP3T2C4 *verts;
+      ClutterVertexP3T2C4 *verts;
       ClutterActor *actor;
       gfloat width, height;
       guint opacity;
@@ -214,8 +235,8 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
         {
           for (j = 0; j < priv->x_tiles + 1; j++)
             {
-              CoglVertexP3T2C4 *vertex_out;
-              CoglTextureVertex vertex;
+              ClutterVertexP3T2C4 *vertex_out;
+              ClutterTextureVertex vertex;
 
               /* CoglTextureVertex isn't an ideal structure to use for
                  this because it contains a CoglColor. The internal
@@ -234,7 +255,8 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
               vertex.y = height * vertex.ty;
               vertex.z = 0.0f;
 
-              cogl_color_init_from_4ub (&vertex.color, 255, 255, 255, opacity);
+              cogl_color_init_from_4f (&vertex.color,
+                                       1.0f, 1.0f, 1.0f, opacity / 255.0f);
 
               clutter_deform_effect_deform_vertex (self,
                                                    width, height,
@@ -247,10 +269,10 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
               vertex_out->z = vertex.z;
               vertex_out->s = vertex.tx;
               vertex_out->t = vertex.ty;
-              vertex_out->r = cogl_color_get_red_byte (&vertex.color);
-              vertex_out->g = cogl_color_get_green_byte (&vertex.color);
-              vertex_out->b = cogl_color_get_blue_byte (&vertex.color);
-              vertex_out->a = cogl_color_get_alpha_byte (&vertex.color);
+              vertex_out->r = (uint8_t) (cogl_color_get_red (&vertex.color) * 255.0f);
+              vertex_out->g = (uint8_t) (cogl_color_get_green (&vertex.color) * 255.0f);
+              vertex_out->b = (uint8_t) (cogl_color_get_blue (&vertex.color) * 255.0f);
+              vertex_out->a = (uint8_t) (cogl_color_get_alpha (&vertex.color) * 255.0f);
             }
         }
 
@@ -276,7 +298,7 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
   cogl_depth_state_set_test_function (&depth_state, COGL_DEPTH_TEST_FUNCTION_LEQUAL);
   cogl_pipeline_set_depth_state (pipeline, &depth_state, NULL);
 
-  /* enable backface culling if we have a back material */
+  /* enable backface culling if we have a back pipeline */
   if (priv->back_pipeline != NULL)
     cogl_pipeline_set_cull_face_mode (pipeline,
                                       COGL_PIPELINE_CULL_FACE_MODE_BACK);
@@ -300,7 +322,7 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
       ClutterPaintNode *back_node;
       CoglPipeline *back_pipeline;
 
-      /* We probably shouldn't be modifying the user's material so
+      /* We probably shouldn't be modifying the user's pipeline so
          instead we make a temporary copy */
       back_pipeline = cogl_pipeline_copy (priv->back_pipeline);
       cogl_pipeline_set_depth_state (back_pipeline, &depth_state, NULL);
@@ -315,17 +337,15 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
       clutter_paint_node_add_primitive (back_node, priv->primitive);
 
       clutter_paint_node_unref (back_node);
-      cogl_object_unref (back_pipeline);
+      g_object_unref (back_pipeline);
     }
 
   if (G_UNLIKELY (priv->lines_primitive != NULL))
     {
-      const ClutterColor *red;
+      static CoglColor red = COGL_COLOR_INIT (255, 0, 0, 255);
       ClutterPaintNode *lines_node;
 
-      red = clutter_color_get_static (CLUTTER_COLOR_RED);
-
-      lines_node = clutter_color_node_new (red);
+      lines_node = clutter_color_node_new (&red);
       clutter_paint_node_set_static_name (lines_node,
                                           "ClutterDeformEffect (lines)");
       clutter_paint_node_add_child (node, lines_node);
@@ -337,36 +357,25 @@ clutter_deform_effect_paint_target (ClutterOffscreenEffect *effect,
 static inline void
 clutter_deform_effect_free_arrays (ClutterDeformEffect *self)
 {
-  ClutterDeformEffectPrivate *priv = self->priv;
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
 
-  if (priv->buffer)
-    {
-      cogl_object_unref (priv->buffer);
-      priv->buffer = NULL;
-    }
-
-  if (priv->primitive)
-    {
-      cogl_object_unref (priv->primitive);
-      priv->primitive = NULL;
-    }
-
-  if (priv->lines_primitive)
-    {
-      cogl_object_unref (priv->lines_primitive);
-      priv->lines_primitive = NULL;
-    }
+  g_clear_object (&priv->buffer);
+  g_clear_object (&priv->primitive);
+  g_clear_object (&priv->lines_primitive);
 }
 
 static void
 clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
 {
-  ClutterDeformEffectPrivate *priv = self->priv;
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
   gint x, y, direction, n_indices;
   CoglAttribute *attributes[3];
   guint16 *static_indices;
-  CoglContext *ctx =
-    clutter_backend_get_cogl_context (clutter_get_default_backend ());
+  ClutterContext *context = _clutter_context_get_default ();
+  ClutterBackend *backend = clutter_context_get_backend (context);
+  CoglContext *cogl_context = clutter_backend_get_cogl_context (backend);
   CoglIndices *indices;
   guint16 *idx;
   int i;
@@ -430,7 +439,7 @@ clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
 
 #undef MESH_INDEX
 
-  indices = cogl_indices_new (ctx,
+  indices = cogl_indices_new (cogl_context,
                               COGL_INDICES_TYPE_UNSIGNED_SHORT,
                               static_indices,
                               n_indices);
@@ -440,8 +449,8 @@ clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
   priv->n_vertices = (priv->x_tiles + 1) * (priv->y_tiles + 1);
 
   priv->buffer =
-    cogl_attribute_buffer_new (ctx,
-                               sizeof (CoglVertexP3T2C4) *
+    cogl_attribute_buffer_new (cogl_context,
+                               sizeof (ClutterVertexP3T2C4) *
                                priv->n_vertices,
                                NULL);
 
@@ -452,20 +461,20 @@ clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
 
   attributes[0] = cogl_attribute_new (priv->buffer,
                                       "cogl_position_in",
-                                      sizeof (CoglVertexP3T2C4),
-                                      G_STRUCT_OFFSET (CoglVertexP3T2C4, x),
+                                      sizeof (ClutterVertexP3T2C4),
+                                      G_STRUCT_OFFSET (ClutterVertexP3T2C4, x),
                                       3, /* n_components */
                                       COGL_ATTRIBUTE_TYPE_FLOAT);
   attributes[1] = cogl_attribute_new (priv->buffer,
                                       "cogl_tex_coord0_in",
-                                      sizeof (CoglVertexP3T2C4),
-                                      G_STRUCT_OFFSET (CoglVertexP3T2C4, s),
+                                      sizeof (ClutterVertexP3T2C4),
+                                      G_STRUCT_OFFSET (ClutterVertexP3T2C4, s),
                                       2, /* n_components */
                                       COGL_ATTRIBUTE_TYPE_FLOAT);
   attributes[2] = cogl_attribute_new (priv->buffer,
                                       "cogl_color_in",
-                                      sizeof (CoglVertexP3T2C4),
-                                      G_STRUCT_OFFSET (CoglVertexP3T2C4, r),
+                                      sizeof (ClutterVertexP3T2C4),
+                                      G_STRUCT_OFFSET (ClutterVertexP3T2C4, r),
                                       4, /* n_components */
                                       COGL_ATTRIBUTE_TYPE_UNSIGNED_BYTE);
 
@@ -490,10 +499,10 @@ clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
                                   n_indices);
     }
 
-  cogl_object_unref (indices);
+  g_object_unref (indices);
 
   for (i = 0; i < 3; i++)
-    cogl_object_unref (attributes[i]);
+    g_object_unref (attributes[i]);
 
   priv->is_dirty = TRUE;
 }
@@ -501,13 +510,10 @@ clutter_deform_effect_init_arrays (ClutterDeformEffect *self)
 static inline void
 clutter_deform_effect_free_back_pipeline (ClutterDeformEffect *self)
 {
-  ClutterDeformEffectPrivate *priv = self->priv;
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
 
-  if (priv->back_pipeline != NULL)
-    {
-      cogl_object_unref (priv->back_pipeline);
-      priv->back_pipeline = NULL;
-    }
+  g_clear_object (&priv->back_pipeline);
 }
 
 static void
@@ -528,21 +534,23 @@ clutter_deform_effect_set_property (GObject      *gobject,
                                     GParamSpec   *pspec)
 {
   ClutterDeformEffect *self = CLUTTER_DEFORM_EFFECT (gobject);
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
 
   switch (prop_id)
     {
     case PROP_X_TILES:
       clutter_deform_effect_set_n_tiles (self, g_value_get_uint (value),
-                                         self->priv->y_tiles);
+                                         priv->y_tiles);
       break;
 
     case PROP_Y_TILES:
-      clutter_deform_effect_set_n_tiles (self, self->priv->x_tiles,
+      clutter_deform_effect_set_n_tiles (self, priv->x_tiles,
                                          g_value_get_uint (value));
       break;
 
-    case PROP_BACK_MATERIAL:
-      clutter_deform_effect_set_back_material (self, g_value_get_boxed (value));
+    case PROP_BACK_PIPELINE:
+      clutter_deform_effect_set_back_pipeline (self, g_value_get_object (value));
       break;
 
     default:
@@ -557,7 +565,9 @@ clutter_deform_effect_get_property (GObject    *gobject,
                                     GValue     *value,
                                     GParamSpec *pspec)
 {
-  ClutterDeformEffectPrivate *priv = CLUTTER_DEFORM_EFFECT (gobject)->priv;
+  ClutterDeformEffect *effect = CLUTTER_DEFORM_EFFECT (gobject);
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (effect);
 
   switch (prop_id)
     {
@@ -569,8 +579,8 @@ clutter_deform_effect_get_property (GObject    *gobject,
       g_value_set_uint (value, priv->y_tiles);
       break;
 
-    case PROP_BACK_MATERIAL:
-      g_value_set_boxed (value, priv->back_pipeline);
+    case PROP_BACK_PIPELINE:
+      g_value_set_object (value, priv->back_pipeline);
       break;
 
     default:
@@ -595,12 +605,11 @@ clutter_deform_effect_class_init (ClutterDeformEffectClass *klass)
    * smaller the tiles
    */
   obj_props[PROP_X_TILES] =
-    g_param_spec_uint ("x-tiles",
-                       P_("Horizontal Tiles"),
-                       P_("The number of horizontal tiles"),
+    g_param_spec_uint ("x-tiles", NULL, NULL,
                        1, G_MAXUINT,
                        DEFAULT_N_TILES,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
    * ClutterDeformEffect:y-tiles:
@@ -609,27 +618,25 @@ clutter_deform_effect_class_init (ClutterDeformEffectClass *klass)
    * smaller the tiles
    */
   obj_props[PROP_Y_TILES] =
-    g_param_spec_uint ("y-tiles",
-                       P_("Vertical Tiles"),
-                       P_("The number of vertical tiles"),
+    g_param_spec_uint ("y-tiles", NULL, NULL,
                        1, G_MAXUINT,
                        DEFAULT_N_TILES,
-                       CLUTTER_PARAM_READWRITE);
+                       G_PARAM_READWRITE |
+                       G_PARAM_STATIC_STRINGS);
 
   /**
-   * ClutterDeformEffect:back-material:
+   * ClutterDeformEffect:back-pipeline:
    *
-   * A material to be used when painting the back of the actor
+   * A pipeline to be used when painting the back of the actor
    * to which this effect has been applied
    *
-   * By default, no material will be used
+   * By default, no pipeline will be used
    */
-  obj_props[PROP_BACK_MATERIAL] =
-    g_param_spec_boxed ("back-material",
-                        P_("Back Material"),
-                        P_("The material to be used when painting the back of the actor"),
-                        COGL_TYPE_HANDLE,
-                        CLUTTER_PARAM_READWRITE);
+  obj_props[PROP_BACK_PIPELINE] =
+    g_param_spec_object ("back-pipeline", NULL, NULL,
+                         COGL_TYPE_PIPELINE,
+                         G_PARAM_READWRITE |
+                         G_PARAM_STATIC_STRINGS);
 
   gobject_class->finalize = clutter_deform_effect_finalize;
   gobject_class->set_property = clutter_deform_effect_set_property;
@@ -646,61 +653,63 @@ clutter_deform_effect_class_init (ClutterDeformEffectClass *klass)
 static void
 clutter_deform_effect_init (ClutterDeformEffect *self)
 {
-  self->priv = clutter_deform_effect_get_instance_private (self);
-  self->priv->x_tiles = self->priv->y_tiles = DEFAULT_N_TILES;
-  self->priv->back_pipeline = NULL;
+  ClutterDeformEffectPrivate *priv =
+    clutter_deform_effect_get_instance_private (self);
+
+  priv->x_tiles = priv->y_tiles = DEFAULT_N_TILES;
+  priv->back_pipeline = NULL;
 
   clutter_deform_effect_init_arrays (self);
 }
 
 /**
- * clutter_deform_effect_set_back_material:
+ * clutter_deform_effect_set_back_pipeline:
  * @effect: a #ClutterDeformEffect
- * @material: (allow-none): a handle to a Cogl material
+ * @pipeline: (allow-none): A #CoglPipeline
  *
- * Sets the material that should be used when drawing the back face
+ * Sets the pipeline that should be used when drawing the back face
  * of the actor during a deformation
  *
- * The #ClutterDeformEffect will take a reference on the material's
+ * The #ClutterDeformEffect will take a reference on the pipeline's
  * handle
  */
 void
-clutter_deform_effect_set_back_material (ClutterDeformEffect *effect,
-                                         CoglHandle           material)
+clutter_deform_effect_set_back_pipeline (ClutterDeformEffect *effect,
+                                         CoglPipeline        *pipeline)
 {
   ClutterDeformEffectPrivate *priv;
-  CoglPipeline *pipeline = COGL_PIPELINE (material);
 
   g_return_if_fail (CLUTTER_IS_DEFORM_EFFECT (effect));
-  g_return_if_fail (pipeline == NULL || cogl_is_pipeline (pipeline));
+  g_return_if_fail (pipeline == NULL || COGL_IS_PIPELINE (pipeline));
 
-  priv = effect->priv;
+  priv = clutter_deform_effect_get_instance_private (effect);
 
   clutter_deform_effect_free_back_pipeline (effect);
 
-  priv->back_pipeline = material;
+  priv->back_pipeline = pipeline;
   if (priv->back_pipeline != NULL)
-    cogl_object_ref (priv->back_pipeline);
+    g_object_ref (priv->back_pipeline);
 
   clutter_deform_effect_invalidate (effect);
 }
 
 /**
- * clutter_deform_effect_get_back_material:
+ * clutter_deform_effect_get_back_pipeline:
  * @effect: a #ClutterDeformEffect
  *
- * Retrieves the handle to the back face material used by @effect
+ * Retrieves the back pipeline used by @effect
  *
- * Return value: (transfer none): a handle for the material, or %NULL.
- *   The returned material is owned by the #ClutterDeformEffect and it
- *   should not be freed directly
+ * Return value: (transfer none) (nullable): A #CoglPipeline.
  */
-CoglHandle
-clutter_deform_effect_get_back_material (ClutterDeformEffect *effect)
+CoglPipeline*
+clutter_deform_effect_get_back_pipeline (ClutterDeformEffect *effect)
 {
+  ClutterDeformEffectPrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_DEFORM_EFFECT (effect), NULL);
 
-  return effect->priv->back_pipeline;
+  priv = clutter_deform_effect_get_instance_private (effect);
+  return priv->back_pipeline;
 }
 
 /**
@@ -726,7 +735,7 @@ clutter_deform_effect_set_n_tiles (ClutterDeformEffect *effect,
   g_return_if_fail (CLUTTER_IS_DEFORM_EFFECT (effect));
   g_return_if_fail (x_tiles > 0 && y_tiles > 0);
 
-  priv = effect->priv;
+  priv = clutter_deform_effect_get_instance_private (effect);
 
   g_object_freeze_notify (G_OBJECT (effect));
 
@@ -773,13 +782,16 @@ clutter_deform_effect_get_n_tiles (ClutterDeformEffect *effect,
                                    guint               *x_tiles,
                                    guint               *y_tiles)
 {
+  ClutterDeformEffectPrivate *priv;
+
   g_return_if_fail (CLUTTER_IS_DEFORM_EFFECT (effect));
 
+  priv = clutter_deform_effect_get_instance_private (effect);
   if (x_tiles != NULL)
-    *x_tiles = effect->priv->x_tiles;
+    *x_tiles = priv->x_tiles;
 
   if (y_tiles != NULL)
-    *y_tiles = effect->priv->y_tiles;
+    *y_tiles = priv->y_tiles;
 }
 
 /**
@@ -793,13 +805,15 @@ void
 clutter_deform_effect_invalidate (ClutterDeformEffect *effect)
 {
   ClutterActor *actor;
+  ClutterDeformEffectPrivate *priv;
 
   g_return_if_fail (CLUTTER_IS_DEFORM_EFFECT (effect));
 
-  if (effect->priv->is_dirty)
+  priv = clutter_deform_effect_get_instance_private (effect);
+  if (priv->is_dirty)
     return;
 
-  effect->priv->is_dirty = TRUE;
+  priv->is_dirty = TRUE;
 
   actor = clutter_actor_meta_get_actor (CLUTTER_ACTOR_META (effect));
   if (actor != NULL)

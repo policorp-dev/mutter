@@ -32,6 +32,7 @@
 #include "core/util-private.h"
 #include "meta/meta-context.h"
 #include "x11/meta-x11-display-private.h"
+#include "x11/window-x11-private.h"
 
 #ifndef HAVE_SM
 void
@@ -71,6 +72,16 @@ meta_window_release_saved_state (const MetaWindowSessionInfo *info)
 #include "meta/main.h"
 #include "meta/workspace.h"
 
+typedef struct
+{
+  grefcount ref_count;
+
+  MetaContext *context;
+
+  gboolean shutdown;
+  gboolean successful;
+} SessionState;
+
 typedef struct _MetaIceConnection
 {
   IceConn ice_connection;
@@ -82,11 +93,40 @@ static void ice_io_error_handler (IceConn connection);
 static void new_ice_connection (IceConn connection, IcePointer client_data,
 				Bool opening, IcePointer *watch_data);
 
-static void        save_state         (void);
+static void        save_state         (MetaContext *context);
 static char*       load_state         (const char *previous_save_file);
 static void        regenerate_save_file (void);
 static const char* full_save_file       (void);
 static void        disconnect         (void);
+
+static SessionState *
+session_state_new (MetaContext *context,
+                   Bool         shutdown)
+{
+  SessionState *state;
+
+  state = g_new0 (SessionState, 1);
+  g_ref_count_init (&state->ref_count);
+  state->successful = TRUE;
+  state->shutdown = shutdown;
+  state->context = context;
+
+  return state;
+}
+
+static SessionState *
+session_state_ref (SessionState *state)
+{
+  g_ref_count_inc (&state->ref_count);
+  return state;
+}
+
+static void
+session_state_unref (SessionState *state)
+{
+  if (g_ref_count_dec (&state->ref_count))
+    g_free (state);
+}
 
 /* This is called when data is available on an ICE connection.  */
 static gboolean
@@ -241,16 +281,6 @@ meta_session_init (MetaContext *context,
   SmcCallbacks callbacks;
   char *saved_client_id;
 
-  if (!previous_client_id)
-    {
-      const char *desktop_autostart_id;
-
-      desktop_autostart_id = g_getenv ("DESKTOP_AUTOSTART_ID");
-      if (desktop_autostart_id)
-        previous_client_id = desktop_autostart_id;
-    }
-  g_unsetenv ("DESKTOP_AUTOSTART_ID");
-
   meta_topic (META_DEBUG_SM, "Initializing session with save file '%s'",
               previous_save_file ? previous_save_file : "(none)");
 
@@ -289,7 +319,7 @@ meta_session_init (MetaContext *context,
 
   session_connection =
     SmcOpenConnection (NULL, /* use SESSION_MANAGER env */
-                       NULL, /* means use existing ICE connection */
+                       context,
                        SmProtoMajor,
                        SmProtoMinor,
                        mask,
@@ -403,12 +433,11 @@ disconnect (void)
 }
 
 static void
-save_yourself_possibly_done (gboolean shutdown,
-                             gboolean successful)
+save_yourself_possibly_done (SessionState *state)
 {
   meta_topic (META_DEBUG_SM,
               "save possibly done shutdown = %d success = %d",
-              shutdown, successful);
+              state->shutdown, state->successful);
 
   if (current_state == STATE_SAVING_PHASE_1)
     {
@@ -416,10 +445,12 @@ save_yourself_possibly_done (gboolean shutdown,
 
       status = SmcRequestSaveYourselfPhase2 (session_connection,
                                              save_phase_2_callback,
-                                             GINT_TO_POINTER (shutdown));
+                                             session_state_ref (state));
 
       if (status)
         current_state = STATE_WAITING_FOR_PHASE_2;
+      else
+        session_state_unref (state);
 
       meta_topic (META_DEBUG_SM,
                   "Requested phase 2, status = %d", status);
@@ -436,10 +467,12 @@ save_yourself_possibly_done (gboolean shutdown,
                                     */
                                    SmDialogNormal,
                                    interact_callback,
-                                   GINT_TO_POINTER (shutdown));
+                                   session_state_ref (state));
 
       if (status)
         current_state = STATE_WAITING_FOR_INTERACT;
+      else
+        session_state_unref (state);
 
       meta_topic (META_DEBUG_SM,
                   "Requested interact, status = %d", status);
@@ -453,29 +486,31 @@ save_yourself_possibly_done (gboolean shutdown,
       meta_topic (META_DEBUG_SM, "Sending SaveYourselfDone");
 
       SmcSaveYourselfDone (session_connection,
-                           successful);
+                           state->successful);
 
-      if (shutdown)
+      if (state->shutdown)
         current_state = STATE_FROZEN;
       else
         current_state = STATE_IDLE;
     }
+
+  session_state_unref (state);
 }
 
 static void
 save_phase_2_callback (SmcConn smc_conn, SmPointer client_data)
 {
-  gboolean shutdown;
+  SessionState *state = client_data;
 
   meta_topic (META_DEBUG_SM, "Phase 2 save");
 
-  shutdown = GPOINTER_TO_INT (client_data);
-
   current_state = STATE_SAVING_PHASE_2;
 
-  save_state ();
+  save_state (state->context);
 
-  save_yourself_possibly_done (shutdown, TRUE);
+  state->successful = TRUE;
+
+  save_yourself_possibly_done (state);
 }
 
 static void
@@ -486,11 +521,10 @@ save_yourself_callback (SmcConn   smc_conn,
                         int       interact_style,
                         Bool      fast)
 {
-  gboolean successful;
+  MetaContext *context = META_CONTEXT (client_data);
+  SessionState *state;
 
   meta_topic (META_DEBUG_SM, "SaveYourself received");
-
-  successful = TRUE;
 
   /* The first SaveYourself after registering for the first time
    * is a special case (SM specs 7.2).
@@ -513,9 +547,11 @@ save_yourself_callback (SmcConn   smc_conn,
     }
 #endif
 
+  state = session_state_new (context, shutdown);
+
   /* ignore Global style saves
    *
-   * This interpretaion of the Local/Global/Both styles
+   * This interpretation of the Local/Global/Both styles
    * was discussed extensively on the xdg-list. See:
    *
    * https://listman.redhat.com/pipermail/xdg-list/2002-July/000615.html
@@ -523,7 +559,7 @@ save_yourself_callback (SmcConn   smc_conn,
   if (save_style == SmSaveGlobal)
     {
       current_state = STATE_SKIPPING_GLOBAL_SAVE;
-      save_yourself_possibly_done (shutdown, successful);
+      save_yourself_possibly_done (session_state_ref (state));
       return;
     }
 
@@ -535,7 +571,8 @@ save_yourself_callback (SmcConn   smc_conn,
 
   set_clone_restart_commands ();
 
-  save_yourself_possibly_done (shutdown, successful);
+  save_yourself_possibly_done (session_state_ref (state));
+  session_state_unref (state);
 }
 
 
@@ -586,18 +623,17 @@ shutdown_cancelled_callback (SmcConn smc_conn, SmPointer client_data)
 static void
 interact_callback (SmcConn smc_conn, SmPointer client_data)
 {
-  /* nothing */
-  gboolean shutdown;
+  SessionState *state = client_data;
 
   meta_topic (META_DEBUG_SM, "Interaction permission received");
-
-  shutdown = GPOINTER_TO_INT (client_data);
 
   current_state = STATE_DONE_WITH_INTERACT;
 
   SmcInteractDone (session_connection, False /* don't cancel logout */);
 
-  save_yourself_possibly_done (shutdown, TRUE);
+  state->successful = TRUE;
+
+  save_yourself_possibly_done (state);
 }
 
 static void
@@ -840,8 +876,9 @@ decode_text_from_utf8 (const char *text)
 }
 
 static void
-save_state (void)
+save_state (MetaContext *context)
 {
+  MetaDisplay *display = meta_context_get_display (context);
   char *mutter_dir;
   char *session_dir;
   FILE *outfile;
@@ -872,15 +909,15 @@ save_state (void)
   if (mkdir (mutter_dir, 0700) < 0 &&
       errno != EEXIST)
     {
-      meta_warning ("Could not create directory '%s': %s",
-                    mutter_dir, g_strerror (errno));
+      g_warning ("Could not create directory '%s': %s",
+                 mutter_dir, g_strerror (errno));
     }
 
   if (mkdir (session_dir, 0700) < 0 &&
       errno != EEXIST)
     {
-      meta_warning ("Could not create directory '%s': %s",
-                    session_dir, g_strerror (errno));
+      g_warning ("Could not create directory '%s': %s",
+                 session_dir, g_strerror (errno));
     }
 
   meta_topic (META_DEBUG_SM, "Saving session to '%s'", full_save_file ());
@@ -889,8 +926,8 @@ save_state (void)
 
   if (outfile == NULL)
     {
-      meta_warning ("Could not open session file '%s' for writing: %s",
-                    full_save_file (), g_strerror (errno));
+      g_warning ("Could not open session file '%s' for writing: %s",
+                 full_save_file (), g_strerror (errno));
       goto out;
     }
 
@@ -913,20 +950,22 @@ save_state (void)
   fprintf (outfile, "<mutter_session id=\"%s\">\n",
            client_id);
 
-  windows = meta_display_list_windows (meta_get_display (), META_LIST_DEFAULT);
+  windows = meta_display_list_windows (display, META_LIST_DEFAULT);
   stack_position = 0;
 
-  windows = g_slist_sort (windows, meta_display_stack_cmp);
+  windows = g_slist_sort (windows, meta_window_stack_position_compare);
   tmp = windows;
   stack_position = 0;
 
   while (tmp != NULL)
     {
       MetaWindow *window;
+      MetaWindowX11Private *priv;
 
       window = tmp->data;
+      priv = meta_window_x11_get_private (META_WINDOW_X11 (window));
 
-      if (window->sm_client_id)
+      if (priv->sm_client_id)
         {
           char *sm_client_id;
           char *res_class;
@@ -939,7 +978,7 @@ save_state (void)
            * in practice they are always ascii though.)
            */
 
-          sm_client_id = encode_text_as_utf8_markup (window->sm_client_id);
+          sm_client_id = encode_text_as_utf8_markup (priv->sm_client_id);
           res_class = window->res_class ?
             encode_text_as_utf8_markup (window->res_class) : NULL;
           res_name = window->res_name ?
@@ -952,7 +991,7 @@ save_state (void)
             title = NULL;
 
           meta_topic (META_DEBUG_SM, "Saving session managed window %s, client ID '%s'",
-                      window->desc, window->sm_client_id);
+                      window->desc, priv->sm_client_id);
 
           fprintf (outfile,
                    "  <window id=\"%s\" class=\"%s\" name=\"%s\" title=\"%s\" role=\"%s\" type=\"%s\" stacking=\"%d\">\n",
@@ -990,7 +1029,7 @@ save_state (void)
             fputs ("    <minimized/>\n", outfile);
 
           /* Maximized */
-          if (META_WINDOW_MAXIMIZED (window))
+          if (meta_window_is_maximized (window))
             {
               fprintf (outfile,
                        "    <maximized saved_x=\"%d\" saved_y=\"%d\" saved_width=\"%d\" saved_height=\"%d\"/>\n",
@@ -1003,7 +1042,7 @@ save_state (void)
           /* Gravity */
           {
             int x, y, w, h;
-            meta_window_get_session_geometry (window, &x, &y, &w, &h);
+            meta_window_x11_get_session_geometry (window, &x, &y, &w, &h);
 
             fprintf (outfile,
                      "    <geometry x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" gravity=\"%s\"/>\n",
@@ -1033,13 +1072,13 @@ save_state (void)
       /* FIXME need a dialog for this */
       if (ferror (outfile))
         {
-          meta_warning ("Error writing session file '%s': %s",
+          g_warning ("Error writing session file '%s': %s",
                         full_save_file (), g_strerror (errno));
         }
       if (fclose (outfile))
         {
-          meta_warning ("Error closing session file '%s': %s",
-                        full_save_file (), g_strerror (errno));
+          g_warning ("Error closing session file '%s': %s",
+                     full_save_file (), g_strerror (errno));
         }
     }
 
@@ -1146,8 +1185,8 @@ load_state (const char *previous_save_file)
 
  error:
 
-  meta_warning ("Failed to parse saved session file: %s",
-                error->message);
+  g_warning ("Failed to parse saved session file: %s",
+             error->message);
   g_error_free (error);
 
   if (parse_data.info)
@@ -1530,10 +1569,12 @@ get_possible_matches (MetaWindow *window)
   GSList *retval;
   GSList *tmp;
   gboolean ignore_client_id;
+  MetaWindowX11Private *priv;
 
   retval = NULL;
 
   ignore_client_id = g_getenv ("MUTTER_DEBUG_SM") != NULL;
+  priv = meta_window_x11_get_private (META_WINDOW_X11 (window));
 
   tmp = window_info_list;
   while (tmp != NULL)
@@ -1543,7 +1584,7 @@ get_possible_matches (MetaWindow *window)
       info = tmp->data;
 
       if ((ignore_client_id ||
-           both_null_or_matching (info->id, window->sm_client_id)) &&
+           both_null_or_matching (info->id, priv->sm_client_id)) &&
           both_null_or_matching (info->res_class, window->res_class) &&
           both_null_or_matching (info->res_name, window->res_name) &&
           both_null_or_matching (info->role, window->role))
@@ -1560,10 +1601,10 @@ get_possible_matches (MetaWindow *window)
         {
           if (meta_is_verbose ())
             {
-              if (!both_null_or_matching (info->id, window->sm_client_id))
+              if (!both_null_or_matching (info->id, priv->sm_client_id))
                 meta_topic (META_DEBUG_SM, "Window %s has SM client ID %s, saved state has %s, no match",
                             window->desc,
-                            window->sm_client_id ? window->sm_client_id : "(none)",
+                            priv->sm_client_id ? priv->sm_client_id : "(none)",
                             info->id ? info->id : "(none)");
               else if (!both_null_or_matching (info->res_class, window->res_class))
                 meta_topic (META_DEBUG_SM, "Window %s has class %s doesn't match saved class %s, no match",
@@ -1641,13 +1682,15 @@ meta_window_lookup_saved_state (MetaWindow *window)
 {
   GSList *possibles;
   const MetaWindowSessionInfo *info;
+  MetaWindowX11Private *priv =
+    meta_window_x11_get_private (META_WINDOW_X11 (window));
 
   /* Window is not session managed.
    * I haven't yet figured out how to deal with these
    * in a way that doesn't cause broken side effects in
    * situations other than on session restore.
    */
-  if (window->sm_client_id == NULL)
+  if (priv->sm_client_id == NULL)
     {
       meta_topic (META_DEBUG_SM,
                   "Window %s is not session managed, not checking for saved state",

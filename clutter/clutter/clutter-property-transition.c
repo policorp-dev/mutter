@@ -28,22 +28,22 @@
  * can be used to tween a property of a [iface@Animatable] instance.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-property-transition.h"
+#include "clutter/clutter-property-transition.h"
 
-#include "clutter-animatable.h"
-#include "clutter-debug.h"
-#include "clutter-interval.h"
-#include "clutter-private.h"
-#include "clutter-transition.h"
+#include "clutter/clutter-animatable.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-interval.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-transition.h"
 
-struct _ClutterPropertyTransitionPrivate
+typedef struct _ClutterPropertyTransitionPrivate
 {
   char *property_name;
 
   GParamSpec *pspec;
-};
+} ClutterPropertyTransitionPrivate;
 
 enum
 {
@@ -63,7 +63,8 @@ clutter_property_transition_ensure_interval (ClutterPropertyTransition *transiti
                                              ClutterAnimatable         *animatable,
                                              ClutterInterval           *interval)
 {
-  ClutterPropertyTransitionPrivate *priv = transition->priv;
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (transition);
   GValue *value_p;
 
   if (clutter_interval_is_valid (interval))
@@ -95,7 +96,8 @@ clutter_property_transition_attached (ClutterTransition *transition,
                                       ClutterAnimatable *animatable)
 {
   ClutterPropertyTransition *self = CLUTTER_PROPERTY_TRANSITION (transition);
-  ClutterPropertyTransitionPrivate *priv = self->priv;
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (self);
   ClutterInterval *interval;
 
   if (priv->property_name == NULL)
@@ -119,9 +121,10 @@ clutter_property_transition_detached (ClutterTransition *transition,
                                       ClutterAnimatable *animatable)
 {
   ClutterPropertyTransition *self = CLUTTER_PROPERTY_TRANSITION (transition);
-  ClutterPropertyTransitionPrivate *priv = self->priv;
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (self);
 
-  priv->pspec = NULL; 
+  priv->pspec = NULL;
 }
 
 static void
@@ -131,7 +134,8 @@ clutter_property_transition_compute_value (ClutterTransition *transition,
                                            gdouble            progress)
 {
   ClutterPropertyTransition *self = CLUTTER_PROPERTY_TRANSITION (transition);
-  ClutterPropertyTransitionPrivate *priv = self->priv;
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (self);
   GValue value = G_VALUE_INIT;
   GType p_type, i_type;
   gboolean res;
@@ -214,7 +218,9 @@ clutter_property_transition_get_property (GObject    *gobject,
                                           GValue     *value,
                                           GParamSpec *pspec)
 {
-  ClutterPropertyTransitionPrivate *priv = CLUTTER_PROPERTY_TRANSITION (gobject)->priv;
+  ClutterPropertyTransition *self = CLUTTER_PROPERTY_TRANSITION (gobject);
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (self);
 
   switch (prop_id)
     {
@@ -230,9 +236,9 @@ clutter_property_transition_get_property (GObject    *gobject,
 static void
 clutter_property_transition_finalize (GObject *gobject)
 {
-  ClutterPropertyTransitionPrivate *priv;
-
-  priv = CLUTTER_PROPERTY_TRANSITION (gobject)->priv;
+  ClutterPropertyTransition *self = CLUTTER_PROPERTY_TRANSITION (gobject);
+  ClutterPropertyTransitionPrivate *priv =
+    clutter_property_transition_get_instance_private (self);
 
   g_free (priv->property_name);
 
@@ -259,9 +265,7 @@ clutter_property_transition_class_init (ClutterPropertyTransitionClass *klass)
    * The name of the property of a [iface@Animatable] to animate.
    */
   obj_props[PROP_PROPERTY_NAME] =
-    g_param_spec_string ("property-name",
-                         P_("Property Name"),
-                         P_("The name of the property to animate"),
+    g_param_spec_string ("property-name", NULL, NULL,
                          NULL,
                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -271,7 +275,6 @@ clutter_property_transition_class_init (ClutterPropertyTransitionClass *klass)
 static void
 clutter_property_transition_init (ClutterPropertyTransition *self)
 {
-  self->priv = clutter_property_transition_get_instance_private (self);
 }
 
 /**
@@ -327,7 +330,7 @@ clutter_property_transition_set_property_name (ClutterPropertyTransition *transi
 
   g_return_if_fail (CLUTTER_IS_PROPERTY_TRANSITION (transition));
 
-  priv = transition->priv;
+  priv = clutter_property_transition_get_instance_private (transition);
 
   if (g_strcmp0 (priv->property_name, property_name) == 0)
     return;
@@ -362,7 +365,10 @@ clutter_property_transition_set_property_name (ClutterPropertyTransition *transi
 const char *
 clutter_property_transition_get_property_name (ClutterPropertyTransition *transition)
 {
+  ClutterPropertyTransitionPrivate *priv;
+
   g_return_val_if_fail (CLUTTER_IS_PROPERTY_TRANSITION (transition), NULL);
 
-  return transition->priv->property_name;
+  priv = clutter_property_transition_get_instance_private (transition);
+  return priv->property_name;
 }

@@ -20,9 +20,9 @@
  */
 
 /**
- * SECTION:workspace
- * @title:MetaWorkspace
- * @short_description:Workspaces
+ * MetaWorkspace:
+ *
+ * Workspaces
  *
  * A workspace is a set of windows which all live on the same
  * screen.  (You may also see the name "desktop" around the place,
@@ -35,20 +35,17 @@
 
 #include "meta/workspace.h"
 
-#include <X11/Xatom.h>
 #include <string.h>
 
 #include "backends/meta-backend-private.h"
 #include "backends/meta-cursor-tracker-private.h"
 #include "backends/meta-logical-monitor.h"
 #include "cogl/cogl.h"
+#include "compositor/compositor-private.h"
 #include "core/boxes-private.h"
 #include "core/meta-workspace-manager-private.h"
 #include "core/workspace-private.h"
-#include "meta/compositor.h"
-#include "meta/meta-x11-errors.h"
 #include "meta/prefs.h"
-#include "x11/meta-x11-display-private.h"
 
 void meta_workspace_queue_calc_showing   (MetaWorkspace *workspace);
 static void focus_ancestor_or_mru_window (MetaWorkspace *workspace,
@@ -85,7 +82,7 @@ static guint signals[LAST_SIGNAL] = { 0 };
 typedef struct _MetaWorkspaceLogicalMonitorData
 {
   GList *logical_monitor_region;
-  MetaRectangle logical_monitor_work_area;
+  MtkRectangle logical_monitor_work_area;
 } MetaWorkspaceLogicalMonitorData;
 
 typedef struct _MetaWorkspaceFocusableAncestorData
@@ -143,27 +140,6 @@ meta_workspace_clear_logical_monitor_data (MetaWorkspace *workspace)
 }
 
 static void
-meta_workspace_finalize (GObject *object)
-{
-  /* Actual freeing done in meta_workspace_remove() for now */
-  G_OBJECT_CLASS (meta_workspace_parent_class)->finalize (object);
-}
-
-static void
-meta_workspace_set_property (GObject      *object,
-                             guint         prop_id,
-                             const GValue *value,
-                             GParamSpec   *pspec)
-{
-  switch (prop_id)
-    {
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
-      break;
-    }
-}
-
-static void
 meta_workspace_get_property (GObject      *object,
                              guint         prop_id,
                              GValue       *value,
@@ -196,9 +172,7 @@ static void
 meta_workspace_class_init (MetaWorkspaceClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
-  object_class->finalize     = meta_workspace_finalize;
   object_class->get_property = meta_workspace_get_property;
-  object_class->set_property = meta_workspace_set_property;
 
   signals[WINDOW_ADDED] = g_signal_new ("window-added",
                                         G_TYPE_FROM_CLASS (klass),
@@ -215,19 +189,13 @@ meta_workspace_class_init (MetaWorkspaceClass *klass)
                                           G_TYPE_NONE, 1,
                                           META_TYPE_WINDOW);
 
-  obj_props[PROP_N_WINDOWS] = g_param_spec_uint ("n-windows",
-                                                 "N Windows",
-                                                 "Number of windows",
+  obj_props[PROP_N_WINDOWS] = g_param_spec_uint ("n-windows", NULL, NULL,
                                                  0, G_MAXUINT, 0,
                                                  G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
-  obj_props[PROP_WORKSPACE_INDEX] = g_param_spec_uint ("workspace-index",
-                                                       "Workspace index",
-                                                       "The workspace's index",
+  obj_props[PROP_WORKSPACE_INDEX] = g_param_spec_uint ("workspace-index", NULL, NULL,
                                                        0, G_MAXUINT, 0,
                                                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
-  obj_props[PROP_ACTIVE] = g_param_spec_boolean ("active",
-                                                 "Active",
-                                                 "Whether the workspace is currently active",
+  obj_props[PROP_ACTIVE] = g_param_spec_boolean ("active", NULL, NULL,
                                                  FALSE,
                                                  G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -294,8 +262,7 @@ workspace_free_all_struts (MetaWorkspace *workspace)
   if (workspace->all_struts == NULL)
     return;
 
-  g_slist_free_full (workspace->all_struts, g_free);
-  workspace->all_struts = NULL;
+  g_clear_slist (&workspace->all_struts, g_free);
 }
 
 /**
@@ -310,8 +277,7 @@ workspace_free_builtin_struts (MetaWorkspace *workspace)
   if (workspace->builtin_struts == NULL)
     return;
 
-  g_slist_free_full (workspace->builtin_struts, g_free);
-  workspace->builtin_struts = NULL;
+  g_clear_slist (&workspace->all_struts, g_free);
 }
 
 /* Ensure that the workspace is empty by making sure that
@@ -395,7 +361,7 @@ meta_workspace_add_window (MetaWorkspace *workspace,
   g_return_if_fail (g_list_find (workspace->mru_list, window) == NULL);
 
   COGL_TRACE_BEGIN_SCOPED (MetaWorkspaceAddWindow,
-                           "Workspace (add window)");
+                           "Meta::Workspace::add_window()");
 
   workspace_manager = workspace->display->workspace_manager;
 
@@ -425,7 +391,7 @@ meta_workspace_remove_window (MetaWorkspace *workspace,
   MetaWorkspaceManager *workspace_manager = workspace->display->workspace_manager;
 
   COGL_TRACE_BEGIN_SCOPED (MetaWorkspaceRemoveWindow,
-                           "Workspace (remove window)");
+                           "Meta::Workspace::remove_window()");
 
   workspace->windows = g_list_remove (workspace->windows, window);
 
@@ -576,12 +542,14 @@ meta_workspace_activate_with_focus (MetaWorkspace *workspace,
   MetaWorkspaceLayout layout1, layout2;
   gint num_workspaces, current_space, new_space;
   MetaMotionDirection direction;
+  MetaWindowDrag *window_drag;
 
   g_return_if_fail (META_IS_WORKSPACE (workspace));
   g_return_if_fail (meta_workspace_index (workspace) != -1);
 
-  meta_verbose ("Activating workspace %d",
-                meta_workspace_index (workspace));
+  meta_topic (META_DEBUG_WORKSPACES,
+              "Activating workspace %d",
+              meta_workspace_index (workspace));
 
   if (workspace->manager->active_workspace == workspace)
     {
@@ -590,9 +558,13 @@ meta_workspace_activate_with_focus (MetaWorkspace *workspace,
       return;
     }
 
+  window_drag =
+    meta_compositor_get_current_window_drag (workspace->display->compositor);
+
   /* Free any cached pointers to the workspaces's edges from
    * a current resize or move operation */
-  meta_display_cleanup_edges (workspace->display);
+  if (window_drag)
+    meta_window_drag_update_edges (window_drag);
 
   if (workspace->manager->active_workspace)
     workspace_switch_sound (workspace->manager->active_workspace, workspace);
@@ -619,8 +591,9 @@ meta_workspace_activate_with_focus (MetaWorkspace *workspace,
     g_signal_emit_by_name (workspace->manager, "showing-desktop-changed");
 
   move_window = NULL;
-  if (meta_grab_op_is_moving (workspace->display->grab_op))
-    move_window = workspace->display->grab_window;
+  if (window_drag &&
+      meta_grab_op_is_moving (meta_window_drag_get_grab_op (window_drag)))
+    move_window = meta_window_drag_get_window (window_drag);
 
   if (move_window != NULL)
     {
@@ -653,7 +626,7 @@ meta_workspace_activate_with_focus (MetaWorkspace *workspace,
    meta_workspace_manager_calc_workspace_layout (workspace->manager, num_workspaces,
                                                  new_space, &layout2);
 
-   if (meta_get_locale_direction () == META_LOCALE_DIRECTION_RTL)
+   if (clutter_get_text_direction () == CLUTTER_TEXT_DIRECTION_RTL)
      {
        if (layout1.current_col > layout2.current_col)
          direction = META_MOTION_RIGHT;
@@ -729,7 +702,10 @@ meta_workspace_index (MetaWorkspace *workspace)
 {
   int ret;
 
+  g_return_val_if_fail (META_IS_WORKSPACE (workspace), -1);
+
   ret = g_list_index (workspace->manager->workspaces, workspace);
+
   g_return_val_if_fail (ret >= 0, -1);
 
   return ret;
@@ -784,6 +760,7 @@ meta_workspace_list_windows (MetaWorkspace *workspace)
 void
 meta_workspace_invalidate_work_area (MetaWorkspace *workspace)
 {
+  MetaWindowDrag *window_drag;
   GList *windows, *l;
 
   if (workspace->work_areas_invalid)
@@ -798,10 +775,14 @@ meta_workspace_invalidate_work_area (MetaWorkspace *workspace)
               "Invalidating work area for workspace %d",
               meta_workspace_index (workspace));
 
+  window_drag =
+    meta_compositor_get_current_window_drag (workspace->display->compositor);
+
   /* If we are in the middle of a resize or move operation, we
    * might have cached pointers to the workspace's edges */
-  if (workspace == workspace->manager->active_workspace)
-    meta_display_cleanup_edges (workspace->display);
+  if (window_drag &&
+      workspace == workspace->manager->active_workspace)
+    meta_window_drag_update_edges (window_drag);
 
   meta_workspace_clear_logical_monitor_data (workspace);
 
@@ -850,14 +831,15 @@ copy_strut_list(GSList *original)
 static void
 ensure_work_areas_validated (MetaWorkspace *workspace)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaContext *context = meta_display_get_context (workspace->display);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
   GList *windows;
   GList *tmp;
   GList *logical_monitors, *l;
-  MetaRectangle display_rect = { 0 };
-  MetaRectangle work_area;
+  MtkRectangle display_rect = { 0 };
+  MtkRectangle work_area;
 
   if (!workspace->work_areas_invalid)
     return;
@@ -921,7 +903,7 @@ ensure_work_areas_validated (MetaWorkspace *workspace)
    */
   work_area = display_rect;  /* start with the screen */
   if (workspace->screen_region == NULL)
-    work_area = meta_rect (0, 0, -1, -1);
+    work_area = MTK_RECTANGLE_INIT (0, 0, -1, -1);
   else
     meta_rectangle_clip_to_region (workspace->screen_region,
                                    FIXED_DIRECTION_NONE,
@@ -932,9 +914,9 @@ ensure_work_areas_validated (MetaWorkspace *workspace)
   if (work_area.width < MIN_SANE_AREA &&
       work_area.width != display_rect.width)
     {
-      meta_warning ("struts occupy an unusually large percentage of the screen; "
-                    "available remaining width = %d < %d",
-                    work_area.width, MIN_SANE_AREA);
+      g_warning ("struts occupy an unusually large percentage of the screen; "
+                 "available remaining width = %d < %d",
+                 work_area.width, MIN_SANE_AREA);
       if (work_area.width < 1)
         {
           work_area.x = (display_rect.width - MIN_SANE_AREA)/2;
@@ -950,9 +932,9 @@ ensure_work_areas_validated (MetaWorkspace *workspace)
   if (work_area.height < MIN_SANE_AREA &&
       work_area.height != display_rect.height)
     {
-      meta_warning ("struts occupy an unusually large percentage of the screen; "
-                    "available remaining height = %d < %d",
-                    work_area.height, MIN_SANE_AREA);
+      g_warning ("struts occupy an unusually large percentage of the screen; "
+                 "available remaining height = %d < %d",
+                 work_area.height, MIN_SANE_AREA);
       if (work_area.height < 1)
         {
           work_area.y = (display_rect.height - MIN_SANE_AREA)/2;
@@ -988,7 +970,7 @@ ensure_work_areas_validated (MetaWorkspace *workspace)
         /* FIXME: constraints.c untested with this, but it might be nice for
          * a screen reader or magnifier.
          */
-        work_area = meta_rect (work_area.x, work_area.y, -1, -1);
+        work_area = MTK_RECTANGLE_INIT (work_area.x, work_area.y, -1, -1);
       else
         meta_rectangle_clip_to_region (data->logical_monitor_region,
                                        FIXED_DIRECTION_NONE,
@@ -1012,8 +994,8 @@ ensure_work_areas_validated (MetaWorkspace *workspace)
    */
   if (workspace->screen_region == NULL)
     {
-      MetaRectangle *nonempty_region;
-      nonempty_region = g_new (MetaRectangle, 1);
+      MtkRectangle *nonempty_region;
+      nonempty_region = g_new (MtkRectangle, 1);
       *nonempty_region = workspace->work_area_screen;
       workspace->screen_region = g_list_prepend (NULL, nonempty_region);
     }
@@ -1050,7 +1032,7 @@ strut_lists_equal (GSList *l,
       MetaStrut *b = m->data;
 
       if (a->side != b->side ||
-          !meta_rectangle_equal (&a->rect, &b->rect))
+          !mtk_rectangle_equal (&a->rect, &b->rect))
         return FALSE;
     }
 
@@ -1070,11 +1052,12 @@ void
 meta_workspace_set_builtin_struts (MetaWorkspace *workspace,
                                    GSList        *struts)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaContext *context = meta_display_get_context (workspace->display);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
   MetaDisplay *display = workspace->display;
-  MetaRectangle display_rect = { 0 };
+  MtkRectangle display_rect = { 0 };
   GSList *l;
 
   meta_display_get_size (display, &display_rect.width, &display_rect.height);
@@ -1139,10 +1122,16 @@ meta_workspace_set_builtin_struts (MetaWorkspace *workspace,
   meta_workspace_invalidate_work_area (workspace);
 }
 
+GSList *
+meta_workspace_get_builtin_struts (MetaWorkspace *workspace)
+{
+  return copy_strut_list (workspace->builtin_struts);
+}
+
 void
 meta_workspace_get_work_area_for_logical_monitor (MetaWorkspace      *workspace,
                                                   MetaLogicalMonitor *logical_monitor,
-                                                  MetaRectangle      *area)
+                                                  MtkRectangle       *area)
 {
   meta_workspace_get_work_area_for_monitor (workspace,
                                             logical_monitor->number,
@@ -1161,9 +1150,10 @@ meta_workspace_get_work_area_for_logical_monitor (MetaWorkspace      *workspace,
 void
 meta_workspace_get_work_area_for_monitor (MetaWorkspace *workspace,
                                           int            which_monitor,
-                                          MetaRectangle *area)
+                                          MtkRectangle  *area)
 {
-  MetaBackend *backend = meta_get_backend();
+  MetaContext *context = meta_display_get_context (workspace->display);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
   MetaLogicalMonitor *logical_monitor;
@@ -1191,7 +1181,7 @@ meta_workspace_get_work_area_for_monitor (MetaWorkspace *workspace,
  */
 void
 meta_workspace_get_work_area_all_monitors (MetaWorkspace *workspace,
-                                           MetaRectangle *area)
+                                           MtkRectangle  *area)
 {
   ensure_work_areas_validated (workspace);
 
@@ -1272,10 +1262,11 @@ meta_workspace_get_neighbor (MetaWorkspace      *workspace,
   meta_workspace_manager_calc_workspace_layout (workspace->manager, num_workspaces,
                                                 current_space, &layout);
 
-  meta_verbose ("Getting neighbor of %d in direction %s",
-                current_space, meta_motion_direction_to_string (direction));
+  meta_topic (META_DEBUG_WORKSPACES,
+              "Getting neighbor of %d in direction %s",
+              current_space, meta_motion_direction_to_string (direction));
 
-  ltr = (meta_get_locale_direction () == META_LOCALE_DIRECTION_LTR);
+  ltr = (clutter_get_text_direction () == CLUTTER_TEXT_DIRECTION_LTR);
 
   switch (direction)
     {
@@ -1312,34 +1303,26 @@ meta_workspace_get_neighbor (MetaWorkspace      *workspace,
     meta_bug ("calc_workspace_layout left an invalid (too-high) workspace number %d in the grid",
               i);
 
-  meta_verbose ("Neighbor workspace is %d at row %d col %d",
-                i, layout.current_row, layout.current_col);
+  meta_topic (META_DEBUG_WORKSPACES,
+              "Neighbor workspace is %d at row %d col %d",
+              i, layout.current_row, layout.current_col);
 
   meta_workspace_manager_free_workspace_layout (&layout);
 
   return meta_workspace_manager_get_workspace_by_index (workspace->manager, i);
 }
 
-const char*
-meta_workspace_get_name (MetaWorkspace *workspace)
-{
-  return meta_prefs_get_workspace_name (meta_workspace_index (workspace));
-}
-
 static MetaWindow *
-get_focused_workspace_window (MetaWorkspace *workspace)
+workspace_find_focused_window (MetaWorkspace *workspace)
 {
-  g_autoptr (GList) windows = NULL;
   GList *l;
 
-  windows = meta_workspace_list_windows (workspace);
-
-  for (l = windows; l != NULL; l = l->next)
+  for (l = workspace->windows; l != NULL; l = l->next)
     {
-      MetaWindow *window = l->data;
+      MetaWindow *win = l->data;
 
-      if (meta_window_has_focus (window))
-        return window;
+      if (meta_window_has_focus (win))
+        return win;
     }
 
   return NULL;
@@ -1350,68 +1333,76 @@ meta_workspace_focus_default_window (MetaWorkspace *workspace,
                                      MetaWindow    *not_this_one,
                                      guint32        timestamp)
 {
-  MetaWindow *focus;
+  MetaWindow *window = NULL;
+  MetaWindow *current_focus_window = NULL;
 
   if (timestamp == META_CURRENT_TIME)
-    meta_warning ("META_CURRENT_TIME used to choose focus window; "
+    {
+      meta_topic (META_DEBUG_FOCUS,
+                  "META_CURRENT_TIME used to choose focus window; "
                   "focus window may not be correct.");
+    }
 
-  focus = get_focused_workspace_window (workspace);
-  if (focus != NULL && focus != not_this_one)
-    return;
+  current_focus_window = workspace_find_focused_window (workspace);
+
+  if (current_focus_window)
+    {
+      focus_ancestor_or_mru_window (workspace, not_this_one, timestamp);
+      return;
+    }
 
   if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_CLICK ||
       !workspace->display->mouse_mode)
     {
       focus_ancestor_or_mru_window (workspace, not_this_one, timestamp);
+      return;
     }
-  else
+
+  window = get_pointer_window (workspace, not_this_one);
+
+  if (!window ||
+      window->type == META_WINDOW_DOCK ||
+      window->type == META_WINDOW_DESKTOP)
     {
-      MetaWindow * window;
-
-      window = get_pointer_window (workspace, not_this_one);
-      if (window &&
-          window->type != META_WINDOW_DOCK &&
-          window->type != META_WINDOW_DESKTOP)
-        {
-          if (timestamp == META_CURRENT_TIME)
-            {
-
-              /* We would like for this to never happen.  However, if
-               * it does happen then we kludge since using META_CURRENT_TIME
-               * can mean ugly race conditions--and we can avoid these
-               * by allowing EnterNotify events (which come with
-               * timestamps) to handle focus.
-               */
-
-              meta_topic (META_DEBUG_FOCUS,
-                          "Not focusing mouse window %s because EnterNotify events should handle that",
-                          window->desc);
-            }
-          else
-            {
-              meta_topic (META_DEBUG_FOCUS,
-                          "Focusing mouse window %s", window->desc);
-              meta_window_focus (window, timestamp);
-            }
-
-          if (workspace->display->autoraise_window != window &&
-              meta_prefs_get_auto_raise ())
-            {
-              meta_display_queue_autoraise_callback (workspace->display, window);
-            }
-        }
-      else if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_SLOPPY)
-        {
-          focus_ancestor_or_mru_window (workspace, not_this_one, timestamp);
-        }
-      else if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_MOUSE)
+      if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_MOUSE)
         {
           meta_topic (META_DEBUG_FOCUS,
                       "Setting focus to no_focus_window, since no valid "
                       "window to focus found.");
           meta_display_unset_input_focus (workspace->display, timestamp);
         }
+      else /* G_DESKTOP_FOCUS_MODE_SLOPPY */
+        {
+          focus_ancestor_or_mru_window (workspace, not_this_one, timestamp);
+        }
+
+      return;
+    }
+
+  if (timestamp == META_CURRENT_TIME)
+    {
+      /* We would like for this to never happen.  However, if
+       * it does happen then we kludge since using META_CURRENT_TIME
+       * can mean ugly race conditions--and we can avoid these
+       * by allowing EnterNotify events (which come with
+       * timestamps) to handle focus.
+       */
+
+      meta_topic (META_DEBUG_FOCUS,
+                  "Not focusing mouse window %s because EnterNotify events should handle that",
+                  window->desc);
+    }
+  else
+    {
+      meta_topic (META_DEBUG_FOCUS,
+                  "Focusing mouse window %s", window->desc);
+      meta_window_focus (window, timestamp);
+    }
+
+  if (workspace->display->autoraise_window != window &&
+      meta_prefs_get_auto_raise ())
+    {
+      meta_display_queue_autoraise_callback (workspace->display, window);
     }
 }
 
@@ -1423,8 +1414,7 @@ is_focusable (MetaWindow    *window,
          window->unmaps_pending == 0 &&
          window->type != META_WINDOW_DOCK &&
          meta_window_is_focusable (window) &&
-         meta_window_located_on_workspace (window, workspace) &&
-         meta_window_showing_on_its_workspace (window);
+         meta_window_should_be_showing_on_workspace (window, workspace);
 }
 
 static gboolean
@@ -1468,11 +1458,11 @@ window_contains_point (MetaWindow *window,
                        int         root_x,
                        int         root_y)
 {
-  MetaRectangle rect;
+  MtkRectangle rect;
 
   meta_window_get_frame_rect (window, &rect);
 
-  return META_POINT_IN_RECT (root_x, root_y, rect);
+  return mtk_rectangle_contains_point (&rect, root_x, root_y);
 }
 
 MetaWindow *
@@ -1550,7 +1540,8 @@ static MetaWindow *
 get_pointer_window (MetaWorkspace *workspace,
                     MetaWindow    *not_this_one)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaContext *context = meta_display_get_context (workspace->display);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaCursorTracker *cursor_tracker = meta_backend_get_cursor_tracker (backend);
   graphene_point_t point;
 
@@ -1562,7 +1553,8 @@ get_pointer_window (MetaWorkspace *workspace,
 
   return meta_workspace_get_default_focus_window_at_point (workspace,
                                                            not_this_one,
-                                                           point.x, point.y);
+                                                           (int) point.x,
+                                                           (int) point.y);
 }
 
 static gboolean
@@ -1588,8 +1580,9 @@ try_to_set_focus_and_check (MetaWindow *window,
   if (not_this_one &&
       meta_display_get_focus_window (window->display) == not_this_one)
     {
-      meta_warning ("Failed to focus window %s while avoiding %s",
-                    window->desc, not_this_one->desc);
+      meta_topic (META_DEBUG_FOCUS,
+                  "Failed to focus window %s while avoiding %s",
+                  window->desc, not_this_one->desc);
 
       return FALSE;
     }
@@ -1633,7 +1626,8 @@ focus_ancestor_or_mru_window (MetaWorkspace *workspace,
           if (try_to_set_focus_and_check (ancestor, not_this_one, timestamp))
             {
               /* Also raise the window if in click-to-focus */
-              if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_CLICK)
+              if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_CLICK &&
+                  meta_prefs_get_raise_on_click ())
                 meta_window_raise (ancestor);
 
               return;
@@ -1650,7 +1644,8 @@ focus_ancestor_or_mru_window (MetaWorkspace *workspace,
       if (try_to_set_focus_and_check (window, not_this_one, timestamp))
         {
           /* Also raise the window if in click-to-focus */
-          if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_CLICK)
+          if (meta_prefs_get_focus_mode () == G_DESKTOP_FOCUS_MODE_CLICK &&
+              meta_prefs_get_raise_on_click ())
             meta_window_raise (window);
 
           return;

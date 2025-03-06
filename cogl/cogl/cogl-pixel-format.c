@@ -28,13 +28,13 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
 
-#include "cogl-pixel-format.h"
+#include "cogl/cogl-pixel-format.h"
 
 /* An entry to map CoglPixelFormats to their respective properties */
 typedef struct _CoglPixelFormatInfo
@@ -92,11 +92,18 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .bpp = { 0 },
   },
   {
-    .cogl_format = COGL_PIXEL_FORMAT_G_8,
-    .format_str = "G_8",
+    .cogl_format = COGL_PIXEL_FORMAT_R_8,
+    .format_str = "R_8",
     .n_planes = 1,
     .aligned = 1,
     .bpp = { 1 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_R_16,
+    .format_str = "R_16",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 2 },
   },
   {
     .cogl_format = COGL_PIXEL_FORMAT_RG_88,
@@ -104,6 +111,27 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .n_planes = 1,
     .aligned = 1,
     .bpp = { 2 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_RG_1616,
+    .format_str = "RG_1616",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 4 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBA_16161616,
+    .format_str = "RGBA_16161616",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 8 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBA_16161616_PRE,
+    .format_str = "RGBA_16161616_PRE",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 8 },
   },
   {
     .cogl_format = COGL_PIXEL_FORMAT_RGB_888,
@@ -120,8 +148,22 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .bpp = { 3 },
   },
   {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBX_8888,
+    .format_str = "RGBX_8888",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 4 },
+  },
+  {
     .cogl_format = COGL_PIXEL_FORMAT_RGBA_8888,
     .format_str = "RGBA_8888",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 4 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_BGRX_8888,
+    .format_str = "BGRX_8888",
     .n_planes = 1,
     .aligned = 1,
     .bpp = { 4 },
@@ -134,8 +176,22 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .bpp = { 4 },
   },
   {
+    .cogl_format = COGL_PIXEL_FORMAT_XRGB_8888,
+    .format_str = "XRGB_8888",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 4 },
+  },
+  {
     .cogl_format = COGL_PIXEL_FORMAT_ARGB_8888,
     .format_str = "ARGB_8888",
+    .n_planes = 1,
+    .aligned = 1,
+    .bpp = { 4 },
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_XBGR_8888,
+    .format_str = "XBGR_8888",
     .n_planes = 1,
     .aligned = 1,
     .bpp = { 4 },
@@ -260,8 +316,22 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .bpp = { 4 },
   },
   {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBX_FP_16161616,
+    .format_str = "RGBX_FP_16161616",
+    .n_planes = 1,
+    .bpp = { 8 },
+    .aligned = 1
+  },
+  {
     .cogl_format = COGL_PIXEL_FORMAT_RGBA_FP_16161616,
     .format_str = "RGBA_FP_16161616",
+    .n_planes = 1,
+    .bpp = { 8 },
+    .aligned = 1
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_BGRX_FP_16161616,
+    .format_str = "BGRX_FP_16161616",
     .n_planes = 1,
     .bpp = { 8 },
     .aligned = 1
@@ -330,18 +400,25 @@ static const CoglPixelFormatInfo format_info_table[] = {
     .aligned = 1
   },
   {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBA_FP_32323232,
+    .format_str = "RGBA_FP_32323232",
+    .n_planes = 1,
+    .bpp = { 16 },
+    .aligned = 1
+  },
+  {
+    .cogl_format = COGL_PIXEL_FORMAT_RGBA_FP_32323232_PRE,
+    .format_str = "RGBA_FP_32323232_PRE",
+    .n_planes = 1,
+    .bpp = { 16 },
+    .aligned = 1
+  },
+  {
     .cogl_format = COGL_PIXEL_FORMAT_DEPTH_16,
     .format_str = "DEPTH_16",
     .n_planes = 1,
     .aligned = 1,
     .bpp = { 2 },
-  },
-  {
-    .cogl_format = COGL_PIXEL_FORMAT_DEPTH_32,
-    .format_str = "DEPTH_32",
-    .n_planes = 1,
-    .aligned = 1,
-    .bpp = { 4 },
   },
   {
     .cogl_format = COGL_PIXEL_FORMAT_DEPTH_24_STENCIL_8,

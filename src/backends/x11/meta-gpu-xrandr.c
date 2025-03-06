@@ -92,17 +92,17 @@ calculate_xrandr_refresh_rate (XRRModeInfo *xmode)
   float h_total;
   float v_total;
 
+  if (xmode->hTotal == 0 || xmode->vTotal == 0)
+    return 0.0;
+
   h_total = (float) xmode->hTotal;
   v_total = (float) xmode->vTotal;
 
-  if (h_total == 0.0 || v_total == 0.0)
-    return 0.0;
-
   if (xmode->modeFlags & RR_DoubleScan)
-    v_total *= 2.0;
+    v_total *= 2.0f;
 
   if (xmode->modeFlags & RR_Interlace)
-    v_total /= 2.0;
+    v_total /= 2.0f;
 
   return xmode->dotClock / (h_total * v_total);
 }

@@ -31,14 +31,16 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_ATTRIBUTE_BUFFER_PRIVATE_H
-#define __COGL_ATTRIBUTE_BUFFER_PRIVATE_H
+#pragma once
 
-#include "cogl-buffer-private.h"
+#include "cogl/cogl-buffer-private.h"
 
 struct _CoglAttributeBuffer
 {
-  CoglBuffer _parent;
+  CoglBuffer parent_instance;
 };
 
-#endif /* __COGL_ATTRIBUTE_BUFFER_PRIVATE_H */
+struct _CoglAttributeBufferClass
+{
+  CoglBufferClass parent_class;
+};

@@ -7,9 +7,6 @@ baseURLs = [
     [ 'GObject', 'https://docs.gtk.org/gobject/' ],
     [ 'Gio', 'https://docs.gtk.org/gio/' ],
     [ 'Atk', 'https://docs.gtk.org/atk/' ],
-    [ 'Gdk', 'https://docs.gtk.org/gdk3/' ],
-    [ 'Gtk', 'https://docs.gtk.org/gtk3/' ],
-    [ 'Pango', 'https://docs.gtk.org/Pango/' ],
-    [ 'PangoCairo', 'https://docs.gtk.org/PangoCairo/' ],
-    [ 'GdkPixbuf', 'https://docs.gtk.org/gdk-pixbuf/' ],
+    [ 'Mtk', 'https://mutter.gnome.org/mtk/' ],
+    [ 'Cogl', 'https://mutter.gnome.org/cogl/' ],
 ]

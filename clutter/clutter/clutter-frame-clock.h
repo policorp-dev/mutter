@@ -15,8 +15,7 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_FRAME_CLOCK_H
-#define CLUTTER_FRAME_CLOCK_H
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
@@ -46,21 +45,34 @@ G_DECLARE_FINAL_TYPE (ClutterFrameClock, clutter_frame_clock,
 typedef struct _ClutterFrameListenerIface
 {
   void (* before_frame) (ClutterFrameClock *frame_clock,
-                         int64_t            frame_count,
+                         ClutterFrame      *frame,
                          gpointer           user_data);
   ClutterFrameResult (* frame) (ClutterFrameClock *frame_clock,
-                                int64_t            frame_count,
+                                ClutterFrame      *frame,
+                                gpointer           user_data);
+  ClutterFrame * (* new_frame) (ClutterFrameClock *frame_clock,
                                 gpointer           user_data);
 } ClutterFrameListenerIface;
+
+typedef enum _ClutterFrameClockMode
+{
+  CLUTTER_FRAME_CLOCK_MODE_FIXED,
+  CLUTTER_FRAME_CLOCK_MODE_VARIABLE,
+} ClutterFrameClockMode;
 
 CLUTTER_EXPORT
 ClutterFrameClock * clutter_frame_clock_new (float                            refresh_rate,
                                              int64_t                          vblank_duration_us,
+                                             const char                      *name,
                                              const ClutterFrameListenerIface *iface,
                                              gpointer                         user_data);
 
 CLUTTER_EXPORT
 void clutter_frame_clock_destroy (ClutterFrameClock *frame_clock);
+
+CLUTTER_EXPORT
+void clutter_frame_clock_set_mode (ClutterFrameClock     *frame_clock,
+                                   ClutterFrameClockMode  mode);
 
 CLUTTER_EXPORT
 void clutter_frame_clock_notify_presented (ClutterFrameClock *frame_clock,
@@ -74,6 +86,10 @@ void clutter_frame_clock_schedule_update (ClutterFrameClock *frame_clock);
 
 CLUTTER_EXPORT
 void clutter_frame_clock_schedule_update_now (ClutterFrameClock *frame_clock);
+
+CLUTTER_EXPORT
+void clutter_frame_clock_add_future_time (ClutterFrameClock *frame_clock,
+                                          int64_t            when_us);
 
 CLUTTER_EXPORT
 void clutter_frame_clock_inhibit (ClutterFrameClock *frame_clock);
@@ -95,4 +111,6 @@ void clutter_frame_clock_record_flip_time (ClutterFrameClock *frame_clock,
 
 GString * clutter_frame_clock_get_max_render_time_debug_info (ClutterFrameClock *frame_clock);
 
-#endif /* CLUTTER_FRAME_CLOCK_H */
+CLUTTER_EXPORT
+void clutter_frame_clock_set_deadline_evasion (ClutterFrameClock *frame_clock,
+                                               int64_t            deadline_evasion_us);

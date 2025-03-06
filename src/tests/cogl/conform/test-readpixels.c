@@ -11,12 +11,13 @@
 #define FRAMEBUFFER_WIDTH  640
 #define FRAMEBUFFER_HEIGHT 480
 
-static const ClutterColor stage_color = { 0x0, 0x0, 0x0, 0xff };
+static const CoglColor stage_color = { 0x0, 0x0, 0x0, 0xff };
 
 
 static void
 on_after_paint (ClutterActor        *actor,
-                ClutterPaintContext *paint_context,
+                ClutterStageView    *stage_view,
+                ClutterFrame        *frame,
                 void                *state)
 {
   float saved_viewport[4];
@@ -24,8 +25,8 @@ on_after_paint (ClutterActor        *actor,
   graphene_matrix_t projection;
   graphene_matrix_t modelview;
   guchar *data;
-  CoglHandle tex;
-  CoglHandle offscreen;
+  CoglTexture *tex;
+  CoglOffscreen *offscreen;
   uint32_t *pixels;
   uint8_t *pixelsc;
 
@@ -124,7 +125,7 @@ on_after_paint (ClutterActor        *actor,
 
   g_free (pixelsc);
 
-  cogl_object_unref (tex);
+  g_object_unref (tex);
 
   /* Restore the viewport and matrices state */
   cogl_set_viewport (saved_viewport[0],

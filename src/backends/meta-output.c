@@ -12,17 +12,16 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
 
-#include "backends/edid.h"
 #include "backends/meta-output.h"
 
+#include "backends/edid.h"
 #include "backends/meta-crtc.h"
+#include "backends/meta-monitor-manager-private.h"
 
 enum
 {
@@ -31,11 +30,21 @@ enum
   PROP_ID,
   PROP_GPU,
   PROP_INFO,
+  PROP_IS_PRIVACY_SCREEN_ENABLED,
 
   N_PROPS
 };
 
 static GParamSpec *obj_props[N_PROPS];
+
+enum
+{
+  BACKLIGHT_CHANGED,
+
+  N_SIGNALS
+};
+
+static guint signals[N_SIGNALS];
 
 typedef struct _MetaOutputPrivate
 {
@@ -59,6 +68,12 @@ typedef struct _MetaOutputPrivate
   unsigned int max_bpc;
 
   int backlight;
+
+  MetaPrivacyScreenState privacy_screen_state;
+  gboolean is_privacy_screen_enabled;
+
+  MetaColorMode color_mode;
+  MetaOutputRGBRange rgb_range;
 } MetaOutputPrivate;
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (MetaOutput, meta_output, G_TYPE_OBJECT)
@@ -95,7 +110,9 @@ meta_output_info_unref (MetaOutputInfo *output_info)
       g_free (output_info->product);
       g_free (output_info->serial);
       g_free (output_info->edid_checksum_md5);
-      g_free (output_info->edid_info);
+      g_clear_pointer (&output_info->edid_info, meta_edid_info_free);
+      for (int i = 0; i < output_info->n_modes; i++)
+        g_object_unref (output_info->modes[i]);
       g_free (output_info->modes);
       g_free (output_info->possible_crtcs);
       g_free (output_info->possible_clones);
@@ -200,7 +217,12 @@ meta_output_set_backlight (MetaOutput *output,
 {
   MetaOutputPrivate *priv = meta_output_get_instance_private (output);
 
+  g_return_if_fail (backlight >= priv->info->backlight_min);
+  g_return_if_fail (backlight <= priv->info->backlight_max);
+
   priv->backlight = backlight;
+
+  g_signal_emit (output, signals[BACKLIGHT_CHANGED], 0);
 }
 
 int
@@ -253,9 +275,14 @@ meta_output_assign_crtc (MetaOutput                 *output,
   priv->is_presentation = output_assignment->is_presentation;
   priv->is_underscanning = output_assignment->is_underscanning;
 
+  if (output_assignment->rgb_range)
+    priv->rgb_range = output_assignment->rgb_range;
+
   priv->has_max_bpc = output_assignment->has_max_bpc;
   if (priv->has_max_bpc)
     priv->max_bpc = output_assignment->max_bpc;
+
+  priv->color_mode = output_assignment->color_mode;
 }
 
 void
@@ -281,41 +308,42 @@ meta_output_get_assigned_crtc (MetaOutput *output)
   return priv->crtc;
 }
 
-MetaMonitorTransform
-meta_output_logical_to_crtc_transform (MetaOutput           *output,
-                                       MetaMonitorTransform  transform)
+MtkMonitorTransform
+meta_output_logical_to_crtc_transform (MetaOutput          *output,
+                                       MtkMonitorTransform  transform)
 {
   MetaOutputPrivate *priv = meta_output_get_instance_private (output);
-  MetaMonitorTransform panel_orientation_transform;
+  MtkMonitorTransform panel_orientation_transform;
 
   panel_orientation_transform = priv->info->panel_orientation_transform;
-  return meta_monitor_transform_transform (transform,
-                                           panel_orientation_transform);
+  return mtk_monitor_transform_transform (transform,
+                                          panel_orientation_transform);
 }
 
-MetaMonitorTransform
-meta_output_crtc_to_logical_transform (MetaOutput           *output,
-                                       MetaMonitorTransform  transform)
+MtkMonitorTransform
+meta_output_crtc_to_logical_transform (MetaOutput          *output,
+                                       MtkMonitorTransform  transform)
 {
   MetaOutputPrivate *priv = meta_output_get_instance_private (output);
-  MetaMonitorTransform inverted_panel_orientation_transform;
+  MtkMonitorTransform inverted_panel_orientation_transform;
 
   inverted_panel_orientation_transform =
-    meta_monitor_transform_invert (priv->info->panel_orientation_transform);
-  return meta_monitor_transform_transform (transform,
-                                           inverted_panel_orientation_transform);
+    mtk_monitor_transform_invert (priv->info->panel_orientation_transform);
+  return mtk_monitor_transform_transform (transform,
+                                          inverted_panel_orientation_transform);
 }
 
 static void
 set_output_details_from_edid (MetaOutputInfo *output_info,
                               MetaEdidInfo   *edid_info)
 {
-  output_info->vendor = g_strndup (edid_info->manufacturer_code, 4);
+  output_info->vendor = g_strdup (edid_info->manufacturer_code);
   if (!g_utf8_validate (output_info->vendor, -1, NULL))
     g_clear_pointer (&output_info->vendor, g_free);
 
-  output_info->product = g_strndup (edid_info->dsc_product_name, 14);
-  if (!g_utf8_validate (output_info->product, -1, NULL) ||
+  output_info->product = g_strdup (edid_info->dsc_product_name);
+  if (!output_info->product ||
+      !g_utf8_validate (output_info->product, -1, NULL) ||
       output_info->product[0] == '\0')
     {
       g_clear_pointer (&output_info->product, g_free);
@@ -323,8 +351,9 @@ set_output_details_from_edid (MetaOutputInfo *output_info,
         g_strdup_printf ("0x%04x", (unsigned) edid_info->product_code);
     }
 
-  output_info->serial = g_strndup (edid_info->dsc_serial_number, 14);
-  if (!g_utf8_validate (output_info->serial, -1, NULL) ||
+  output_info->serial = g_strdup (edid_info->dsc_serial_number);
+  if (!output_info->serial ||
+      !g_utf8_validate (output_info->serial, -1, NULL) ||
       output_info->serial[0] == '\0')
     {
       g_clear_pointer (&output_info->serial, g_free);
@@ -338,38 +367,22 @@ meta_output_info_parse_edid (MetaOutputInfo *output_info,
                              GBytes         *edid)
 {
   MetaEdidInfo *edid_info;
-  size_t len;
+  size_t size;
   gconstpointer data;
 
   g_return_if_fail (!output_info->edid_info);
   g_return_if_fail (edid);
 
-  data = g_bytes_get_data (edid, &len);
-  edid_info = meta_edid_info_new_parse (data);
+  data = g_bytes_get_data (edid, &size);
+  edid_info = meta_edid_info_new_parse (data, size);
 
   output_info->edid_checksum_md5 = g_compute_checksum_for_data (G_CHECKSUM_MD5,
-                                                                data, len);
+                                                                data, size);
 
   if (edid_info)
     {
       output_info->edid_info = edid_info;
       set_output_details_from_edid (output_info, edid_info);
-    }
-}
-
-gboolean
-meta_output_is_laptop (MetaOutput *output)
-{
-  const MetaOutputInfo *output_info = meta_output_get_info (output);
-
-  switch (output_info->connector_type)
-    {
-    case META_CONNECTOR_TYPE_eDP:
-    case META_CONNECTOR_TYPE_LVDS:
-    case META_CONNECTOR_TYPE_DSI:
-      return TRUE;
-    default:
-      return FALSE;
     }
 }
 
@@ -392,6 +405,9 @@ meta_output_set_property (GObject      *object,
       break;
     case PROP_INFO:
       priv->info = meta_output_info_ref (g_value_get_boxed (value));
+      break;
+    case PROP_IS_PRIVACY_SCREEN_ENABLED:
+      priv->is_privacy_screen_enabled = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -417,6 +433,9 @@ meta_output_get_property (GObject    *object,
       break;
     case PROP_INFO:
       g_value_set_boxed (value, priv->info);
+      break;
+    case PROP_IS_PRIVACY_SCREEN_ENABLED:
+      g_value_set_boolean (value, priv->is_privacy_screen_enabled);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -457,14 +476,22 @@ meta_output_get_privacy_screen_state (MetaOutput *output)
 }
 
 gboolean
+meta_output_is_privacy_screen_enabled (MetaOutput *output)
+{
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
+
+  return priv->privacy_screen_state;
+}
+
+gboolean
 meta_output_set_privacy_screen_enabled (MetaOutput  *output,
                                         gboolean     enabled,
                                         GError     **error)
 {
-  MetaOutputClass *output_class = META_OUTPUT_GET_CLASS (output);
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
   MetaPrivacyScreenState state;
 
-  state = meta_output_get_privacy_screen_state (output);
+  state = priv->privacy_screen_state;
 
   if (state == META_PRIVACY_SCREEN_UNAVAILABLE)
     {
@@ -472,8 +499,6 @@ meta_output_set_privacy_screen_enabled (MetaOutput  *output,
                            "The privacy screen is not supported by this output");
       return FALSE;
     }
-
-  g_assert (output_class->set_privacy_screen_enabled != NULL);
 
   if (state & META_PRIVACY_SCREEN_LOCKED)
     {
@@ -483,10 +508,95 @@ meta_output_set_privacy_screen_enabled (MetaOutput  *output,
       return FALSE;
     }
 
-  if (!!(state & META_PRIVACY_SCREEN_ENABLED) == enabled)
+  if (priv->is_privacy_screen_enabled == enabled)
     return TRUE;
 
-  return output_class->set_privacy_screen_enabled (output, enabled, error);
+  priv->is_privacy_screen_enabled = enabled;
+  g_object_notify_by_pspec (G_OBJECT (output),
+                            obj_props[PROP_IS_PRIVACY_SCREEN_ENABLED]);
+  return TRUE;
+}
+
+gboolean
+meta_output_info_get_min_refresh_rate (const MetaOutputInfo *output_info,
+                                       int                  *min_refresh_rate)
+{
+  int min_vert_rate_hz;
+
+  if (!output_info->edid_info)
+    return FALSE;
+
+  min_vert_rate_hz = output_info->edid_info->min_vert_rate_hz;
+
+  if (min_vert_rate_hz <= 0)
+    return FALSE;
+
+  *min_refresh_rate = min_vert_rate_hz;
+
+  return TRUE;
+}
+
+void
+meta_output_get_color_metadata (MetaOutput            *output,
+                                MetaOutputHdrMetadata *hdr_metadata,
+                                MetaOutputColorspace  *colorspace)
+{
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
+
+  switch (priv->color_mode)
+    {
+    case META_COLOR_MODE_DEFAULT:
+      *hdr_metadata = (MetaOutputHdrMetadata) {
+        .active = FALSE
+      };
+      *colorspace = META_OUTPUT_COLORSPACE_DEFAULT;
+      break;
+    case META_COLOR_MODE_BT2100:
+      *hdr_metadata = (MetaOutputHdrMetadata) {
+        .active = TRUE,
+        .eotf = META_OUTPUT_HDR_METADATA_EOTF_PQ,
+      };
+      *colorspace = META_OUTPUT_COLORSPACE_BT2020;
+      break;
+    }
+}
+
+MetaColorMode
+meta_output_get_color_mode (MetaOutput *output)
+{
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
+
+  return priv->color_mode;
+}
+
+MetaOutputRGBRange
+meta_output_peek_rgb_range (MetaOutput *output)
+{
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
+
+  return priv->rgb_range;
+}
+
+gboolean
+meta_output_is_vrr_enabled (MetaOutput *output)
+{
+  MetaOutputPrivate *priv = meta_output_get_instance_private (output);
+  MetaCrtc *crtc = priv->crtc;
+  const MetaCrtcConfig *crtc_config;
+  const MetaCrtcModeInfo *crtc_mode_info;
+
+  if (!crtc)
+    return FALSE;
+
+  crtc_config = meta_crtc_get_config (crtc);
+  g_assert (crtc_config != NULL);
+  g_assert (crtc_config->mode != NULL);
+
+  crtc_mode_info = meta_crtc_mode_get_info (crtc_config->mode);
+  g_assert (crtc_mode_info != NULL);
+
+  return crtc_mode_info->refresh_rate_mode ==
+         META_CRTC_REFRESH_RATE_MODE_VARIABLE;
 }
 
 static void
@@ -495,6 +605,12 @@ meta_output_init (MetaOutput *output)
   MetaOutputPrivate *priv = meta_output_get_instance_private (output);
 
   priv->backlight = -1;
+  priv->is_primary = FALSE;
+  priv->is_presentation = FALSE;
+  priv->is_underscanning = FALSE;
+  priv->has_max_bpc = FALSE;
+  priv->max_bpc = 0;
+  priv->rgb_range = META_OUTPUT_RGB_RANGE_AUTO;
 }
 
 static void
@@ -508,30 +624,37 @@ meta_output_class_init (MetaOutputClass *klass)
   object_class->finalize = meta_output_finalize;
 
   obj_props[PROP_ID] =
-    g_param_spec_uint64 ("id",
-                         "id",
-                         "CRTC id",
+    g_param_spec_uint64 ("id", NULL, NULL,
                          0, UINT64_MAX, 0,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
   obj_props[PROP_GPU] =
-    g_param_spec_object ("gpu",
-                         "gpu",
-                         "MetaGpu",
+    g_param_spec_object ("gpu", NULL, NULL,
                          META_TYPE_GPU,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
   obj_props[PROP_INFO] =
-    g_param_spec_boxed ("info",
-                        "info",
-                        "MetaOutputInfo",
+    g_param_spec_boxed ("info", NULL, NULL,
                         META_TYPE_OUTPUT_INFO,
                         G_PARAM_READWRITE |
                         G_PARAM_CONSTRUCT_ONLY |
                         G_PARAM_STATIC_STRINGS);
+  obj_props[PROP_IS_PRIVACY_SCREEN_ENABLED] =
+    g_param_spec_boolean ("is-privacy-screen-enabled", NULL, NULL,
+                          FALSE,
+                          G_PARAM_READWRITE |
+                          G_PARAM_STATIC_STRINGS);
   g_object_class_install_properties (object_class, N_PROPS, obj_props);
+
+  signals[BACKLIGHT_CHANGED] =
+    g_signal_new ("backlight-changed",
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL, NULL,
+                  G_TYPE_NONE, 0);
 }
 
 gboolean
@@ -563,6 +686,70 @@ meta_tile_info_equal (MetaTileInfo *a,
     return FALSE;
 
   if (a->tile_h != b->tile_h)
+    return FALSE;
+
+  return TRUE;
+}
+
+static gboolean
+hdr_primaries_equal (double x1, double x2)
+{
+  return fabs (x1 - x2) < (0.00002 - DBL_EPSILON);
+}
+
+static gboolean
+hdr_nits_equal (double x1, double x2)
+{
+  return fabs (x1 - x2) < (1.0 - DBL_EPSILON);
+}
+
+static gboolean
+hdr_min_luminance_equal (double x1, double x2)
+{
+  return fabs (x1 - x2) < (0.0001 - DBL_EPSILON);
+}
+
+gboolean
+meta_output_hdr_metadata_equal (MetaOutputHdrMetadata *metadata,
+                                MetaOutputHdrMetadata *other_metadata)
+{
+  if (!metadata->active && !other_metadata->active)
+    return TRUE;
+
+  if (metadata->active != other_metadata->active)
+    return FALSE;
+
+  if (metadata->eotf != other_metadata->eotf)
+      return FALSE;
+
+  if (!hdr_primaries_equal (metadata->mastering_display_primaries[0].x,
+                            other_metadata->mastering_display_primaries[0].x) ||
+      !hdr_primaries_equal (metadata->mastering_display_primaries[0].y,
+                            other_metadata->mastering_display_primaries[0].y) ||
+      !hdr_primaries_equal (metadata->mastering_display_primaries[1].x,
+                            other_metadata->mastering_display_primaries[1].x) ||
+      !hdr_primaries_equal (metadata->mastering_display_primaries[1].y,
+                            other_metadata->mastering_display_primaries[1].y) ||
+      !hdr_primaries_equal (metadata->mastering_display_primaries[2].x,
+                            other_metadata->mastering_display_primaries[2].x) ||
+      !hdr_primaries_equal (metadata->mastering_display_primaries[2].y,
+                            other_metadata->mastering_display_primaries[2].y) ||
+      !hdr_primaries_equal (metadata->mastering_display_white_point.x,
+                            other_metadata->mastering_display_white_point.x) ||
+      !hdr_primaries_equal (metadata->mastering_display_white_point.y,
+                            other_metadata->mastering_display_white_point.y))
+    return FALSE;
+
+  if (!hdr_nits_equal (metadata->mastering_display_max_luminance,
+                       other_metadata->mastering_display_max_luminance))
+    return FALSE;
+
+  if (!hdr_min_luminance_equal (metadata->mastering_display_min_luminance,
+                                other_metadata->mastering_display_min_luminance))
+    return FALSE;
+
+  if (!hdr_nits_equal (metadata->max_cll, other_metadata->max_cll) ||
+      !hdr_nits_equal (metadata->max_fall, other_metadata->max_fall))
     return FALSE;
 
   return TRUE;

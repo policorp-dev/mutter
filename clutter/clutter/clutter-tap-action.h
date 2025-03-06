@@ -31,33 +31,24 @@
  *   Chris Lord <chris@linux.intel.com>
  */
 
-#ifndef __CLUTTER_TAP_ACTION_H__
-#define __CLUTTER_TAP_ACTION_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-gesture-action.h>
+#include "clutter/clutter-gesture-action.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_TAP_ACTION               (clutter_tap_action_get_type ())
-#define CLUTTER_TAP_ACTION(obj)               (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TAP_ACTION, ClutterTapAction))
-#define CLUTTER_IS_TAP_ACTION(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_TAP_ACTION))
-#define CLUTTER_TAP_ACTION_CLASS(klass)       (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_TAP_ACTION, ClutterTapActionClass))
-#define CLUTTER_IS_TAP_ACTION_CLASS(klass)    (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_TAP_ACTION))
-#define CLUTTER_TAP_ACTION_GET_CLASS(obj)     (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_TAP_ACTION, ClutterTapActionClass))
 
-typedef struct _ClutterTapAction              ClutterTapAction;
-typedef struct _ClutterTapActionPrivate       ClutterTapActionPrivate;
-typedef struct _ClutterTapActionClass         ClutterTapActionClass;
-
-struct _ClutterTapAction
-{
-  /*< private >*/
-  ClutterGestureAction parent_instance;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterTapAction,
+                          clutter_tap_action,
+                          CLUTTER,
+                          TAP_ACTION,
+                          ClutterGestureAction)
 
 /**
  * ClutterTapActionClass:
@@ -74,21 +65,8 @@ struct _ClutterTapActionClass
   /*< public >*/
   gboolean (* tap)               (ClutterTapAction    *action,
                                   ClutterActor        *actor);
-
-  /*< private >*/
-  void (* _clutter_tap_action1) (void);
-  void (* _clutter_tap_action2) (void);
-  void (* _clutter_tap_action3) (void);
-  void (* _clutter_tap_action4) (void);
-  void (* _clutter_tap_action5) (void);
-  void (* _clutter_tap_action6) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_tap_action_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterAction * clutter_tap_action_new   (void);
 G_END_DECLS
-
-#endif /* __CLUTTER_TAP_ACTION_H__ */

@@ -25,26 +25,23 @@
  *   Chris Lord <chris@linux.intel.com>
  */
 
-#ifndef __CLUTTER_PAGE_TURN_EFFECT_H__
-#define __CLUTTER_PAGE_TURN_EFFECT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-deform-effect.h>
+#include "clutter/clutter-deform-effect.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_PAGE_TURN_EFFECT           (clutter_page_turn_effect_get_type ())
-#define CLUTTER_PAGE_TURN_EFFECT(obj)           (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_PAGE_TURN_EFFECT, ClutterPageTurnEffect))
-#define CLUTTER_IS_PAGE_TURN_EFFECT(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_PAGE_TURN_EFFECT))
-
-typedef struct _ClutterPageTurnEffect           ClutterPageTurnEffect;
-typedef struct _ClutterPageTurnEffectClass      ClutterPageTurnEffectClass;
 
 CLUTTER_EXPORT
-GType clutter_page_turn_effect_get_type (void) G_GNUC_CONST;
+G_DECLARE_FINAL_TYPE (ClutterPageTurnEffect,
+                      clutter_page_turn_effect,
+                      CLUTTER, PAGE_TURN_EFFECT,
+                      ClutterDeformEffect)
 
 CLUTTER_EXPORT
 ClutterEffect *clutter_page_turn_effect_new (gdouble period,
@@ -68,5 +65,3 @@ CLUTTER_EXPORT
 gfloat  clutter_page_turn_effect_get_radius (ClutterPageTurnEffect *effect);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_PAGE_TURN_EFFECT_H__ */

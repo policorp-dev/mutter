@@ -31,20 +31,20 @@
  *   Neil Roberts <neil@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <string.h>
 
-#include "cogl-context-private.h"
-#include "cogl-pipeline-private.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "driver/gl/cogl-pipeline-opengl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-feature-private.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-gl-private.h"
 
-#include "cogl-context-private.h"
-#include "cogl-object-private.h"
-#include "cogl-pipeline-state-private.h"
-#include "cogl-glsl-shader-boilerplate.h"
-#include "driver/gl/cogl-pipeline-vertend-glsl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-pipeline-state-private.h"
+#include "cogl/cogl-glsl-shader-boilerplate.h"
+#include "cogl/driver/gl/cogl-pipeline-vertend-glsl-private.h"
 #include "deprecated/cogl-program-private.h"
 
 const CoglPipelineVertend _cogl_pipeline_glsl_vertend;
@@ -59,7 +59,7 @@ struct _CoglPipelineVertendShaderState
   CoglPipelineCacheEntry *cache_entry;
 };
 
-static CoglUserDataKey shader_state_key;
+static GQuark shader_state_key = 0;
 
 static CoglPipelineVertendShaderState *
 shader_state_new (CoglPipelineCacheEntry *cache_entry)
@@ -73,10 +73,29 @@ shader_state_new (CoglPipelineCacheEntry *cache_entry)
   return shader_state;
 }
 
+typedef struct
+{
+  CoglPipelineVertendShaderState *shader_state;
+  CoglPipeline *instance;
+} CoglPipelineVertendShaderStateCache;
+
+static GQuark
+get_cache_key (void)
+{
+  if (G_UNLIKELY (shader_state_key == 0))
+    shader_state_key = g_quark_from_static_string ("shader-vertend-state-key");
+
+  return shader_state_key;
+}
+
 static CoglPipelineVertendShaderState *
 get_shader_state (CoglPipeline *pipeline)
 {
-  return cogl_object_get_user_data (COGL_OBJECT (pipeline), &shader_state_key);
+  CoglPipelineVertendShaderStateCache * cache;
+  cache = g_object_get_qdata (G_OBJECT (pipeline), get_cache_key ());
+  if (cache)
+    return cache->shader_state;
+  return NULL;
 }
 
 CoglPipelineVertendShaderState *
@@ -86,15 +105,14 @@ cogl_pipeline_vertend_glsl_get_shader_state (CoglPipeline *pipeline)
 }
 
 static void
-destroy_shader_state (void *user_data,
-                      void *instance)
+destroy_shader_state (void *user_data)
 {
-  CoglPipelineVertendShaderState *shader_state = user_data;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglPipelineVertendShaderStateCache *cache = user_data;
+  CoglPipelineVertendShaderState *shader_state = cache->shader_state;
+  CoglContext *ctx = cache->instance->context;
 
   if (shader_state->cache_entry &&
-      shader_state->cache_entry->pipeline != instance)
+      shader_state->cache_entry->pipeline != cache->instance)
     shader_state->cache_entry->usage_count--;
 
   if (--shader_state->ref_count == 0)
@@ -104,6 +122,8 @@ destroy_shader_state (void *user_data,
 
       g_free (shader_state);
     }
+
+  g_free (cache);
 }
 
 static void
@@ -121,19 +141,22 @@ set_shader_state (CoglPipeline *pipeline,
         shader_state->cache_entry->usage_count++;
     }
 
-  _cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                              &shader_state_key,
-                              shader_state,
-                              destroy_shader_state);
+  CoglPipelineVertendShaderStateCache *cache = g_new0 (CoglPipelineVertendShaderStateCache, 1);
+  cache->instance = pipeline;
+  cache->shader_state = shader_state;
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           cache,
+                           destroy_shader_state);
 }
 
 static void
 dirty_shader_state (CoglPipeline *pipeline)
 {
-  cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                             &shader_state_key,
-                             NULL,
-                             NULL);
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           NULL,
+                           NULL);
 }
 
 static gboolean
@@ -166,6 +189,26 @@ add_layer_fragment_boilerplate_cb (CoglPipelineLayer *layer,
   return TRUE;
 }
 
+static char *
+glsl_version_string (CoglContext *ctx)
+{
+  gboolean needs_es_annotation = ctx->glsl_es && ctx->glsl_major > 1;
+
+  return g_strdup_printf ("%d%02d%s",
+                          ctx->glsl_major,
+                          ctx->glsl_minor,
+                          needs_es_annotation ? " es" : "");
+}
+
+static gboolean
+is_glsl140_syntax (CoglContext *ctx)
+{
+  if (ctx->glsl_es)
+    return COGL_CHECK_GL_VERSION (ctx->glsl_major, ctx->glsl_minor, 3, 0);
+
+  return COGL_CHECK_GL_VERSION (ctx->glsl_major, ctx->glsl_minor, 1, 40);
+}
+
 void
 _cogl_glsl_shader_set_source_with_boilerplate (CoglContext *ctx,
                                                GLuint shader_gl_handle,
@@ -175,25 +218,21 @@ _cogl_glsl_shader_set_source_with_boilerplate (CoglContext *ctx,
                                                const char **strings_in,
                                                const GLint *lengths_in)
 {
-  const char *vertex_boilerplate;
-  const char *fragment_boilerplate;
-
-  const char **strings = g_alloca (sizeof (char *) * (count_in + 4));
-  GLint *lengths = g_alloca (sizeof (GLint) * (count_in + 4));
-  char *version_string;
+  const char **strings = g_alloca (sizeof (char *) * (count_in + 5));
+  GLint *lengths = g_alloca (sizeof (GLint) * (count_in + 5));
+  g_autofree char *glsl_version = NULL;
+  g_autofree char *version_string = NULL;
   int count = 0;
-
   int n_layers;
+  g_autoptr (GString) layer_declarations = NULL;
 
-  vertex_boilerplate = _COGL_VERTEX_SHADER_BOILERPLATE;
-  fragment_boilerplate = _COGL_FRAGMENT_SHADER_BOILERPLATE;
+  glsl_version = glsl_version_string (ctx);
+  version_string = g_strdup_printf ("#version %s\n\n", glsl_version);
 
-  version_string = g_strdup_printf ("#version %i\n\n",
-                                    ctx->glsl_version_to_use);
   strings[count] = version_string;
   lengths[count++] = -1;
 
-  if (cogl_has_feature (ctx, COGL_FEATURE_ID_TEXTURE_EGL_IMAGE_EXTERNAL))
+  if (cogl_context_has_feature (ctx, COGL_FEATURE_ID_TEXTURE_EGL_IMAGE_EXTERNAL))
     {
       static const char image_external_extension[] =
         "#extension GL_OES_EGL_image_external : require\n";
@@ -203,20 +242,31 @@ _cogl_glsl_shader_set_source_with_boilerplate (CoglContext *ctx,
 
   if (shader_gl_type == GL_VERTEX_SHADER)
     {
-      strings[count] = vertex_boilerplate;
-      lengths[count++] = strlen (vertex_boilerplate);
+      if (is_glsl140_syntax (ctx))
+        {
+          strings[count] = _COGL_VERTEX_SHADER_FALLBACK_BOILERPLATE;
+          lengths[count++] = strlen (_COGL_VERTEX_SHADER_FALLBACK_BOILERPLATE);
+        }
+
+      strings[count] = _COGL_VERTEX_SHADER_BOILERPLATE;
+      lengths[count++] = strlen (_COGL_VERTEX_SHADER_BOILERPLATE);
     }
   else if (shader_gl_type == GL_FRAGMENT_SHADER)
     {
-      strings[count] = fragment_boilerplate;
-      lengths[count++] = strlen (fragment_boilerplate);
+      if (is_glsl140_syntax (ctx))
+        {
+          strings[count] = _COGL_FRAGMENT_SHADER_FALLBACK_BOILERPLATE;
+          lengths[count++] = strlen (_COGL_FRAGMENT_SHADER_FALLBACK_BOILERPLATE);
+        }
+
+      strings[count] = _COGL_FRAGMENT_SHADER_BOILERPLATE;
+      lengths[count++] = strlen (_COGL_FRAGMENT_SHADER_BOILERPLATE);
     }
 
   n_layers = cogl_pipeline_get_n_layers (pipeline);
   if (n_layers)
     {
-      GString *layer_declarations = ctx->codegen_boilerplate_buffer;
-      g_string_set_size (layer_declarations, 0);
+      layer_declarations = g_string_new ("");
 
       g_string_append_printf (layer_declarations,
                               "varying vec4 _cogl_tex_coord[%d];\n",
@@ -257,28 +307,35 @@ _cogl_glsl_shader_set_source_with_boilerplate (CoglContext *ctx,
 
   if (G_UNLIKELY (COGL_DEBUG_ENABLED (COGL_DEBUG_SHOW_SOURCE)))
     {
-      GString *buf = g_string_new (NULL);
+      GString *buf;
+      g_auto (GStrv) lines = NULL;
       int i;
 
-      g_string_append_printf (buf,
-                              "%s shader:\n",
-                              shader_gl_type == GL_VERTEX_SHADER ?
-                              "vertex" : "fragment");
+      buf = g_string_new (NULL);
       for (i = 0; i < count; i++)
         if (lengths[i] != -1)
           g_string_append_len (buf, strings[i], lengths[i]);
         else
           g_string_append (buf, strings[i]);
 
-      g_message ("%s", buf->str);
+      lines = g_strsplit (buf->str, "\n", 0);
+      g_string_free (buf, TRUE);
 
+      buf = g_string_new (NULL);
+      for (i = 0; lines[i]; i++)
+        g_string_append_printf (buf, "%4d: %s\n", i + 1, lines[i]);
+
+      g_message ("%s shader (%s; %u):\n%s",
+                 shader_gl_type == GL_VERTEX_SHADER ?
+                 "vertex" : "fragment",
+                 pipeline->name ? pipeline->name : "unknown",
+                 shader_gl_handle,
+                 buf->str);
       g_string_free (buf, TRUE);
     }
 
   GE( ctx, glShaderSource (shader_gl_handle, count,
                            (const char **) strings, lengths) );
-
-  g_free (version_string);
 }
 GLuint
 _cogl_pipeline_vertend_glsl_get_shader (CoglPipeline *pipeline)
@@ -358,8 +415,7 @@ _cogl_pipeline_vertend_glsl_start (CoglPipeline *pipeline,
   CoglPipelineVertendShaderState *shader_state;
   CoglPipelineCacheEntry *cache_entry = NULL;
   CoglProgram *user_program = cogl_pipeline_get_user_program (pipeline);
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   /* Now lookup our glsl backend private state (allocating if
    * necessary) */
@@ -481,8 +537,6 @@ _cogl_pipeline_vertend_glsl_add_layer (CoglPipeline *pipeline,
   CoglPipelineSnippetData snippet_data;
   int layer_index = layer->index;
 
-  _COGL_GET_CONTEXT (ctx, FALSE);
-
   shader_state = get_shader_state (pipeline);
 
   if (shader_state->source == NULL)
@@ -549,8 +603,7 @@ _cogl_pipeline_vertend_glsl_end (CoglPipeline *pipeline,
                                  unsigned long pipelines_difference)
 {
   CoglPipelineVertendShaderState *shader_state;
-
-  _COGL_GET_CONTEXT (ctx, FALSE);
+  CoglContext *ctx = pipeline->context;
 
   shader_state = get_shader_state (pipeline);
 
@@ -696,7 +749,7 @@ _cogl_pipeline_vertend_glsl_pre_change_notify (CoglPipeline *pipeline,
                                                CoglPipelineState change,
                                                const CoglColor *new_color)
 {
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   if ((change & _cogl_pipeline_get_state_for_vertex_codegen (ctx)))
     dirty_shader_state (pipeline);

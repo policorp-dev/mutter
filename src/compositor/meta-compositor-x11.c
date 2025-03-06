@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -75,7 +73,6 @@ meta_compositor_x11_process_xevent (MetaCompositorX11 *compositor_x11,
 {
   MetaCompositor *compositor = META_COMPOSITOR (compositor_x11);
   MetaDisplay *display = meta_compositor_get_display (compositor);
-  MetaBackend *backend = meta_compositor_get_backend (compositor);
   MetaX11Display *x11_display = display->x11_display;
   int damage_event_base;
 
@@ -100,13 +97,6 @@ meta_compositor_x11_process_xevent (MetaCompositorX11 *compositor_x11,
 
   if (compositor_x11->have_x11_sync_object)
     meta_sync_ring_handle_event (xevent);
-
-  /*
-   * Clutter needs to know about MapNotify events otherwise it will think the
-   * stage is invisible
-   */
-  if (xevent->type == MapNotify)
-    meta_x11_handle_event (backend, xevent);
 }
 
 static void
@@ -141,10 +131,13 @@ meta_compositor_x11_manage (MetaCompositor  *compositor,
 {
   MetaCompositorX11 *compositor_x11 = META_COMPOSITOR_X11 (compositor);
   MetaDisplay *display = meta_compositor_get_display (compositor);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
   MetaX11Display *x11_display = display->x11_display;
   Display *xdisplay = meta_x11_display_get_xdisplay (x11_display);
   int composite_version;
-  MetaBackend *backend = meta_get_backend ();
   Window xwindow;
 
   if (!META_X11_DISPLAY_HAS_COMPOSITE (x11_display) ||
@@ -170,15 +163,13 @@ meta_compositor_x11_manage (MetaCompositor  *compositor,
 
   determine_server_clock_source (compositor_x11);
 
-  meta_x11_display_set_cm_selection (display->x11_display);
-
   compositor_x11->output = display->x11_display->composite_overlay_window;
 
   xwindow = meta_backend_x11_get_xwindow (META_BACKEND_X11 (backend));
 
   XReparentWindow (xdisplay, xwindow, compositor_x11->output, 0, 0);
 
-  meta_x11_display_clear_stage_input_region (display->x11_display);
+  meta_x11_display_set_stage_input_region (display->x11_display, NULL, 0);
 
   /*
    * Make sure there isn't any left-over output shape on the overlay window by
@@ -197,9 +188,9 @@ meta_compositor_x11_manage (MetaCompositor  *compositor,
    */
   XMapWindow (xdisplay, compositor_x11->output);
 
-  compositor_x11->have_x11_sync_object = meta_sync_ring_init (xdisplay);
+  compositor_x11->have_x11_sync_object = meta_sync_ring_init (cogl_context, xdisplay);
 
-  meta_compositor_redirect_x11_windows (META_COMPOSITOR (compositor));
+  meta_x11_display_redirect_windows (x11_display, display);
 
   return TRUE;
 }
@@ -208,10 +199,16 @@ static void
 meta_compositor_x11_unmanage (MetaCompositor *compositor)
 {
   MetaDisplay *display = meta_compositor_get_display (compositor);
+  MetaContext *context = meta_display_get_context (display);
+  MetaBackend *backend = meta_context_get_backend (context);
   MetaX11Display *x11_display = display->x11_display;
   Display *xdisplay = x11_display->xdisplay;
   Window xroot = x11_display->xroot;
+  Window backend_xwindow;
   MetaCompositorClass *parent_class;
+
+  backend_xwindow = meta_backend_x11_get_xwindow (META_BACKEND_X11 (backend));
+  XReparentWindow (xdisplay, backend_xwindow, xroot, 0, 0);
 
   /*
    * This is the most important part of cleanup - we have to do this before
@@ -249,7 +246,7 @@ shape_cow_for_window (MetaCompositorX11 *compositor_x11,
       XserverRegion output_region;
       XRectangle screen_rect, window_bounds;
       int width, height;
-      MetaRectangle rect;
+      MtkRectangle rect;
 
       meta_window_get_frame_rect (window, &rect);
 
@@ -332,15 +329,16 @@ out:
 }
 
 static void
-on_before_update (ClutterStage     *stage,
-                  ClutterStageView *stage_view,
-                  MetaCompositor   *compositor)
+maybe_do_sync (MetaCompositor *compositor)
 {
   MetaCompositorX11 *compositor_x11 = META_COMPOSITOR_X11 (compositor);
 
   if (compositor_x11->frame_has_updated_xsurfaces)
     {
       MetaDisplay *display = meta_compositor_get_display (compositor);
+      MetaBackend *backend = meta_compositor_get_backend (compositor);
+      ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+      CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
 
       /*
        * We need to make sure that any X drawing that happens before the
@@ -363,23 +361,37 @@ on_before_update (ClutterStage     *stage,
        * at this point is sufficient to flush the GLX buffers.
        */
       if (compositor_x11->have_x11_sync_object)
-        compositor_x11->have_x11_sync_object = meta_sync_ring_insert_wait ();
+        compositor_x11->have_x11_sync_object = meta_sync_ring_insert_wait (cogl_context);
       else
         XSync (display->x11_display->xdisplay, False);
     }
 }
 
 static void
+on_before_update (ClutterStage     *stage,
+                  ClutterStageView *stage_view,
+                  ClutterFrame     *frame,
+                  MetaCompositor   *compositor)
+{
+  maybe_do_sync (compositor);
+}
+
+static void
 on_after_update (ClutterStage     *stage,
                  ClutterStageView *stage_view,
+                 ClutterFrame     *frame,
                  MetaCompositor   *compositor)
 {
   MetaCompositorX11 *compositor_x11 = META_COMPOSITOR_X11 (compositor);
 
   if (compositor_x11->frame_has_updated_xsurfaces)
     {
+      MetaBackend *backend = meta_compositor_get_backend (compositor);
+      ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+      CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
+
       if (compositor_x11->have_x11_sync_object)
-        compositor_x11->have_x11_sync_object = meta_sync_ring_after_frame ();
+        compositor_x11->have_x11_sync_object = meta_sync_ring_after_frame (cogl_context);
 
       compositor_x11->frame_has_updated_xsurfaces = FALSE;
     }
@@ -396,6 +408,22 @@ meta_compositor_x11_before_paint (MetaCompositor     *compositor,
 
   parent_class = META_COMPOSITOR_CLASS (meta_compositor_x11_parent_class);
   parent_class->before_paint (compositor, compositor_view);
+
+  /* We must sync after MetaCompositor's before_paint because that's the final
+   * time XDamageSubtract may happen before painting (when it calls
+   * meta_window_actor_x11_before_paint -> handle_updates ->
+   * meta_surface_actor_x11_handle_updates). If a client was to redraw between
+   * the last damage event and XDamageSubtract, and the bounding box of the
+   * region didn't grow, then we will not receive a new damage report for it
+   * (because XDamageReportBoundingBox). Then if we haven't synchronized again
+   * and the same region doesn't change on subsequent frames, we have lost some
+   * part of the update from the client. So to ensure the correct pixels get
+   * composited we must sync at least once between XDamageSubtract and
+   * compositing, which is here. More related documentation can be found in
+   * maybe_do_sync.
+   */
+
+  maybe_do_sync (compositor);
 }
 
 static void
@@ -441,22 +469,6 @@ meta_compositor_x11_monotonic_to_high_res_xserver_time (MetaCompositor *composit
     }
 
   return monotonic_time_us + compositor_x11->xserver_time_offset_us;
-}
-
-static void
-meta_compositor_x11_grab_begin (MetaCompositor *compositor)
-{
-  MetaBackendX11 *backend_x11 = META_BACKEND_X11 (meta_get_backend ());
-
-  meta_backend_x11_sync_pointer (backend_x11);
-}
-
-static void
-meta_compositor_x11_grab_end (MetaCompositor *compositor)
-{
-  MetaBackendX11 *backend_x11 = META_BACKEND_X11 (meta_get_backend ());
-
-  meta_backend_x11_sync_pointer (backend_x11);
 }
 
 static MetaCompositorView *
@@ -538,7 +550,5 @@ meta_compositor_x11_class_init (MetaCompositorX11Class *klass)
   compositor_class->remove_window = meta_compositor_x11_remove_window;
   compositor_class->monotonic_to_high_res_xserver_time =
    meta_compositor_x11_monotonic_to_high_res_xserver_time;
-  compositor_class->grab_begin = meta_compositor_x11_grab_begin;
-  compositor_class->grab_end = meta_compositor_x11_grab_end;
   compositor_class->create_view = meta_compositor_x11_create_view;
 }

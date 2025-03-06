@@ -13,9 +13,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,6 +24,7 @@
 #include "compositor/meta-surface-actor-wayland.h"
 #include "compositor/meta-window-actor-private.h"
 #include "wayland/meta-wayland-actor-surface.h"
+#include "wayland/meta-window-xwayland.h"
 #include "wayland/meta-xwayland-private.h"
 
 enum
@@ -44,6 +43,7 @@ struct _MetaXwaylandSurface
   MetaWindow *window;
 
   gulong unmanaging_handler_id;
+  gulong highest_scale_monitor_handler_id;
 };
 
 G_DEFINE_TYPE (MetaXwaylandSurface,
@@ -58,14 +58,17 @@ clear_window (MetaXwaylandSurface *xwayland_surface)
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
   MetaSurfaceActor *surface_actor;
+  MetaWindowXwayland *xwayland_window;
 
   if (!xwayland_surface->window)
     return;
 
   g_clear_signal_handler (&xwayland_surface->unmanaging_handler_id,
                           xwayland_surface->window);
-
-  xwayland_surface->window->surface = NULL;
+  g_clear_signal_handler (&xwayland_surface->highest_scale_monitor_handler_id,
+                          xwayland_surface->window);
+  xwayland_window = META_WINDOW_XWAYLAND (xwayland_surface->window);
+  meta_window_xwayland_set_surface (xwayland_window, NULL);
   xwayland_surface->window = NULL;
 
   surface_actor = meta_wayland_surface_get_actor (surface);
@@ -90,6 +93,8 @@ meta_xwayland_surface_associate_with_window (MetaXwaylandSurface *xwayland_surfa
     META_WAYLAND_SURFACE_ROLE (xwayland_surface);
   MetaWaylandSurface *surface =
     meta_wayland_surface_role_get_surface (surface_role);
+  MetaWindowXwayland *xwayland_window = META_WINDOW_XWAYLAND (window);
+  MetaWaylandSurface *window_surface = meta_window_get_wayland_surface (window);
   MetaSurfaceActor *surface_actor;
   MetaWindowActor *window_actor;
 
@@ -98,15 +103,15 @@ meta_xwayland_surface_associate_with_window (MetaXwaylandSurface *xwayland_surfa
    * decorating the window, then we need to detach the window from its old
    * surface.
    */
-  if (window->surface)
+  if (window_surface)
     {
       MetaXwaylandSurface *other_xwayland_surface;
 
-      other_xwayland_surface = META_XWAYLAND_SURFACE (window->surface->role);
+      other_xwayland_surface = META_XWAYLAND_SURFACE (window_surface->role);
       clear_window (other_xwayland_surface);
     }
 
-  window->surface = surface;
+  meta_window_xwayland_set_surface (xwayland_window, surface);
   xwayland_surface->window = window;
 
   surface_actor = meta_wayland_surface_get_actor (surface);
@@ -124,6 +129,12 @@ meta_xwayland_surface_associate_with_window (MetaXwaylandSurface *xwayland_surfa
   window_actor = meta_window_actor_from_window (window);
   if (window_actor)
     meta_window_actor_assign_surface_actor (window_actor, surface_actor);
+
+  xwayland_surface->highest_scale_monitor_handler_id =
+    g_signal_connect_swapped (window, "highest-scale-monitor-changed",
+                              G_CALLBACK (meta_wayland_surface_notify_preferred_scale_monitor),
+                              surface);
+  meta_wayland_surface_notify_preferred_scale_monitor (surface);
 }
 
 static void
@@ -148,7 +159,7 @@ meta_xwayland_surface_pre_apply_state (MetaWaylandSurfaceRole  *surface_role,
   MetaXwaylandSurface *xwayland_surface = META_XWAYLAND_SURFACE (surface_role);
 
   if (pending->newly_attached &&
-      !surface->buffer_ref->buffer &&
+      !surface->buffer &&
       xwayland_surface->window)
     meta_window_queue (xwayland_surface->window, META_QUEUE_CALC_SHOWING);
 }
@@ -161,13 +172,19 @@ meta_xwayland_surface_get_relative_coordinates (MetaWaylandSurfaceRole *surface_
                                                 float                  *out_sy)
 {
   MetaXwaylandSurface *xwayland_surface = META_XWAYLAND_SURFACE (surface_role);
-  MetaRectangle window_rect = { 0 };
+  MetaWaylandSurface *surface =
+    meta_wayland_surface_role_get_surface (surface_role);
+  MetaWaylandCompositor *compositor =
+    meta_wayland_surface_get_compositor (surface);
+  MtkRectangle window_rect = { 0 };
+  int xwayland_scale;
 
   if (xwayland_surface->window)
     meta_window_get_buffer_rect (xwayland_surface->window, &window_rect);
 
-  *out_sx = abs_x - window_rect.x;
-  *out_sy = abs_y - window_rect.y;
+  xwayland_scale = meta_xwayland_get_effective_scale (&compositor->xwayland_manager);
+  *out_sx = (abs_x - window_rect.x) * xwayland_scale;
+  *out_sy = (abs_y - window_rect.y) * xwayland_scale;
 }
 
 static MetaWaylandSurface *
@@ -182,6 +199,20 @@ meta_xwayland_surface_get_window (MetaWaylandSurfaceRole *surface_role)
   MetaXwaylandSurface *xwayland_surface = META_XWAYLAND_SURFACE (surface_role);
 
   return xwayland_surface->window;
+}
+
+static MetaLogicalMonitor *
+meta_xwayland_surface_get_preferred_scale_monitor (MetaWaylandSurfaceRole *surface_role)
+{
+  MetaWaylandSurface *surface =
+    meta_wayland_surface_role_get_surface (surface_role);
+  MetaWindow *window;
+
+  window = meta_wayland_surface_get_window (surface);
+  if (!window)
+    return NULL;
+
+  return meta_window_get_highest_scale_monitor (window);
 }
 
 static int
@@ -241,6 +272,8 @@ meta_xwayland_surface_class_init (MetaXwaylandSurfaceClass *klass)
     meta_xwayland_surface_get_relative_coordinates;
   surface_role_class->get_toplevel = meta_xwayland_surface_get_toplevel;
   surface_role_class->get_window = meta_xwayland_surface_get_window;
+  surface_role_class->get_preferred_scale_monitor =
+    meta_xwayland_surface_get_preferred_scale_monitor;
 
   actor_surface_class->get_geometry_scale =
     meta_xwayland_surface_get_geometry_scale;

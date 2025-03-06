@@ -28,31 +28,23 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_TYPES_H__
-#define __COGL_TYPES_H__
 
 #include <stdint.h>
 #include <stddef.h>
 
-#include <cogl/cogl-defines.h>
-#include <cogl/cogl-macros.h>
+#include "cogl/cogl-macros.h"
 #include <graphene.h>
 
 #include <glib.h>
 #include <glib-object.h>
 
 G_BEGIN_DECLS
-
-/**
- * SECTION:cogl-types
- * @short_description: Types used throughout the library
- *
- * General types used by various Cogl functions.
-*/
 
 /* Some structures are meant to be opaque but they have public
    definitions because we want the size to be public so they can be
@@ -64,157 +56,16 @@ G_BEGIN_DECLS
 #define COGL_PRIVATE(x) private_member_ ## x
 #endif
 
-/* To help catch accidental changes to public structs that should
- * be stack allocated we use this macro to compile time assert that
- * a struct size is as expected.
- */
-#define COGL_STRUCT_SIZE_ASSERT(TYPE, SIZE) \
-typedef struct { \
-          char compile_time_assert_ ## TYPE ## _size[ \
-              (sizeof (TYPE) == (SIZE)) ? 1 : -1]; \
-        } _ ## TYPE ## SizeCheck
-
-/**
- * CoglHandle:
- *
- * Type used for storing references to cogl objects, the CoglHandle is
- * a fully opaque type without any public data members.
- */
-typedef void * CoglHandle;
-
-#define COGL_TYPE_HANDLE        (cogl_handle_get_type ())
-COGL_EXPORT GType
-cogl_handle_get_type (void) G_GNUC_CONST;
-
+typedef struct _CoglColor CoglColor;
 typedef struct _CoglFramebuffer CoglFramebuffer;
 
 /**
- * CoglAngle:
- *
- * Integer representation of an angle such that 1024 corresponds to
- * full circle (i.e., 2 * pi).
- *
- * Since: 1.0
- */
-typedef int32_t CoglAngle;
-
-typedef struct _CoglColor               CoglColor;
-typedef struct _CoglTextureVertex       CoglTextureVertex;
-
-/**
- * CoglDmaBufHandle: (skip)
+ * CoglDmaBufHandle: (free-func cogl_dma_buf_handle_free)
  *
  * An opaque type that tracks the lifetime of a DMA buffer fd. Release
  * with cogl_dma_buf_handle_free().
  */
 typedef struct _CoglDmaBufHandle CoglDmaBufHandle;
-
-/* Enum declarations */
-
-#define COGL_A_BIT              (1 << 4)
-#define COGL_BGR_BIT            (1 << 5)
-#define COGL_AFIRST_BIT         (1 << 6)
-#define COGL_PREMULT_BIT        (1 << 7)
-#define COGL_DEPTH_BIT          (1 << 8)
-#define COGL_STENCIL_BIT        (1 << 9)
-
-/**
- * CoglBufferTarget:
- * @COGL_WINDOW_BUFFER: FIXME
- * @COGL_OFFSCREEN_BUFFER: FIXME
- *
- * Target flags for FBOs.
- *
- * Since: 0.8
- */
-typedef enum
-{
-  COGL_WINDOW_BUFFER      = (1 << 1),
-  COGL_OFFSCREEN_BUFFER   = (1 << 2)
-} CoglBufferTarget;
-
-/**
- * CoglColor:
- * @red: amount of red
- * @green: amount of green
- * @blue: amount of green
- * @alpha: alpha
- *
- * A structure for holding a color definition. The contents of
- * the CoglColor structure are private and should never by accessed
- * directly.
- *
- * Since: 1.0
- */
-struct _CoglColor
-{
-  /*< private >*/
-  uint8_t COGL_PRIVATE (red);
-  uint8_t COGL_PRIVATE (green);
-  uint8_t COGL_PRIVATE (blue);
-
-  uint8_t COGL_PRIVATE (alpha);
-
-  /* padding in case we want to change to floats at
-   * some point */
-  uint32_t COGL_PRIVATE (padding0);
-  uint32_t COGL_PRIVATE (padding1);
-  uint32_t COGL_PRIVATE (padding2);
-};
-COGL_STRUCT_SIZE_ASSERT (CoglColor, 16);
-
-/**
- * CoglTextureVertex:
- * @x: Model x-coordinate
- * @y: Model y-coordinate
- * @z: Model z-coordinate
- * @tx: Texture x-coordinate
- * @ty: Texture y-coordinate
- * @color: The color to use at this vertex. This is ignored if
- *   use_color is %FALSE when calling cogl_polygon()
- *
- * Used to specify vertex information when calling cogl_polygon()
- */
-struct _CoglTextureVertex
-{
-  float x, y, z;
-  float tx, ty;
-
-  CoglColor color;
-};
-COGL_STRUCT_SIZE_ASSERT (CoglTextureVertex, 36);
-
-/**
- * COGL_BLEND_STRING_ERROR:
- *
- * #GError domain for blend string parser errors
- *
- * Since: 1.0
- */
-#define COGL_BLEND_STRING_ERROR (cogl_blend_string_error_quark ())
-
-/**
- * CoglBlendStringError:
- * @COGL_BLEND_STRING_ERROR_PARSE_ERROR: Generic parse error
- * @COGL_BLEND_STRING_ERROR_ARGUMENT_PARSE_ERROR: Argument parse error
- * @COGL_BLEND_STRING_ERROR_INVALID_ERROR: Internal parser error
- * @COGL_BLEND_STRING_ERROR_GPU_UNSUPPORTED_ERROR: Blend string not
- *   supported by the GPU
- *
- * Error enumeration for the blend strings parser
- *
- * Since: 1.0
- */
-typedef enum /*< prefix=COGL_BLEND_STRING_ERROR >*/
-{
-  COGL_BLEND_STRING_ERROR_PARSE_ERROR,
-  COGL_BLEND_STRING_ERROR_ARGUMENT_PARSE_ERROR,
-  COGL_BLEND_STRING_ERROR_INVALID_ERROR,
-  COGL_BLEND_STRING_ERROR_GPU_UNSUPPORTED_ERROR
-} CoglBlendStringError;
-
-COGL_EXPORT uint32_t
-cogl_blend_string_error_quark (void);
 
 #define COGL_SYSTEM_ERROR (_cogl_system_error_quark ())
 
@@ -230,21 +81,15 @@ cogl_blend_string_error_quark (void);
  * The @COGL_SYSTEM_ERROR_UNSUPPORTED error can be thrown for a
  * variety of reasons. For example:
  *
- * <itemizedlist>
- *  <listitem><para>You've tried to use a feature that is not
- *   advertised by cogl_has_feature().</para></listitem>
- *  <listitem><para>The GPU can not handle the configuration you have
- *   requested. An example might be if you try to use too many texture
- *   layers in a single #CoglPipeline</para></listitem>
- *  <listitem><para>The driver does not support some
- *   configuration.</para></listiem>
- * </itemizedlist>
+ * - You've tried to use a feature that is not advertised by
+ *   [method@Cogl.Context.has_feature].
+ * - The GPU can not handle the configuration you have requested.
+ *   An example might be if you try to use too many texture
+ *   layers in a single #CoglPipeline
+ * - The driver does not support some configuration.
  *
  * Currently this is only used by Cogl API marked as experimental so
  * this enum should also be considered experimental.
- *
- * Since: 1.4
- * Stability: unstable
  */
 typedef enum /*< prefix=COGL_ERROR >*/
 {
@@ -266,8 +111,6 @@ _cogl_system_error_quark (void);
  * @COGL_ATTRIBUTE_TYPE_FLOAT: Data is the same size of a float
  *
  * Data types for the components of a vertex attribute.
- *
- * Since: 1.0
  */
 typedef enum
 {
@@ -303,22 +146,15 @@ typedef enum
 
 /**
  * CoglVerticesMode:
- * @COGL_VERTICES_MODE_POINTS: FIXME, equivalent to
- * <constant>GL_POINTS</constant>
- * @COGL_VERTICES_MODE_LINES: FIXME, equivalent to <constant>GL_LINES</constant>
- * @COGL_VERTICES_MODE_LINE_LOOP: FIXME, equivalent to
- * <constant>GL_LINE_LOOP</constant>
- * @COGL_VERTICES_MODE_LINE_STRIP: FIXME, equivalent to
- * <constant>GL_LINE_STRIP</constant>
- * @COGL_VERTICES_MODE_TRIANGLES: FIXME, equivalent to
- * <constant>GL_TRIANGLES</constant>
- * @COGL_VERTICES_MODE_TRIANGLE_STRIP: FIXME, equivalent to
- * <constant>GL_TRIANGLE_STRIP</constant>
- * @COGL_VERTICES_MODE_TRIANGLE_FAN: FIXME, equivalent to <constant>GL_TRIANGLE_FAN</constant>
+ * @COGL_VERTICES_MODE_POINTS: FIXME, equivalent to `GL_POINTS`
+ * @COGL_VERTICES_MODE_LINES: FIXME, equivalent to `GL_LINES`
+ * @COGL_VERTICES_MODE_LINE_LOOP: FIXME, equivalent to `GL_LINE_LOOP`
+ * @COGL_VERTICES_MODE_LINE_STRIP: FIXME, equivalent to `GL_LINE_STRIP`
+ * @COGL_VERTICES_MODE_TRIANGLES: FIXME, equivalent to `GL_TRIANGLES`
+ * @COGL_VERTICES_MODE_TRIANGLE_STRIP: FIXME, equivalent to `GL_TRIANGLE_STRIP`
+ * @COGL_VERTICES_MODE_TRIANGLE_FAN: FIXME, equivalent to `GL_TRIANGLE_FAN`
  *
  * Different ways of interpreting vertices when drawing.
- *
- * Since: 1.0
  */
 typedef enum
 {
@@ -334,9 +170,9 @@ typedef enum
 /* NB: The above definitions are taken from gl.h equivalents */
 
 
-/* XXX: should this be CoglMaterialDepthTestFunction?
+/* XXX: should this be CoglPipelineDepthTestFunction?
  * It makes it very verbose but would be consistent with
- * CoglMaterialWrapMode */
+ * CoglPipelineWrapMode */
 
 /**
  * CoglDepthTestFunction:
@@ -389,8 +225,6 @@ typedef enum /*< prefix=COGL_RENDERER_ERROR >*/
  * @COGL_FILTER_REMOVE: Remove the event, stops the processing
  *
  * Return values for the #CoglXlibFilterFunc and #CoglWin32FilterFunc functions.
- *
- * Stability: Unstable
  */
 typedef enum _CoglFilterReturn { /*< prefix=COGL_FILTER >*/
   COGL_FILTER_CONTINUE,
@@ -458,8 +292,6 @@ typedef enum
  * @COGL_BUFFER_BIT_STENCIL: Selects the stencil buffer
  *
  * Types of auxiliary buffers
- *
- * Since: 1.0
  */
 typedef enum
 {
@@ -473,8 +305,6 @@ typedef enum
  * @COGL_READ_PIXELS_COLOR_BUFFER: Read from the color buffer
  *
  * Flags for cogl_framebuffer_read_pixels_into_bitmap()
- *
- * Since: 1.0
  */
 typedef enum /*< prefix=COGL_READ_PIXELS >*/
 {
@@ -482,21 +312,54 @@ typedef enum /*< prefix=COGL_READ_PIXELS >*/
 } CoglReadPixelsFlags;
 
 /**
- * CoglStereoMode:
- * @COGL_STEREO_BOTH: draw to both stereo buffers
- * @COGL_STEREO_LEFT: draw only to the left stereo buffer
- * @COGL_STEREO_RIGHT: draw only to the left stereo buffer
+ * CoglShaderType:
+ * @COGL_SHADER_TYPE_VERTEX: A program for processing vertices
+ * @COGL_SHADER_TYPE_FRAGMENT: A program for processing fragments
  *
- * Represents how draw should affect the two buffers
- * of a stereo framebuffer. See cogl_framebuffer_set_stereo_mode().
+ * Types of shaders
  */
 typedef enum
 {
-  COGL_STEREO_BOTH,
-  COGL_STEREO_LEFT,
-  COGL_STEREO_RIGHT
-} CoglStereoMode;
+  COGL_SHADER_TYPE_VERTEX,
+  COGL_SHADER_TYPE_FRAGMENT
+} CoglShaderType;
+
+typedef struct _CoglAttribute CoglAttribute;
+typedef struct _CoglAttributeBuffer CoglAttributeBuffer;
+typedef struct _CoglAtlas CoglAtlas;
+typedef struct _CoglAtlasTexture CoglAtlasTexture;
+typedef struct _CoglBitmap CoglBitmap;
+typedef struct _CoglBuffer CoglBuffer;
+typedef struct _CoglContext CoglContext;
+typedef struct _CoglDisplay CoglDisplay;
+typedef struct _CoglFrameInfo CoglFrameInfo;
+typedef struct _CoglIndices CoglIndices;
+typedef struct _CoglParamSpecColor CoglParamSpecColor;
+typedef struct _CoglPipeline CoglPipeline;
+typedef struct _CoglPixelBuffer CoglPixelBuffer;
+typedef struct _CoglPrimitive CoglPrimitive;
+typedef struct _CoglRenderer CoglRenderer;
+typedef struct _CoglScanout CoglScanout;
+typedef struct _CoglScanoutBuffer CoglScanoutBuffer;
+typedef struct _CoglSnippet CoglSnippet;
+typedef struct _CoglSubTexture CoglSubTexture;
+typedef struct _CoglTexture CoglTexture;
+typedef struct _CoglTexture2D CoglTexture2D;
+typedef struct _CoglTexture2DSliced CoglTexture2DSliced;
+typedef struct _CoglTimestampQuery CoglTimestampQuery;
+
+#define COGL_SCANOUT_ERROR (cogl_scanout_error_quark ())
+
+/**
+ * CoglScanoutError:
+ * @COGL_SCANOUT_ERROR_INHIBITED: Scanout inhibited
+ */
+typedef enum _CoglScanoutError
+{
+  COGL_SCANOUT_ERROR_INHIBITED,
+} CoglScanoutError;
+
+COGL_EXPORT GQuark
+cogl_scanout_error_quark (void);
 
 G_END_DECLS
-
-#endif /* __COGL_TYPES_H__ */

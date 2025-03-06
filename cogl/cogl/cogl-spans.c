@@ -28,12 +28,12 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include "math.h"
 
-#include "cogl-util.h"
-#include "cogl-spans.h"
+#include "cogl/cogl-util.h"
+#include "cogl/cogl-spans.h"
 
 void
 _cogl_span_iter_update (CoglSpanIter *iter)

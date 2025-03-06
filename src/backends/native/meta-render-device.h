@@ -12,14 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_RENDER_DEVICE_H
-#define META_RENDER_DEVICE_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -41,10 +38,17 @@ gboolean meta_render_device_is_hardware_accelerated (MetaRenderDevice *render_de
 
 MetaDeviceFile * meta_render_device_get_device_file (MetaRenderDevice *render_device);
 
+GArray * meta_render_device_query_drm_modifiers (MetaRenderDevice       *render_device,
+                                                 uint32_t                drm_format,
+                                                 CoglDrmModifierFilter   filter,
+                                                 GError                **error);
+
 MetaDrmBuffer * meta_render_device_allocate_dma_buf (MetaRenderDevice    *render_device,
                                                      int                  width,
                                                      int                  height,
                                                      uint32_t             format,
+                                                     uint64_t            *modifiers,
+                                                     int                  n_modifiers,
                                                      MetaDrmBufferFlags   flags,
                                                      GError             **error);
 
@@ -57,5 +61,3 @@ MetaDrmBuffer * meta_render_device_allocate_dumb_buf (MetaRenderDevice  *render_
                                                       int                height,
                                                       uint32_t           format,
                                                       GError           **error);
-
-#endif /* META_RENDER_DEVICE_H */

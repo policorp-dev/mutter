@@ -25,23 +25,22 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "driver/gl/cogl-gl-framebuffer-fbo.h"
+#include "cogl/driver/gl/cogl-gl-framebuffer-fbo.h"
 
 #include <gio/gio.h>
 
-#include "cogl-context-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-offscreen-private.h"
-#include "driver/gl/cogl-texture-gl-private.h"
-#include "driver/gl/cogl-util-gl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-offscreen-private.h"
+#include "cogl/driver/gl/cogl-texture-gl-private.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
 
 typedef struct _CoglGlFbo
 {
   GLuint fbo_handle;
   GList *renderbuffers;
-  int samples_per_pixel;
 } CoglGlFbo;
 
 struct _CoglGlFramebufferFbo
@@ -54,8 +53,8 @@ struct _CoglGlFramebufferFbo
   CoglFramebufferBits bits;
 };
 
-G_DEFINE_TYPE (CoglGlFramebufferFbo, cogl_gl_framebuffer_fbo,
-               COGL_TYPE_GL_FRAMEBUFFER)
+G_DEFINE_FINAL_TYPE (CoglGlFramebufferFbo, cogl_gl_framebuffer_fbo,
+                     COGL_TYPE_GL_FRAMEBUFFER)
 
 static gboolean
 ensure_bits_initialized (CoglGlFramebufferFbo *gl_framebuffer_fbo)
@@ -65,7 +64,6 @@ ensure_bits_initialized (CoglGlFramebufferFbo *gl_framebuffer_fbo)
     cogl_framebuffer_driver_get_framebuffer (driver);
   CoglContext *ctx = cogl_framebuffer_get_context (framebuffer);
   CoglFramebufferBits *bits = &gl_framebuffer_fbo->bits;
-  g_autoptr (GError) error = NULL;
 
   if (!gl_framebuffer_fbo->dirty_bitmasks)
     return TRUE;
@@ -75,39 +73,38 @@ ensure_bits_initialized (CoglGlFramebufferFbo *gl_framebuffer_fbo)
                                         framebuffer,
                                         COGL_FRAMEBUFFER_STATE_BIND);
 
-#ifdef HAVE_COGL_GL
   if (_cogl_has_private_feature (ctx, COGL_PRIVATE_FEATURE_QUERY_FRAMEBUFFER_BITS))
     {
       const struct {
         GLenum attachment, pname;
         size_t offset;
       } params[] = {
-        { 
+        {
           .attachment = GL_COLOR_ATTACHMENT0,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE,
           .offset = offsetof (CoglFramebufferBits, red),
         },
-        { 
+        {
           .attachment = GL_COLOR_ATTACHMENT0,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE,
           .offset = offsetof (CoglFramebufferBits, green),
         },
-        { 
+        {
           .attachment = GL_COLOR_ATTACHMENT0,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE,
           .offset = offsetof (CoglFramebufferBits, blue),
         },
-        { 
+        {
           .attachment = GL_COLOR_ATTACHMENT0,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE,
           .offset = offsetof (CoglFramebufferBits, alpha),
         },
-        { 
+        {
           .attachment = GL_DEPTH_ATTACHMENT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
           .offset = offsetof (CoglFramebufferBits, depth),
         },
-        { 
+        {
           .attachment = GL_STENCIL_ATTACHMENT,
           .pname = GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE,
           .offset = offsetof (CoglFramebufferBits, stencil),
@@ -127,14 +124,8 @@ ensure_bits_initialized (CoglGlFramebufferFbo *gl_framebuffer_fbo)
         }
     }
   else
-#endif /* HAVE_COGL_GL */
     {
-      GE (ctx, glGetIntegerv (GL_RED_BITS, &bits->red));
-      GE (ctx, glGetIntegerv (GL_GREEN_BITS, &bits->green));
-      GE (ctx, glGetIntegerv (GL_BLUE_BITS, &bits->blue));
-      GE (ctx, glGetIntegerv (GL_ALPHA_BITS, &bits->alpha));
-      GE (ctx, glGetIntegerv (GL_DEPTH_BITS, &bits->depth));
-      GE (ctx, glGetIntegerv (GL_STENCIL_BITS, &bits->stencil));
+      return FALSE;
     }
 
   if (!_cogl_has_private_feature (ctx, COGL_PRIVATE_FEATURE_ALPHA_TEXTURES) &&
@@ -214,30 +205,11 @@ cogl_gl_framebuffer_fbo_bind (CoglGlFramebuffer *gl_framebuffer,
   GE (ctx, glBindFramebuffer (target, gl_framebuffer_fbo->gl_fbo.fbo_handle));
 }
 
-static void
-cogl_gl_framebuffer_fbo_flush_stereo_mode_state (CoglGlFramebuffer *gl_framebuffer)
-{
-  CoglFramebufferDriver *driver = COGL_FRAMEBUFFER_DRIVER (gl_framebuffer);
-  CoglFramebuffer *framebuffer =
-    cogl_framebuffer_driver_get_framebuffer (driver);
-
-  switch (cogl_framebuffer_get_stereo_mode (framebuffer))
-    {
-    case COGL_STEREO_BOTH:
-      break;
-    case COGL_STEREO_LEFT:
-    case COGL_STEREO_RIGHT:
-      g_warn_if_reached ();
-      break;
-    }
-}
-
 static GList *
 try_creating_renderbuffers (CoglContext                *ctx,
                             int                         width,
                             int                         height,
-                            CoglOffscreenAllocateFlags  flags,
-                            int                         n_samples)
+                            CoglOffscreenAllocateFlags  flags)
 {
   GList *renderbuffers = NULL;
   GLuint gl_depth_stencil_handle;
@@ -268,14 +240,8 @@ try_creating_renderbuffers (CoglContext                *ctx,
       /* Create a renderbuffer for depth and stenciling */
       GE (ctx, glGenRenderbuffers (1, &gl_depth_stencil_handle));
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, gl_depth_stencil_handle));
-      if (n_samples)
-        GE (ctx, glRenderbufferStorageMultisampleIMG (GL_RENDERBUFFER,
-                                                      n_samples,
-                                                      format,
-                                                      width, height));
-      else
-        GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, format,
-                                        width, height));
+      GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, format,
+                                      width, height));
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, 0));
 
 
@@ -300,14 +266,8 @@ try_creating_renderbuffers (CoglContext                *ctx,
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, gl_depth_handle));
       /* For now we just ask for GL_DEPTH_COMPONENT16 since this is all that's
        * available under GLES */
-      if (n_samples)
-        GE (ctx, glRenderbufferStorageMultisampleIMG (GL_RENDERBUFFER,
-                                                      n_samples,
-                                                      GL_DEPTH_COMPONENT16,
-                                                      width, height));
-      else
-        GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, GL_DEPTH_COMPONENT16,
-                                        width, height));
+      GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, GL_DEPTH_COMPONENT16,
+                                      width, height));
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, 0));
       GE (ctx, glFramebufferRenderbuffer (GL_FRAMEBUFFER,
                                           GL_DEPTH_ATTACHMENT,
@@ -322,14 +282,8 @@ try_creating_renderbuffers (CoglContext                *ctx,
 
       GE (ctx, glGenRenderbuffers (1, &gl_stencil_handle));
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, gl_stencil_handle));
-      if (n_samples)
-        GE (ctx, glRenderbufferStorageMultisampleIMG (GL_RENDERBUFFER,
-                                                      n_samples,
-                                                      GL_STENCIL_INDEX8,
-                                                      width, height));
-      else
-        GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, GL_STENCIL_INDEX8,
-                                        width, height));
+      GE (ctx, glRenderbufferStorage (GL_RENDERBUFFER, GL_STENCIL_INDEX8,
+                                      width, height));
       GE (ctx, glBindRenderbuffer (GL_RENDERBUFFER, 0));
       GE (ctx, glFramebufferRenderbuffer (GL_FRAMEBUFFER,
                                           GL_STENCIL_ATTACHMENT,
@@ -368,33 +322,22 @@ try_creating_fbo (CoglContext                 *ctx,
                   int                          texture_level,
                   int                          texture_level_width,
                   int                          texture_level_height,
-                  const CoglFramebufferConfig *config,
                   CoglOffscreenAllocateFlags   flags,
                   CoglGlFbo                   *gl_fbo)
 {
   GLuint tex_gl_handle;
   GLenum tex_gl_target;
   GLenum status;
-  int n_samples;
 
   if (!cogl_texture_get_gl_texture (texture, &tex_gl_handle, &tex_gl_target))
     return FALSE;
 
   if (tex_gl_target != GL_TEXTURE_2D
-#ifdef HAVE_COGL_GL
+#ifdef HAVE_GL
       && tex_gl_target != GL_TEXTURE_RECTANGLE_ARB
 #endif
       )
     return FALSE;
-
-  if (config->samples_per_pixel)
-    {
-      if (!ctx->glFramebufferTexture2DMultisampleIMG)
-        return FALSE;
-      n_samples = config->samples_per_pixel;
-    }
-  else
-    n_samples = 0;
 
   /* We are about to generate and bind a new fbo, so we pretend to
    * change framebuffer state so that the old framebuffer will be
@@ -405,18 +348,10 @@ try_creating_fbo (CoglContext                 *ctx,
   ctx->glGenFramebuffers (1, &gl_fbo->fbo_handle);
   GE (ctx, glBindFramebuffer (GL_FRAMEBUFFER, gl_fbo->fbo_handle));
 
-  if (n_samples)
-    {
-      GE (ctx, glFramebufferTexture2DMultisampleIMG (GL_FRAMEBUFFER,
-                                                     GL_COLOR_ATTACHMENT0,
-                                                     tex_gl_target, tex_gl_handle,
-                                                     n_samples,
-                                                     texture_level));
-    }
-  else
-    GE (ctx, glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                     tex_gl_target, tex_gl_handle,
-                                     texture_level));
+
+  GE (ctx, glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                   tex_gl_target, tex_gl_handle,
+                                   texture_level));
 
   if (flags)
     {
@@ -424,8 +359,7 @@ try_creating_fbo (CoglContext                 *ctx,
         try_creating_renderbuffers (ctx,
                                     texture_level_width,
                                     texture_level_height,
-                                    flags,
-                                    n_samples);
+                                    flags);
     }
 
   /* Make sure it's complete */
@@ -439,21 +373,6 @@ try_creating_fbo (CoglContext                 *ctx,
       gl_fbo->renderbuffers = NULL;
 
       return FALSE;
-    }
-
-  /* Update the real number of samples_per_pixel now that we have a
-   * complete framebuffer */
-  if (n_samples)
-    {
-      GLenum attachment = GL_COLOR_ATTACHMENT0;
-      GLenum pname = GL_TEXTURE_SAMPLES_IMG;
-      int texture_samples;
-
-      GE( ctx, glGetFramebufferAttachmentParameteriv (GL_FRAMEBUFFER,
-                                                      attachment,
-                                                      pname,
-                                                      &texture_samples) );
-      gl_fbo->samples_per_pixel = texture_samples;
     }
 
   return TRUE;
@@ -470,7 +389,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
   int texture_level;
   int level_width;
   int level_height;
-  const CoglFramebufferConfig *config;
   CoglGlFbo *gl_fbo;
   CoglGlFramebufferFbo *gl_framebuffer_fbo;
   CoglOffscreenAllocateFlags allocate_flags;
@@ -508,8 +426,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
   _cogl_texture_gl_flush_legacy_texobj_filters (texture,
                                                 GL_NEAREST, GL_NEAREST);
 
-  config = cogl_framebuffer_get_config (framebuffer);
-
   gl_framebuffer_fbo = g_object_new (COGL_TYPE_GL_FRAMEBUFFER_FBO,
                                      "framebuffer", framebuffer,
                                      NULL);
@@ -521,7 +437,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                          texture_level,
                          level_width,
                          level_height,
-                         config,
                          allocate_flags = 0,
                          gl_fbo)) ||
 
@@ -531,7 +446,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                          texture_level,
                          level_width,
                          level_height,
-                         config,
                          allocate_flags = context->last_offscreen_allocate_flags,
                          gl_fbo)) ||
 
@@ -547,7 +461,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                          texture_level,
                          level_width,
                          level_height,
-                         config,
                          allocate_flags = COGL_OFFSCREEN_ALLOCATE_FLAG_DEPTH_STENCIL,
                          gl_fbo)) ||
 
@@ -556,7 +469,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                         texture_level,
                         level_width,
                         level_height,
-                        config,
                         allocate_flags = COGL_OFFSCREEN_ALLOCATE_FLAG_DEPTH |
                         COGL_OFFSCREEN_ALLOCATE_FLAG_STENCIL,
                         gl_fbo) ||
@@ -566,7 +478,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                         texture_level,
                         level_width,
                         level_height,
-                        config,
                         allocate_flags = COGL_OFFSCREEN_ALLOCATE_FLAG_STENCIL,
                         gl_fbo) ||
 
@@ -575,7 +486,6 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                         texture_level,
                         level_width,
                         level_height,
-                        config,
                         allocate_flags = COGL_OFFSCREEN_ALLOCATE_FLAG_DEPTH,
                         gl_fbo) ||
 
@@ -584,13 +494,9 @@ cogl_gl_framebuffer_fbo_new (CoglFramebuffer                    *framebuffer,
                         texture_level,
                         level_width,
                         level_height,
-                        config,
                         allocate_flags = 0,
                         gl_fbo))
     {
-      cogl_framebuffer_update_samples_per_pixel (framebuffer,
-                                                 gl_fbo->samples_per_pixel);
-
       if (!driver_config->disable_depth_and_stencil)
         {
           /* Record that the last set of flags succeeded so that we can
@@ -654,6 +560,4 @@ cogl_gl_framebuffer_fbo_class_init (CoglGlFramebufferFboClass *klass)
   driver_class->discard_buffers = cogl_gl_framebuffer_fbo_discard_buffers;
 
   gl_framebuffer_class->bind = cogl_gl_framebuffer_fbo_bind;
-  gl_framebuffer_class->flush_stereo_mode_state =
-    cogl_gl_framebuffer_fbo_flush_stereo_mode_state;
 }

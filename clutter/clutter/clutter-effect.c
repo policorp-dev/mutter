@@ -24,7 +24,7 @@
 
 /**
  * ClutterEffect:
- * 
+ *
  * Base class for actor effects
  *
  * The #ClutterEffect class provides a default type and API for creating
@@ -35,12 +35,12 @@
  *
  * Effects should be the preferred way to affect the paint sequence of an
  * actor without sub-classing the actor itself and overriding the
- * #ClutterActorClass.paint()_ virtual function.
+ * [vfunc@Clutter.Actor.paint] virtual function.
  *
  * ## Implementing a ClutterEffect
  *
  * Creating a sub-class of #ClutterEffect requires overriding the
- * #ClutterEffectClass.paint() method. The implementation of the function should look
+ * [vfunc@Clutter.Effect.paint] method. The implementation of the function should look
  * something like this:
  *
  * ```c
@@ -75,17 +75,17 @@
  * The example below creates two rectangles: one will be painted "behind" the actor,
  * while another will be painted "on top" of the actor.
  *
- * The #ClutterActorMetaClass.set_actor() implementation will create the two materials
+ * The #ClutterActorMetaClass.set_actor() implementation will create the two pipelines
  * used for the two different rectangles; the #ClutterEffectClass.paint() implementation
- * will paint the first material using cogl_rectangle(), before continuing and then it
- * will paint paint the second material after.
+ * will paint the first pipeline using cogl_rectangle(), before continuing and then it
+ * will paint paint the second pipeline after.
  *
  * ```c
  *  typedef struct {
  *    ClutterEffect parent_instance;
  *
- *    CoglHandle rect_1;
- *    CoglHandle rect_2;
+ *    CoglPipeline *rect_1;
+ *    CoglPipeline *rect_2;
  *  } MyEffect;
  *
  *  typedef struct _ClutterEffectClass MyEffectClass;
@@ -97,17 +97,18 @@
  *                       ClutterActor     *actor)
  *  {
  *    MyEffect *self = MY_EFFECT (meta);
+ *    CoglColor color;
  *
  *    // Clear the previous state //
  *    if (self->rect_1)
  *      {
- *        cogl_object_unref (self->rect_1);
+ *        g_object_unref (self->rect_1);
  *        self->rect_1 = NULL;
  *      }
  *
  *    if (self->rect_2)
  *      {
- *        cogl_object_unref (self->rect_2);
+ *        g_object_unref (self->rect_2);
  *        self->rect_2 = NULL;
  *      }
  *
@@ -118,13 +119,15 @@
  *    if (self->actor == NULL)
  *      return;
  *
- *    // Create a red material
- *    self->rect_1 = cogl_material_new ();
- *    cogl_material_set_color4f (self->rect_1, 1.0, 0.0, 0.0, 1.0);
+ *    // Create a red pipeline
+ *    self->rect_1 = cogl_pipeline_new ();
+ *    cogl_color_init_from_4f (&color, 1.0, 1.0, 1.0, 1.0);
+ *    cogl_pipeline_set_color (self->rect_1, &color);
  *
- *    // Create a green material
- *    self->rect_2 = cogl_material_new ();
- *    cogl_material_set_color4f (self->rect_2, 0.0, 1.0, 0.0, 1.0);
+ *    // Create a green pipeline
+ *    self->rect_2 = cogl_pipeline_new ();
+ *    cogl_color_init_from_4f (&color, 0.0, 1.0, 0.0, 1.0);
+ *    cogl_pipeline_set_color (self->rect_2, &color);
  *  }
  *
  *  static gboolean
@@ -150,7 +153,7 @@
  *  static void
  *  my_effect_class_init (MyEffectClass *klass)
  *  {
- *    ClutterActorMetaClas *meta_class = CLUTTER_ACTOR_META_CLASS (klass);
+ *    ClutterActorMetaClass *meta_class = CLUTTER_ACTOR_META_CLASS (klass);
  *
  *    meta_class->set_actor = my_effect_set_actor;
  *
@@ -159,19 +162,19 @@
  * ```
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-effect.h"
+#include "clutter/clutter-effect.h"
 
-#include "clutter-actor-meta-private.h"
-#include "clutter-debug.h"
-#include "clutter-effect-private.h"
-#include "clutter-enum-types.h"
-#include "clutter-marshal.h"
-#include "clutter-paint-node-private.h"
-#include "clutter-paint-nodes.h"
-#include "clutter-private.h"
-#include "clutter-actor-private.h"
+#include "clutter/clutter-actor-meta-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-effect-private.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-marshal.h"
+#include "clutter/clutter-paint-node-private.h"
+#include "clutter/clutter-paint-nodes.h"
+#include "clutter/clutter-private.h"
+#include "clutter/clutter-actor-private.h"
 
 G_DEFINE_ABSTRACT_TYPE (ClutterEffect,
                         clutter_effect,

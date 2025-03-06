@@ -18,10 +18,9 @@
  * Author: Marco Trevisan <marco.trevisan@canonical.com>
  */
 
-#ifndef META_SENSORS_PROXY_MOCK_H
-#define META_SENSORS_PROXY_MOCK_H
+#pragma once
 
-#include "backends/meta-orientation-manager.h"
+#include "meta/meta-orientation-manager.h"
 
 typedef GDBusProxy MetaSensorsProxyMock;
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaSensorsProxyMock, g_object_unref)
@@ -37,5 +36,3 @@ void meta_sensors_proxy_mock_set_property (MetaSensorsProxyMock *proxy,
 META_EXPORT
 void meta_sensors_proxy_mock_set_orientation (MetaSensorsProxyMock *proxy,
                                               MetaOrientation       orientation);
-
-#endif /* META_SENSORS_PROXY_MOCK_H */

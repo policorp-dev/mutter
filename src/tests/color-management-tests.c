@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,6 +24,7 @@
 #include "backends/meta-color-manager-private.h"
 #include "backends/meta-color-profile.h"
 #include "meta-test/meta-context-test.h"
+#include "tests/meta-crtc-test.h"
 #include "tests/meta-monitor-test-utils.h"
 
 static MetaContext *test_context;
@@ -82,29 +81,53 @@ static MonitorTestCaseSetup base_monitor_setup = {
 /* Extracted from a 'California Institute of Technology, 0x1403' monitor. */
 #define CALTECH_MONITOR_EDID (\
   (MetaEdidInfo) { \
-    .gamma = 2.200000, \
-    .red_x = 0.683594, \
-    .red_y = 0.312500, \
-    .green_x = 0.255859, \
-    .green_y = 0.685547, \
-    .blue_x = 0.139648, \
-    .blue_y = 0.056641, \
-    .white_x = 0.313477, \
-    .white_y = 0.326172, \
+    .default_gamma = 2.200000f, \
+    .default_color_primaries = { \
+      .primary = { \
+          { \
+            .x = 0.683594f, \
+            .y = 0.312500f, \
+          }, \
+          { \
+            .x = 0.255859f, \
+            .y = 0.685547f, \
+          }, \
+          { \
+            .x = 0.139648f, \
+            .y = 0.056641f, \
+          }, \
+      }, \
+      .default_white = { \
+        .x = 0.313477f, \
+        .y = 0.326172f, \
+      }, \
+    } \
   })
 
 /* Extracted from a 'Ancor Communications Inc, VX239, ECLMRS004144' monitor. */
 #define ANCOR_VX239_EDID (\
   (MetaEdidInfo) { \
-    .gamma = 2.200000, \
-    .red_x = 0.651367, \
-    .red_y = 0.335938, \
-    .green_x = 0.321289, \
-    .green_y = 0.614258, \
-    .blue_x = 0.154297, \
-    .blue_y = 0.063477, \
-    .white_x = 0.313477, \
-    .white_y = 0.329102, \
+    .default_gamma = 2.200000f, \
+    .default_color_primaries = { \
+      .primary = { \
+          { \
+            .x = 0.651367f, \
+            .y = 0.335938f, \
+          }, \
+          { \
+            .x = 0.321289f, \
+            .y = 0.614258f, \
+          }, \
+          { \
+            .x = 0.154297f, \
+            .y = 0.063477f, \
+          }, \
+      }, \
+      .default_white = { \
+        .x = 0.313477f, \
+        .y = 0.329102f, \
+      }, \
+    } \
   })
 
 #define assert_color_xyz_equal(color, expected_color) \
@@ -128,7 +151,6 @@ get_colord_mock_proxy (void)
 {
   GDBusProxy *proxy;
   g_autoptr (GError) error = NULL;
-  g_autoptr (GVariant) ret = NULL;
 
   proxy =
     g_dbus_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
@@ -167,20 +189,20 @@ wait_for_profile_assigned (MetaColorDevice *color_device,
 }
 
 static void
-on_device_updated (MetaColorDevice *color_device,
-                   gboolean        *run)
+on_device_calibration_changed (MetaColorDevice *color_device,
+                               gboolean        *run)
 {
   *run = FALSE;
 }
 
 static void
-wait_for_device_updated (MetaColorDevice *color_device)
+wait_for_device_calibration_changed (MetaColorDevice *color_device)
 {
   gulong handler_id;
   gboolean run = TRUE;
 
-  handler_id = g_signal_connect (color_device, "updated",
-                                 G_CALLBACK (on_device_updated),
+  handler_id = g_signal_connect (color_device, "calibration-changed",
+                                 G_CALLBACK (on_device_calibration_changed),
                                  &run);
   while (run)
     g_main_context_iteration (NULL, TRUE);
@@ -261,7 +283,6 @@ get_gsd_color_mock_proxy (void)
 {
   GDBusProxy *proxy;
   g_autoptr (GError) error = NULL;
-  g_autoptr (GVariant) ret = NULL;
 
   proxy =
     g_dbus_proxy_new_for_bus_sync (G_BUS_TYPE_SESSION,
@@ -436,39 +457,47 @@ meta_test_color_management_device_basic (void)
       g_assert_nonnull (meta_monitor_get_edid_checksum_md5 (monitor));
       monitor_edid_info = meta_monitor_get_edid_info (monitor);
 
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->gamma,
-                                      monitor_edid_info->gamma,
+      g_assert_cmpfloat_with_epsilon (expected_edid_info->default_gamma,
+                                      monitor_edid_info->default_gamma,
                                       FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->red_x,
-                                      monitor_edid_info->red_x,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->red_y,
-                                      monitor_edid_info->red_y,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->green_x,
-                                      monitor_edid_info->green_x,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->green_y,
-                                      monitor_edid_info->green_y,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->blue_x,
-                                      monitor_edid_info->blue_x,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->blue_y,
-                                      monitor_edid_info->blue_y,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->white_x,
-                                      monitor_edid_info->white_x,
-                                      FLT_EPSILON);
-      g_assert_cmpfloat_with_epsilon (expected_edid_info->white_y,
-                                      monitor_edid_info->white_y,
-                                      FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[0].x,
+        monitor_edid_info->default_color_primaries.primary[0].x,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[0].y,
+        monitor_edid_info->default_color_primaries.primary[0].y,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[1].x,
+        monitor_edid_info->default_color_primaries.primary[1].x,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[1].y,
+        monitor_edid_info->default_color_primaries.primary[1].y,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[2].x,
+        monitor_edid_info->default_color_primaries.primary[2].x,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.primary[2].y,
+        monitor_edid_info->default_color_primaries.primary[2].y,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.default_white.x,
+        monitor_edid_info->default_color_primaries.default_white.x,
+        FLT_EPSILON);
+      g_assert_cmpfloat_with_epsilon (
+        expected_edid_info->default_color_primaries.default_white.y,
+        monitor_edid_info->default_color_primaries.default_white.y,
+        FLT_EPSILON);
 
       color_device = meta_color_manager_get_color_device (color_manager,
                                                           monitor);
       g_assert_nonnull (color_device);
 
-      g_assert (meta_color_device_get_monitor (color_device) == monitor);
+      g_assert_true (meta_color_device_get_monitor (color_device) == monitor);
     }
 }
 
@@ -512,7 +541,7 @@ meta_test_color_management_device_no_gamma (void)
 
   color_device = meta_color_manager_get_color_device (color_manager, monitor);
   g_assert_nonnull (color_device);
-  g_assert (meta_color_device_get_monitor (color_device) == monitor);
+  g_assert_true (meta_color_device_get_monitor (color_device) == monitor);
 
   while (!meta_color_device_is_ready (color_device))
     g_main_context_iteration (NULL, TRUE);
@@ -608,7 +637,7 @@ meta_test_color_management_profile_device_bogus (void)
 
   edid_info = CALTECH_MONITOR_EDID;
   /* Decoding gamma is in [1, 4] */
-  edid_info.gamma = 0.7;
+  edid_info.default_gamma = 0.7;
   test_case_setup.outputs[0].serial = "profile_device_bogus/gamma";
   test_case_setup.outputs[0].edid_info = edid_info;
   test_case_setup.outputs[0].has_edid_info = TRUE;
@@ -628,11 +657,12 @@ meta_test_color_management_profile_device_bogus (void)
   while (!meta_color_device_is_ready (color_device))
     g_main_context_iteration (NULL, TRUE);
 
+  g_test_assert_expected_messages ();
   color_profile = meta_color_device_get_device_profile (color_device);
   g_assert_null (color_profile);
 
   edid_info = CALTECH_MONITOR_EDID;
-  edid_info.green_y = 0.0;
+  edid_info.default_color_primaries.primary[1].y = 0.0;
   test_case_setup.outputs[0].serial = "profile_device_bogus/chromaticity";
   test_case_setup.outputs[0].edid_info = edid_info;
   test_case_setup.outputs[0].has_edid_info = TRUE;
@@ -653,6 +683,7 @@ meta_test_color_management_profile_device_bogus (void)
 
   color_profile = meta_color_device_get_device_profile (color_device);
   g_assert_null (color_profile);
+  g_test_assert_expected_messages ();
 }
 
 static void
@@ -1102,7 +1133,7 @@ meta_test_color_management_night_light_calibrated (void)
 
   set_night_light_temperature (temperature);
   set_night_light_active (TRUE);
-  wait_for_device_updated (color_device);
+  wait_for_device_calibration_changed (color_device);
 
   assert_gamma_array (night_light_on_red, crtc_test->gamma.red,
                       crtc_test->gamma.size);
@@ -1353,7 +1384,7 @@ meta_test_color_management_night_light_uncalibrated (void)
 
   set_night_light_temperature (temperature);
   set_night_light_active (TRUE);
-  wait_for_device_updated (color_device);
+  wait_for_device_calibration_changed (color_device);
 
   assert_gamma_array (night_light_on_red, crtc_test->gamma.red,
                       crtc_test->gamma.size);
@@ -1429,19 +1460,11 @@ int
 main (int argc, char **argv)
 {
   g_autoptr (MetaContext) context = NULL;
-  char *path;
 
-  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_NESTED,
+  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
                                       META_CONTEXT_TEST_FLAG_NONE);
 
-  g_assert (meta_context_configure (context, &argc, &argv, NULL));
-
-  path = g_test_build_filename (G_TEST_BUILT,
-                                "tests",
-                                "share",
-                                NULL);
-  g_setenv ("XDG_DATA_HOME", path, TRUE);
-  g_free (path);
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
 
   test_context = context;
 

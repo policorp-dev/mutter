@@ -38,12 +38,12 @@
  * various event-related signals provided by [class@Actor] itself.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-action.h"
-#include "clutter-action-private.h"
-#include "clutter-debug.h"
-#include "clutter-private.h"
+#include "clutter/clutter-action.h"
+#include "clutter/clutter-action-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-private.h"
 
 typedef struct _ClutterActionPrivate ClutterActionPrivate;
 
@@ -99,5 +99,49 @@ gboolean
 clutter_action_handle_event (ClutterAction      *action,
                              const ClutterEvent *event)
 {
-  return CLUTTER_ACTION_GET_CLASS (action)->handle_event (action, event);
+  gboolean retval = CLUTTER_EVENT_PROPAGATE;
+
+  g_object_ref (action);
+  if (clutter_actor_meta_get_actor (CLUTTER_ACTOR_META (action)))
+    retval = CLUTTER_ACTION_GET_CLASS (action)->handle_event (action, event);
+  g_object_unref (action);
+
+  return retval;
+}
+
+void
+clutter_action_sequence_cancelled (ClutterAction        *action,
+                                   ClutterInputDevice   *device,
+                                   ClutterEventSequence *sequence)
+{
+  ClutterActionClass *action_class = CLUTTER_ACTION_GET_CLASS (action);
+
+  if (action_class->sequence_cancelled)
+    action_class->sequence_cancelled (action, device, sequence);
+}
+
+gboolean
+clutter_action_register_sequence (ClutterAction      *self,
+                                  const ClutterEvent *event)
+{
+  ClutterActionClass *action_class = CLUTTER_ACTION_GET_CLASS (self);
+
+  if (action_class->register_sequence)
+    return action_class->register_sequence (self, event);
+
+  return TRUE;
+}
+
+int
+clutter_action_setup_sequence_relationship (ClutterAction        *action_1,
+                                            ClutterAction        *action_2,
+                                            ClutterInputDevice   *device,
+                                            ClutterEventSequence *sequence)
+{
+  ClutterActionClass *action_class = CLUTTER_ACTION_GET_CLASS (action_1);
+
+  if (action_class->setup_sequence_relationship)
+    return action_class->setup_sequence_relationship (action_1, action_2, device, sequence);
+
+  return 0;
 }

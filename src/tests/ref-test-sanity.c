@@ -23,12 +23,14 @@
 #include "meta-test/meta-context-test.h"
 #include "tests/meta-ref-test.h"
 
+static MetaContext *test_context;
+
 static MetaVirtualMonitor *virtual_monitor;
 
 static void
 setup_test_environment (void)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   MetaSettings *settings = meta_backend_get_settings (backend);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
@@ -61,7 +63,7 @@ setup_test_environment (void)
 static void
 tear_down_test_environment (void)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
 
@@ -72,7 +74,7 @@ tear_down_test_environment (void)
 static ClutterStageView *
 get_view (void)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   MetaRenderer *renderer = meta_backend_get_renderer (backend);
 
   return CLUTTER_STAGE_VIEW (meta_renderer_get_views (renderer)->data);
@@ -81,7 +83,7 @@ get_view (void)
 static void
 meta_test_ref_test_sanity (void)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = meta_context_get_backend (test_context);
   ClutterActor *stage = meta_backend_get_stage (backend);
   ClutterActor *actor1;
   ClutterActor *actor2;
@@ -93,7 +95,7 @@ meta_test_ref_test_sanity (void)
   actor1 = clutter_actor_new ();
   clutter_actor_set_position (actor1, 10, 10);
   clutter_actor_set_size (actor1, 50, 50);
-  clutter_actor_set_background_color (actor1, CLUTTER_COLOR_Orange);
+  clutter_actor_set_background_color (actor1, &COGL_COLOR_INIT (245, 121, 0, 255));
   clutter_actor_add_child (stage, actor1);
 
   meta_ref_test_verify_view (get_view (),
@@ -103,7 +105,7 @@ meta_test_ref_test_sanity (void)
   actor2 = clutter_actor_new ();
   clutter_actor_set_position (actor2, 20, 20);
   clutter_actor_set_size (actor2, 50, 50);
-  clutter_actor_set_background_color (actor2, CLUTTER_COLOR_SkyBlue);
+  clutter_actor_set_background_color (actor2, &COGL_COLOR_INIT (52, 101, 164, 255));
   clutter_actor_add_child (stage, actor2);
 
   g_test_expect_message ("libmutter-test",
@@ -135,7 +137,7 @@ main (int    argc,
 
   context = meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
                                       META_CONTEXT_TEST_FLAG_NO_X11);
-  g_assert (meta_context_configure (context, &argc, &argv, NULL));
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
 
   init_ref_test_sanity_tests ();
 
@@ -143,6 +145,8 @@ main (int    argc,
                     G_CALLBACK (setup_test_environment), NULL);
   g_signal_connect (context, "after-tests",
                     G_CALLBACK (tear_down_test_environment), NULL);
+
+  test_context = context;
 
   return meta_context_test_run_tests (META_CONTEXT_TEST (context),
                                       META_TEST_RUN_FLAG_NONE);

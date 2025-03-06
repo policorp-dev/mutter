@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_IMPL_TYPES_H
-#define META_KMS_IMPL_TYPES_H
+#pragma once
 
 #include <stdint.h>
 
@@ -38,10 +35,11 @@ typedef struct _MetaKmsMode MetaKmsMode;
 typedef struct _MetaKmsFeedback MetaKmsFeedback;
 
 typedef struct _MetaKmsPageFlipListenerVtable MetaKmsPageFlipListenerVtable;
-typedef enum _MetaKmsPageFlipListenerFlag MetaKmsPageFlipListenerFlag;
 
 typedef struct _MetaKmsImpl MetaKmsImpl;
 typedef struct _MetaKmsImplDevice MetaKmsImplDevice;
+
+typedef struct _MetaKmsCursorManager MetaKmsCursorManager;
 
 /* 16:16 fixed point */
 typedef int32_t MetaFixed16;
@@ -65,6 +63,7 @@ typedef enum _MetaKmsDeviceFlag
   META_KMS_DEVICE_FLAG_HAS_ADDFB2 = 1 << 5,
   META_KMS_DEVICE_FLAG_FORCE_LEGACY = 1 << 6,
   META_KMS_DEVICE_FLAG_DISABLE_CLIENT_MODIFIERS = 1 << 7,
+  META_KMS_DEVICE_FLAG_DISABLE_VRR = 1 << 8,
 } MetaKmsDeviceFlag;
 
 typedef enum _MetaKmsResourceChanges
@@ -79,8 +78,8 @@ typedef enum _MetaKmsResourceChanges
 typedef enum _MetaKmsUpdateFlag
 {
   META_KMS_UPDATE_FLAG_NONE = 0,
-  META_KMS_UPDATE_FLAG_PRESERVE_ON_ERROR = 1 << 0,
-  META_KMS_UPDATE_FLAG_TEST_ONLY = 1 << 1,
+  META_KMS_UPDATE_FLAG_TEST_ONLY = 1 << 0,
+  META_KMS_UPDATE_FLAG_MODE_SET = 1 << 1,
 } MetaKmsUpdateFlag;
 
 typedef enum _MetaKmsPlaneType MetaKmsPlaneType;
@@ -90,12 +89,3 @@ typedef enum _MetaKmsPropType
   META_KMS_PROP_TYPE_RAW = 0,
   META_KMS_PROP_TYPE_FIXED_16,
 } MetaKmsPropType;
-
-typedef struct _MetaKmsRange
-{
-  uint64_t value;
-  uint64_t min_value;
-  uint64_t max_value;
-} MetaKmsRange;
-
-#endif /* META_KMS_IMPL_TYPES_H */

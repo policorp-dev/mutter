@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_CRTC_PRIVATE_H
-#define META_KMS_CRTC_PRIVATE_H
+#pragma once
 
 #include <xf86drmMode.h>
 
@@ -30,6 +27,8 @@ typedef enum _MetaKmsCrtcProp
   META_KMS_CRTC_PROP_MODE_ID = 0,
   META_KMS_CRTC_PROP_ACTIVE,
   META_KMS_CRTC_PROP_GAMMA_LUT,
+  META_KMS_CRTC_PROP_GAMMA_LUT_SIZE,
+  META_KMS_CRTC_PROP_VRR_ENABLED,
   META_KMS_CRTC_N_PROPS
 } MetaKmsCrtcProp;
 
@@ -38,11 +37,11 @@ MetaKmsCrtc * meta_kms_crtc_new (MetaKmsImplDevice  *impl_device,
                                  int                 idx,
                                  GError            **error);
 
-MetaKmsResourceChanges meta_kms_crtc_update_state (MetaKmsCrtc *crtc);
+MetaKmsResourceChanges meta_kms_crtc_update_state_in_impl (MetaKmsCrtc *crtc);
 
-void meta_kms_crtc_disable (MetaKmsCrtc *crtc);
+void meta_kms_crtc_disable_in_impl (MetaKmsCrtc *crtc);
 
-void meta_kms_crtc_predict_state (MetaKmsCrtc   *crtc,
+void meta_kms_crtc_predict_state_in_impl (MetaKmsCrtc   *crtc,
                                   MetaKmsUpdate *update);
 
 uint32_t meta_kms_crtc_get_prop_id (MetaKmsCrtc     *crtc,
@@ -55,4 +54,10 @@ uint64_t meta_kms_crtc_get_prop_drm_value (MetaKmsCrtc     *crtc,
                                            MetaKmsCrtcProp  prop,
                                            uint64_t         value);
 
-#endif /* META_KMS_CRTC_PRIVATE_H */
+gboolean meta_kms_crtc_determine_deadline (MetaKmsCrtc  *crtc,
+                                           int64_t      *out_next_deadline_us,
+                                           int64_t      *out_next_presentation_us,
+                                           GError      **error);
+
+void meta_kms_crtc_set_is_leased (MetaKmsCrtc *crtc,
+                                  gboolean     leased);

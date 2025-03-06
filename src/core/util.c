@@ -16,11 +16,6 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * SECTION:util
- * @title: Utility functions
- * @short_description: Miscellaneous utility functions
- */
 
 #define _POSIX_C_SOURCE 200112L /* for fdopen() */
 
@@ -34,8 +29,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <X11/Xlib.h>   /* must explicitly be included for Solaris; #326746 */
-#include <X11/Xutil.h>  /* Just for the definition of the various gravities */
 
 #ifdef HAVE_SYS_PRCTL
 #include <sys/prctl.h>
@@ -56,14 +49,11 @@ static const GDebugKey meta_debug_keys[] = {
   { "window-ops", META_DEBUG_WINDOW_OPS },
   { "geometry", META_DEBUG_GEOMETRY },
   { "placement", META_DEBUG_PLACEMENT },
-  { "ping", META_DEBUG_PING },
+  { "display", META_DEBUG_DISPLAY },
   { "keybindings", META_DEBUG_KEYBINDINGS },
   { "sync", META_DEBUG_SYNC },
   { "startup", META_DEBUG_STARTUP },
   { "prefs", META_DEBUG_PREFS },
-  { "groups", META_DEBUG_GROUPS },
-  { "resizing", META_DEBUG_RESIZING },
-  { "shapes", META_DEBUG_SHAPES },
   { "edge-resistance", META_DEBUG_EDGE_RESISTANCE },
   { "dbus", META_DEBUG_DBUS },
   { "input", META_DEBUG_INPUT },
@@ -74,11 +64,18 @@ static const GDebugKey meta_debug_keys[] = {
   { "backend", META_DEBUG_BACKEND },
   { "render", META_DEBUG_RENDER },
   { "color", META_DEBUG_COLOR },
+  { "input-events", META_DEBUG_INPUT_EVENTS },
+  { "eis", META_DEBUG_EIS },
+  { "kms-deadline", META_DEBUG_KMS_DEADLINE },
+  { "session-management", META_DEBUG_SESSION_MANAGEMENT },
+  { "x11", META_DEBUG_X11 },
+  { "workspaces", META_DEBUG_WORKSPACES },
 };
 
 static gint verbose_topics = 0;
 static gboolean is_wayland_compositor = FALSE;
 static int debug_paint_flags = 0;
+static GLogLevelFlags mutter_log_level = G_LOG_LEVEL_MESSAGE;
 
 #ifdef WITH_VERBOSE_MODE
 static FILE* logfile = NULL;
@@ -105,8 +102,8 @@ ensure_logfile (void)
 
       if (err != NULL)
         {
-          meta_warning ("Failed to open debug log: %s",
-                        err->message);
+          g_warning ("Failed to open debug log: %s",
+                     err->message);
           g_error_free (err);
           return;
         }
@@ -115,8 +112,8 @@ ensure_logfile (void)
 
       if (logfile == NULL)
         {
-          meta_warning ("Failed to fdopen() log file %s: %s",
-                        filename, strerror (errno));
+          g_warning ("Failed to fdopen() log file %s: %s",
+                     filename, strerror (errno));
           close (fd);
         }
       else
@@ -176,10 +173,11 @@ meta_add_verbose_topic (MetaDebugTopic topic)
  * meta_remove_verbose_topic:
  * @topic: Topic for which logging will be stopped
  *
- * Stop printing log messages for the given topic @topic.  Note
- * that this method does not stack with meta_add_verbose_topic();
- * i.e. if two calls to meta_add_verbose_topic() for the same
- * topic are made, one call to meta_remove_verbose_topic() will
+ * Stop printing log messages for the given topic @topic.
+ *
+ * Note that this method does not stack with [func@Meta.add_verbose_topic];
+ * i.e. if two calls to [func@Meta.add_verbose_topic] for the same
+ * topic are made, one call to [func@Meta.remove_verbose_topic]  will
  * remove it.
  */
 void
@@ -213,6 +211,9 @@ meta_init_debug_utils (void)
                                      G_N_ELEMENTS (meta_debug_keys));
       meta_add_verbose_topic (topics);
     }
+
+  if (g_test_initialized ())
+    mutter_log_level = G_LOG_LEVEL_DEBUG;
 }
 
 gboolean
@@ -282,10 +283,10 @@ meta_topic_to_string (MetaDebugTopic topic)
       return "WINDOW_OPS";
     case META_DEBUG_PLACEMENT:
       return "PLACEMENT";
+    case META_DEBUG_DISPLAY:
+      return "DISPLAY";
     case META_DEBUG_GEOMETRY:
       return "GEOMETRY";
-    case META_DEBUG_PING:
-      return "PING";
     case META_DEBUG_KEYBINDINGS:
       return "KEYBINDINGS";
     case META_DEBUG_SYNC:
@@ -294,12 +295,6 @@ meta_topic_to_string (MetaDebugTopic topic)
       return "STARTUP";
     case META_DEBUG_PREFS:
       return "PREFS";
-    case META_DEBUG_GROUPS:
-      return "GROUPS";
-    case META_DEBUG_RESIZING:
-      return "RESIZING";
-    case META_DEBUG_SHAPES:
-      return "SHAPES";
     case META_DEBUG_EDGE_RESISTANCE:
       return "EDGE_RESISTANCE";
     case META_DEBUG_DBUS:
@@ -322,6 +317,18 @@ meta_topic_to_string (MetaDebugTopic topic)
       return "COLOR";
     case META_DEBUG_VERBOSE:
       return "VERBOSE";
+    case META_DEBUG_INPUT_EVENTS:
+      return "INPUT_EVENTS";
+    case META_DEBUG_EIS:
+      return "EIS";
+    case META_DEBUG_KMS_DEADLINE:
+      return "KMS_DEADLINE";
+    case META_DEBUG_SESSION_MANAGEMENT:
+      return "SESSION_MANAGEMENT";
+    case META_DEBUG_X11:
+      return "X11";
+    case META_DEBUG_WORKSPACES:
+      return "WORKSPACES";
     }
 
   return "WM";
@@ -369,34 +376,6 @@ meta_bug (const char *format, ...)
 
   /* stop us in a debugger */
   abort ();
-}
-
-void
-meta_warning (const char *format, ...)
-{
-  va_list args;
-  gchar *str;
-  FILE *out;
-
-  g_return_if_fail (format != NULL);
-
-  va_start (args, format);
-  str = g_strdup_vprintf (format, args);
-  va_end (args);
-
-#ifdef WITH_VERBOSE_MODE
-  out = logfile ? logfile : stderr;
-#else
-  out = stderr;
-#endif
-
-  utf8_fputs ("Window manager warning: ", out);
-  utf8_fputs (str, out);
-  utf8_fputs ("\n", out);
-
-  fflush (out);
-
-  g_free (str);
 }
 
 void
@@ -505,21 +484,6 @@ meta_external_binding_name_for_action (guint keybinding_action)
   return g_strdup_printf ("external-grab-%u", keybinding_action);
 }
 
-MetaLocaleDirection
-meta_get_locale_direction (void)
-{
-  switch (gtk_get_locale_direction ())
-    {
-    case GTK_TEXT_DIR_LTR:
-      return META_LOCALE_DIRECTION_LTR;
-    case GTK_TEXT_DIR_RTL:
-      return META_LOCALE_DIRECTION_RTL;
-    default:
-      g_assert_not_reached ();
-      return 0;
-    }
-}
-
 char *
 meta_generate_random_id (GRand *rand,
                          int    length)
@@ -534,37 +498,6 @@ meta_generate_random_id (GRand *rand,
     id[i] = (char) g_rand_int_range (rand, 32, 127);
 
   return id;
-}
-
-
-void
-meta_add_clutter_debug_flags (ClutterDebugFlag     debug_flags,
-                              ClutterDrawDebugFlag draw_flags,
-                              ClutterPickDebugFlag pick_flags)
-{
-  clutter_add_debug_flags (debug_flags, draw_flags, pick_flags);
-}
-
-void
-meta_remove_clutter_debug_flags (ClutterDebugFlag     debug_flags,
-                                 ClutterDrawDebugFlag draw_flags,
-                                 ClutterPickDebugFlag pick_flags)
-{
-  clutter_remove_debug_flags (debug_flags, draw_flags, pick_flags);
-}
-
-/**
- * meta_get_clutter_debug_flags:
- * @debug_flags: (out) (optional): return location for debug flags
- * @draw_flags: (out) (optional): return location for draw debug flags
- * @pick_flags: (out) (optional): return location for pick debug flags
- */
-void
-meta_get_clutter_debug_flags (ClutterDebugFlag     *debug_flags,
-                              ClutterDrawDebugFlag *draw_flags,
-                              ClutterPickDebugFlag *pick_flags)
-{
-  clutter_get_debug_flags (debug_flags, draw_flags, pick_flags);
 }
 
 void
@@ -583,4 +516,14 @@ MetaDebugPaintFlag
 meta_get_debug_paint_flags (void)
 {
   return debug_paint_flags;
+}
+
+void
+meta_log (const char *format, ...)
+{
+  va_list args;
+
+  va_start (args, format);
+  g_logv (G_LOG_DOMAIN, mutter_log_level, format, args);
+  va_end (args);
 }

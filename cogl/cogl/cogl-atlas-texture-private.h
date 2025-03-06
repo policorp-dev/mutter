@@ -28,18 +28,16 @@
  *
  */
 
-#ifndef _COGL_ATLAS_TEXTURE_PRIVATE_H_
-#define _COGL_ATLAS_TEXTURE_PRIVATE_H_
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-rectangle-map.h"
-#include "cogl-atlas.h"
-#include "cogl-atlas-texture.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/cogl-rectangle-map.h"
+#include "cogl/cogl-atlas.h"
+#include "cogl/cogl-atlas-texture.h"
 
 struct _CoglAtlasTexture
 {
-  CoglTexture           _parent;
+  CoglTexture parent_instance;
 
   /* The format that the texture is in. This isn't necessarily the
      same format as the atlas texture because we can store
@@ -48,7 +46,7 @@ struct _CoglAtlasTexture
 
   /* The rectangle that was used to add this texture to the
      atlas. This includes the 1-pixel border */
-  CoglRectangleMapEntry rectangle;
+  MtkRectangle rectangle;
 
   /* The atlas that this texture is in. If the texture is no longer in
      an atlas then this will be NULL. A reference is taken on the
@@ -61,21 +59,7 @@ struct _CoglAtlasTexture
   CoglTexture          *sub_texture;
 };
 
-CoglAtlasTexture *
-_cogl_atlas_texture_new_from_bitmap (CoglBitmap *bmp,
-                                     gboolean can_convert_in_place);
-
-COGL_EXPORT void
-_cogl_atlas_texture_add_reorganize_callback (CoglContext *ctx,
-                                             GHookFunc callback,
-                                             void *user_data);
-
-COGL_EXPORT void
-_cogl_atlas_texture_remove_reorganize_callback (CoglContext *ctx,
-                                                GHookFunc callback,
-                                                void *user_data);
-
-gboolean
-_cogl_is_atlas_texture (void *object);
-
-#endif /* _COGL_ATLAS_TEXTURE_PRIVATE_H_ */
+struct _CoglAtlasTextureClass
+{
+   CoglTextureClass parent_class;
+};

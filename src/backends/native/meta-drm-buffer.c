@@ -15,9 +15,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Daniel van Vugt <daniel.van.vugt@canonical.com>
  */
@@ -30,6 +28,7 @@
 
 #include "backends/native/meta-device-pool.h"
 #include "backends/native/meta-kms-utils.h"
+#include "common/meta-drm-format-helpers.h"
 
 #include "meta-private-enum-types.h"
 
@@ -123,7 +122,11 @@ meta_drm_buffer_do_ensure_fb_id (MetaDrmBuffer        *buffer,
                           &fb_id,
                           0))
     {
-      if (fb_args->format != DRM_FORMAT_XRGB8888)
+      uint8_t depth;
+      uint8_t bpp;
+
+      if (fb_args->format != DRM_FORMAT_XRGB8888 &&
+          fb_args->format != DRM_FORMAT_ARGB8888)
         {
           g_set_error (error,
                        G_IO_ERROR,
@@ -136,11 +139,23 @@ meta_drm_buffer_do_ensure_fb_id (MetaDrmBuffer        *buffer,
           return FALSE;
         }
 
+      switch (fb_args->format)
+        {
+        case DRM_FORMAT_XRGB8888:
+          depth = 24;
+          bpp = 32;
+          break;
+        case DRM_FORMAT_ARGB8888:
+          depth = 32;
+          bpp = 32;
+          break;
+        }
+
       if (drmModeAddFB (fd,
                         fb_args->width,
                         fb_args->height,
-                        24,
-                        32,
+                        depth,
+                        bpp,
                         fb_args->strides[0],
                         fb_args->handles[0],
                         &fb_id))
@@ -168,7 +183,9 @@ meta_drm_buffer_release_fb_id (MetaDrmBuffer *buffer)
   int ret;
 
   fd = meta_device_file_get_fd (priv->device_file);
-  ret = drmModeRmFB (fd, priv->fb_id);
+  ret = drmModeCloseFB (fd, priv->fb_id);
+  if (ret == -EINVAL)
+    ret = drmModeRmFB (fd, priv->fb_id);
   if (ret != 0)
     g_warning ("drmModeRmFB: %s", g_strerror (-ret));
 
@@ -180,6 +197,16 @@ meta_drm_buffer_export_fd (MetaDrmBuffer  *buffer,
                            GError        **error)
 {
   return META_DRM_BUFFER_GET_CLASS (buffer)->export_fd (buffer, error);
+}
+
+int
+meta_drm_buffer_export_fd_for_plane (MetaDrmBuffer  *buffer,
+                                     int             plane,
+                                     GError        **error)
+{
+  return META_DRM_BUFFER_GET_CLASS (buffer)->export_fd_for_plane (buffer,
+                                                                  plane,
+                                                                  error);
 }
 
 uint32_t
@@ -211,9 +238,23 @@ meta_drm_buffer_get_height (MetaDrmBuffer *buffer)
 }
 
 int
+meta_drm_buffer_get_n_planes (MetaDrmBuffer *buffer)
+{
+  return META_DRM_BUFFER_GET_CLASS (buffer)->get_n_planes (buffer);
+}
+
+int
 meta_drm_buffer_get_stride (MetaDrmBuffer *buffer)
 {
   return META_DRM_BUFFER_GET_CLASS (buffer)->get_stride (buffer);
+}
+
+int
+meta_drm_buffer_get_stride_for_plane (MetaDrmBuffer *buffer,
+                                      int            plane)
+{
+  return META_DRM_BUFFER_GET_CLASS (buffer)->get_stride_for_plane (buffer,
+                                                                   plane);
 }
 
 int
@@ -229,37 +270,17 @@ meta_drm_buffer_get_format (MetaDrmBuffer *buffer)
 }
 
 int
-meta_drm_buffer_get_offset (MetaDrmBuffer *buffer,
-                            int            plane)
+meta_drm_buffer_get_offset_for_plane (MetaDrmBuffer *buffer,
+                                      int            plane)
 {
-  return META_DRM_BUFFER_GET_CLASS (buffer)->get_offset (buffer, plane);
+  return META_DRM_BUFFER_GET_CLASS (buffer)->get_offset_for_plane (buffer,
+                                                                   plane);
 }
 
 uint64_t
 meta_drm_buffer_get_modifier (MetaDrmBuffer *buffer)
 {
   return META_DRM_BUFFER_GET_CLASS (buffer)->get_modifier (buffer);
-}
-
-gboolean
-meta_drm_buffer_supports_fill_timings (MetaDrmBuffer *buffer)
-{
-  return META_DRM_BUFFER_GET_CLASS (buffer)->fill_timings != NULL;
-}
-
-gboolean
-meta_drm_buffer_fill_timings (MetaDrmBuffer  *buffer,
-                              CoglFrameInfo  *info,
-                              GError        **error)
-{
-  if (!meta_drm_buffer_supports_fill_timings (buffer))
-    {
-      g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-                           "Buffer doesn't support filling timing info");
-      return FALSE;
-    }
-
-  return META_DRM_BUFFER_GET_CLASS (buffer)->fill_timings (buffer, info, error);
 }
 
 static void
@@ -348,16 +369,12 @@ meta_drm_buffer_class_init (MetaDrmBufferClass *klass)
   object_class->finalize = meta_drm_buffer_finalize;
 
   obj_props[PROP_DEVICE_FILE] =
-    g_param_spec_pointer ("device-file",
-                          "device file",
-                          "MetaDeviceFile",
+    g_param_spec_pointer ("device-file", NULL, NULL,
                           G_PARAM_READWRITE |
                           G_PARAM_CONSTRUCT_ONLY |
                           G_PARAM_STATIC_STRINGS);
   obj_props[PROP_FLAGS] =
-    g_param_spec_flags ("flags",
-                        "flags",
-                        "MetaDrmBufferFlags",
+    g_param_spec_flags ("flags", NULL, NULL,
                         META_TYPE_DRM_BUFFER_FLAGS,
                         META_DRM_BUFFER_FLAG_NONE,
                         G_PARAM_READWRITE |

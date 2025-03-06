@@ -12,35 +12,35 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_PAD_ACTION_MAPPER_H
-#define META_PAD_ACTION_MAPPER_H
+#pragma once
 
 #include "clutter/clutter.h"
 #include "meta/display.h"
 #include "meta/meta-monitor-manager.h"
+#include "core/meta-tablet-action-mapper.h"
 
 #define META_TYPE_PAD_ACTION_MAPPER (meta_pad_action_mapper_get_type ())
 G_DECLARE_FINAL_TYPE (MetaPadActionMapper, meta_pad_action_mapper,
-                      META, PAD_ACTION_MAPPER, GObject)
+                      META, PAD_ACTION_MAPPER, MetaTabletActionMapper)
 
 MetaPadActionMapper * meta_pad_action_mapper_new (MetaMonitorManager *monitor_manager);
 
 gboolean meta_pad_action_mapper_is_button_grabbed (MetaPadActionMapper *mapper,
                                                    ClutterInputDevice  *pad,
                                                    guint                button);
-gboolean meta_pad_action_mapper_handle_event      (MetaPadActionMapper *mapper,
-                                                   const ClutterEvent  *event);
-gchar *  meta_pad_action_mapper_get_action_label  (MetaPadActionMapper *mapper,
-                                                   ClutterInputDevice  *pad,
-                                                   MetaPadActionType    action,
-                                                   guint                number);
 
-#endif /* META_PAD_ACTION_MAPPER_H */
+char * meta_pad_action_mapper_get_button_label (MetaPadActionMapper *mapper,
+                                                ClutterInputDevice  *pad,
+                                                int                  button);
+
+char * meta_pad_action_mapper_get_feature_label (MetaPadActionMapper *mapper,
+                                                 ClutterInputDevice  *pad,
+                                                 MetaPadFeatureType   feature,
+                                                 MetaPadDirection     direction,
+                                                 int                  number);

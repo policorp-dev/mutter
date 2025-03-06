@@ -28,41 +28,51 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-context-private.h"
-#include "cogl-object-private.h"
-#include "cogl-glsl-shader-boilerplate.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "deprecated/cogl-shader-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-glsl-shader-boilerplate.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/deprecated/cogl-shader-private.h"
 
 #include <glib.h>
 
 #include <string.h>
 
-static void _cogl_shader_free (CoglShader *shader);
-
-COGL_HANDLE_DEFINE (Shader, shader);
+G_DEFINE_FINAL_TYPE (CoglShader, cogl_shader, G_TYPE_OBJECT);
 
 static void
-_cogl_shader_free (CoglShader *shader)
+cogl_shader_dispose (GObject *object)
 {
+  CoglShader *shader = COGL_SHADER (object);
+  CoglContext *ctx = shader->compilation_pipeline->context;
+
   /* Frees shader resources but its handle is not
      released! Do that separately before this! */
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
 
-    if (shader->gl_handle)
-      GE (ctx, glDeleteShader (shader->gl_handle));
+  if (shader->gl_handle)
+    GE (ctx, glDeleteShader (shader->gl_handle));
 
-  g_free (shader);
+  G_OBJECT_CLASS (cogl_shader_parent_class)->dispose (object);
 }
 
-CoglHandle
-cogl_create_shader (CoglShaderType type)
+static void
+cogl_shader_init (CoglShader *shader)
+{
+}
+
+static void
+cogl_shader_class_init (CoglShaderClass *class)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (class);
+
+  object_class->dispose = cogl_shader_dispose;
+}
+
+CoglShader*
+cogl_shader_new (CoglShaderType type)
 {
   CoglShader *shader;
-
-  _COGL_GET_CONTEXT (ctx, NULL);
 
   switch (type)
     {
@@ -71,47 +81,31 @@ cogl_create_shader (CoglShaderType type)
       break;
     default:
       g_warning ("Unexpected shader type (0x%08lX) given to "
-                 "cogl_create_shader", (unsigned long) type);
+                 "cogl_shader_new", (unsigned long) type);
       return NULL;
     }
 
-  shader = g_new0 (CoglShader, 1);
+  shader = g_object_new (COGL_TYPE_SHADER, NULL);
   shader->gl_handle = 0;
   shader->compilation_pipeline = NULL;
   shader->type = type;
 
-  return _cogl_shader_handle_new (shader);
+  return shader;
 }
 
 void
-cogl_shader_source (CoglHandle   handle,
-                    const char  *source)
+cogl_shader_source (CoglShader *self,
+                    const char *source)
 {
-  CoglShader *shader;
+  g_return_if_fail (COGL_IS_SHADER (self));
 
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
-
-  if (!cogl_is_shader (handle))
-    return;
-
-  shader = handle;
-
-  shader->source = g_strdup (source);
+  self->source = g_strdup (source);
 }
 
 CoglShaderType
-cogl_shader_get_type (CoglHandle  handle)
+cogl_shader_get_shader_type (CoglShader *self)
 {
-  CoglShader *shader;
+  g_return_val_if_fail (COGL_IS_SHADER (self), COGL_SHADER_TYPE_VERTEX);
 
-  _COGL_GET_CONTEXT (ctx, COGL_SHADER_TYPE_VERTEX);
-
-  if (!cogl_is_shader (handle))
-    {
-      g_warning ("Non shader handle type passed to cogl_shader_get_type");
-      return COGL_SHADER_TYPE_VERTEX;
-    }
-
-  shader = handle;
-  return shader->type;
+  return self->type;
 }

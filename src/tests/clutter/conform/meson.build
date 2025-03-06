@@ -1,6 +1,6 @@
 clutter_tests_conform_c_args = [
   '-DG_LOG_DOMAIN="Clutter-Conform"',
-  '-DCOGL_DISABLE_DEPRECATION_WARNINGS',
+  '-DCOGL_ENABLE_MUTTER_API',
   '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
 ]
 clutter_tests_conform_c_args += clutter_debug_c_args
@@ -20,30 +20,39 @@ clutter_conform_tests_actor_tests = [
   'actor-layout',
   'actor-meta',
   'actor-offscreen-redirect',
-  'actor-paint-opacity',
   'actor-pick',
   'actor-pivot-point',
   'actor-shader-effect',
   'actor-size',
 ]
 
-clutter_conform_tests_classes_tests = [
-  'text',
-]
+clutter_conform_tests_classes_tests = []
+
+if have_fonts
+  clutter_conform_tests_actor_tests += [
+    'actor-paint-opacity',
+  ]
+
+  clutter_conform_tests_classes_tests += [
+    'text',
+  ]
+endif
 
 clutter_conform_tests_general_tests = [
   'binding-pool',
-  'color',
+  'event-delivery',
+  'color-state-transform',
   'frame-clock',
   'frame-clock-timeline',
   'grab',
+  'gesture',
+  'gesture-relationship',
   'interval',
-  'script-parser',
+  'pipeline-cache',
   'timeline',
   'timeline-interpolate',
   'timeline-progress',
   'timeline-rewind',
-  'units',
 ]
 
 clutter_conform_tests = []
@@ -56,6 +65,7 @@ test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 test_env.set('G_ENABLE_DIAGNOSTIC', '0')
 test_env.set('CLUTTER_ENABLE_DIAGNOSTIC', '0')
+test_env.set('GSETTINGS_SCHEMA_DIR', locally_compiled_schemas_dir)
 
 foreach test : clutter_conform_tests
   test_executable = executable('@0@'.format(test),

@@ -15,19 +15,13 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_REF_TEST_H
-#define META_REF_TEST_H
+#pragma once
 
 #include <glib.h>
 
 #include "clutter/clutter/clutter.h"
 #include "meta/boxes.h"
-
-typedef enum _MetaReftestFlag
-{
-  META_REFTEST_FLAG_NONE = 0,
-  META_REFTEST_FLAG_UPDATE_REF = 1 << 0,
-} MetaReftestFlag;
+#include "tests/meta-ref-test-utils.h"
 
 META_EXPORT
 void meta_ref_test_verify_view (ClutterStageView *view,
@@ -37,5 +31,3 @@ void meta_ref_test_verify_view (ClutterStageView *view,
 
 META_EXPORT
 MetaReftestFlag meta_ref_test_determine_ref_test_flag (void);
-
-#endif /* META_REF_TEST_H */

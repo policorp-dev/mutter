@@ -21,40 +21,39 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_TYPES_H__
-#define __CLUTTER_TYPES_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <cairo.h>
-#include <cogl/cogl.h>
-#include <clutter/clutter-macros.h>
-#include <clutter/clutter-enums.h>
-
 #include <graphene-gobject.h>
+
+#include "cogl/cogl.h"
+#include "clutter/clutter-macros.h"
+#include "clutter/clutter-enums.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_ACTOR_BOX          (clutter_actor_box_get_type ())
-#define CLUTTER_TYPE_KNOT               (clutter_knot_get_type ())
 #define CLUTTER_TYPE_MARGIN             (clutter_margin_get_type ())
 #define CLUTTER_TYPE_PAINT_VOLUME       (clutter_paint_volume_get_type ())
 #define CLUTTER_TYPE_PERSPECTIVE        (clutter_perspective_get_type ())
 
 typedef struct _ClutterActor                    ClutterActor;
 
+typedef struct _ClutterContext                  ClutterContext;
 typedef struct _ClutterStage                    ClutterStage;
 typedef struct _ClutterFrame                    ClutterFrame;
 typedef struct _ClutterFrameInfo                ClutterFrameInfo;
-typedef struct _ClutterContainer                ClutterContainer; /* dummy */
-typedef struct _ClutterChildMeta                ClutterChildMeta;
 typedef struct _ClutterLayoutMeta               ClutterLayoutMeta;
 typedef struct _ClutterActorMeta                ClutterActorMeta;
+typedef struct _ClutterColorManager             ClutterColorManager;
 typedef struct _ClutterLayoutManager            ClutterLayoutManager;
 typedef struct _ClutterActorIter                ClutterActorIter;
+typedef struct _ClutterPaintContext             ClutterPaintContext;
 typedef struct _ClutterPaintNode                ClutterPaintNode;
+typedef struct _ClutterPipelineCache            ClutterPipelineCache;
 typedef struct _ClutterContent                  ClutterContent; /* dummy */
 typedef struct _ClutterScrollActor	        ClutterScrollActor;
 typedef struct _ClutterFrameClock               ClutterFrameClock;
@@ -66,18 +65,15 @@ typedef struct _ClutterTransition       	ClutterTransition;
 typedef struct _ClutterPropertyTransition       ClutterPropertyTransition;
 typedef struct _ClutterKeyframeTransition       ClutterKeyframeTransition;
 typedef struct _ClutterTransitionGroup		ClutterTransitionGroup;
+typedef struct _ClutterText               ClutterText;
 
 typedef struct _ClutterAction                   ClutterAction;
 typedef struct _ClutterConstraint               ClutterConstraint;
 typedef struct _ClutterEffect                   ClutterEffect;
 
-typedef struct _ClutterPath                     ClutterPath;
-typedef struct _ClutterPathNode                 ClutterPathNode;
-
 typedef struct _ClutterActorBox                 ClutterActorBox;
-typedef struct _ClutterColor                    ClutterColor;
 typedef struct _ClutterColorState               ClutterColorState;
-typedef struct _ClutterKnot                     ClutterKnot;
+typedef struct _ClutterColorTransformKey        ClutterColorTransformKey;
 typedef struct _ClutterMargin                   ClutterMargin;
 typedef struct _ClutterPerspective              ClutterPerspective;
 
@@ -90,6 +86,8 @@ typedef struct _ClutterInputFocus               ClutterInputFocus;
 
 typedef union _ClutterEvent                     ClutterEvent;
 
+typedef enum _ClutterPaintFlag                  ClutterPaintFlag;
+
 /**
  * ClutterEventSequence:
  *
@@ -98,12 +96,10 @@ typedef union _ClutterEvent                     ClutterEvent;
  */
 typedef struct _ClutterEventSequence            ClutterEventSequence;
 
-typedef struct _ClutterShader                   ClutterShader; /* deprecated */
-
 /**
  * ClutterPaintVolume:
  *
- * A #ClutterPaintVolume represents a bounding volume whose internal 
+ * A #ClutterPaintVolume represents a bounding volume whose internal
  * representation isn't defined but can be set and queried in terms
  * of an axis aligned bounding box.
  *
@@ -122,8 +118,8 @@ typedef struct _ClutterPaintVolume      ClutterPaintVolume;
  * @x2: X coordinate of the bottom right corner
  * @y2: Y coordinate of the bottom right corner
  *
- * Bounding box of an actor. 
- * 
+ * Bounding box of an actor.
+ *
  * The coordinates of the top left and right bottom corners
  * of an actor. The coordinates of the two points are expressed in
  * pixels with sub-pixel precision
@@ -260,58 +256,7 @@ void             clutter_actor_box_scale          (ClutterActorBox       *box,
 CLUTTER_EXPORT
 gboolean         clutter_actor_box_is_initialized (ClutterActorBox       *box);
 
-/**
- * ClutterKnot:
- * @x: X coordinate of the knot
- * @y: Y coordinate of the knot
- *
- * Point in a path behaviour.
- */
-struct _ClutterKnot
-{
-  gint x;
-  gint y;
-};
-
-CLUTTER_EXPORT
-GType        clutter_knot_get_type (void) G_GNUC_CONST;
-CLUTTER_EXPORT
-ClutterKnot *clutter_knot_copy     (const ClutterKnot *knot);
-CLUTTER_EXPORT
-void         clutter_knot_free     (ClutterKnot       *knot);
-CLUTTER_EXPORT
-gboolean     clutter_knot_equal    (const ClutterKnot *knot_a,
-                                    const ClutterKnot *knot_b);
-
-/**
- * ClutterPathNode:
- * @type: the node's type
- * @points: the coordinates of the node
- *
- * Represents a single node of a #ClutterPath.
- *
- * Some of the coordinates in @points may be unused for some node
- * types. %CLUTTER_PATH_MOVE_TO and %CLUTTER_PATH_LINE_TO use only one
- * pair of coordinates, %CLUTTER_PATH_CURVE_TO uses all three and
- * %CLUTTER_PATH_CLOSE uses none.
- */
-struct _ClutterPathNode
-{
-  ClutterPathNodeType type;
-
-  ClutterKnot points[3];
-};
-
-CLUTTER_EXPORT
-GType clutter_path_node_get_type (void) G_GNUC_CONST;
-
-CLUTTER_EXPORT
-ClutterPathNode *clutter_path_node_copy  (const ClutterPathNode *node);
-CLUTTER_EXPORT
-void             clutter_path_node_free  (ClutterPathNode       *node);
-CLUTTER_EXPORT
-gboolean         clutter_path_node_equal (const ClutterPathNode *node_a,
-                                          const ClutterPathNode *node_b);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterActorBox, clutter_actor_box_free)
 
 /*
  * ClutterPaintVolume
@@ -357,6 +302,8 @@ CLUTTER_EXPORT
 gboolean            clutter_paint_volume_set_from_allocation (ClutterPaintVolume       *pv,
                                                               ClutterActor             *actor);
 
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterPaintVolume, clutter_paint_volume_free)
+
 /**
  * ClutterMargin:
  * @left: the margin from the left
@@ -384,6 +331,8 @@ ClutterMargin * clutter_margin_copy     (const ClutterMargin *margin_);
 CLUTTER_EXPORT
 void            clutter_margin_free     (ClutterMargin       *margin_);
 
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterMargin, clutter_margin_free)
+
 /**
  * ClutterProgressFunc:
  * @a: the initial value of an interval
@@ -400,7 +349,7 @@ void            clutter_margin_free     (ClutterMargin       *margin_);
  *
  * This function will be called by #ClutterInterval if the
  * type of the values of the interval was registered using
- * clutter_interval_register_progress_func().
+ * [func@Clutter.Interval.register_progress_func].
  *
  * Return value: %TRUE if the function successfully computed
  *   the value and stored it inside @retval
@@ -415,5 +364,3 @@ void clutter_interval_register_progress_func (GType               value_type,
                                               ClutterProgressFunc func);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_TYPES_H__ */

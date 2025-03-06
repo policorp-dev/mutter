@@ -1,21 +1,7 @@
 msgfmt = find_program('msgfmt')
 
-custom_target('mutter.desktop',
-  input: 'mutter.desktop.in',
-  output: 'mutter.desktop',
-  command: [
-    msgfmt,
-    '--desktop', '--template',
-    '@INPUT@',
-    '-d', join_paths(mutter_srcdir, 'po'),
-    '-o', '@OUTPUT@'
-  ],
-  install: true,
-  install_dir: join_paths(datadir, 'applications'),
-)
-
 # Unconditionally use this dir to avoid a circular dep with gnomecc
-gnome_keybindings_keysdir = join_paths(datadir, 'gnome-control-center/keybindings')
+gnome_keybindings_keysdir = datadir / 'gnome-control-center' / 'keybindings'
 
 keybinding_xml_files = [
   '50-mutter-navigation.xml',
@@ -40,28 +26,41 @@ gschema_config.set('GETTEXT_DOMAIN', meson.project_name())
 gschema_config.set('XWAYLAND_GRAB_DEFAULT_ACCESS_RULES',
                    xwayland_grab_default_access_rules)
 
-schemadir = join_paths(datadir, 'glib-2.0', 'schemas')
-configure_file(
+schemadir = datadir / 'glib-2.0' / 'schemas'
+schema_xmls = []
+schema_xmls += configure_file(
   input: 'org.gnome.mutter.gschema.xml.in',
   output: 'org.gnome.mutter.gschema.xml',
   configuration: gschema_config,
   install_dir: schemadir
 )
 
-configure_file(
+schema_xmls += configure_file(
   input: 'org.gnome.mutter.wayland.gschema.xml.in',
   output: 'org.gnome.mutter.wayland.gschema.xml',
   configuration: gschema_config,
   install_dir: schemadir
 )
 
+locally_compiled_schemas_dir = meson.current_build_dir()
+
+locally_compiled_schemas = custom_target(
+  output: 'gschemas.compiled',
+  depend_files: schema_xmls,
+  command: ['glib-compile-schemas', locally_compiled_schemas_dir],
+)
+
+locally_compiled_schemas_dep = declare_dependency(
+  sources: locally_compiled_schemas
+)
+
 install_data(['mutter-schemas.convert'],
-  install_dir: join_paths(datadir, 'GConf/gsettings'),
+  install_dir: datadir / 'GConf/gsettings',
 )
 
 if have_libgudev
   install_data(['61-mutter.rules'],
-    install_dir: join_paths(udev_dir, 'rules.d'),
+    install_dir: udev_dir / 'rules.d',
   )
 endif
 

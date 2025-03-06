@@ -5,8 +5,6 @@ clutter_test_accessibility_common_sources = [
 
 clutter_test_accessibility_c_args = [
   '-DPREFIXDIR="@0@"'.format(libdir),
-  '-DCLUTTER_DISABLE_DEPRECATION_WARNINGS',
-  '-DGLIB_DISABLE_DEPRECATION_WARNINGS',
   '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
 ]
 
@@ -18,11 +16,16 @@ clutter_accessibility_tests_dependencies = [
 
 clutter_accessibility_tests = [
   'cally-atkcomponent-example',
-  'cally-atktext-example',
-  'cally-atkevents-example',
-  'cally-atkeditabletext-example',
-  'cally-clone-example',
 ]
+
+if have_fonts
+  clutter_accessibility_tests += [
+    'cally-atkeditabletext-example',
+    'cally-atkevents-example',
+    'cally-atktext-example',
+    'cally-clone-example',
+  ]
+endif
 
 foreach test : clutter_accessibility_tests
   executable(test,

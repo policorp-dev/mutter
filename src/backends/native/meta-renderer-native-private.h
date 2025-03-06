@@ -25,8 +25,7 @@
  *
  */
 
-#ifndef META_RENDERER_NATIVE_PRIVATE_H
-#define META_RENDERER_NATIVE_PRIVATE_H
+#pragma once
 
 #include "backends/meta-gles3.h"
 #include "backends/native/meta-backend-native-types.h"
@@ -60,12 +59,16 @@ typedef struct _MetaRendererNativeGpuData
    */
   struct {
     MetaSharedFramebufferCopyMode copy_mode;
+    gboolean copy_mode_primary_force_cpu;
     gboolean has_EGL_EXT_image_dma_buf_import_modifiers;
+    gboolean needs_explicit_sync;
 
     /* For GPU blit mode */
     EGLContext egl_context;
     EGLConfig egl_config;
   } secondary;
+
+  gulong crtc_needs_flush_handler_id;
 } MetaRendererNativeGpuData;
 
 MetaEgl * meta_renderer_native_get_egl (MetaRendererNative *renderer_native);
@@ -75,6 +78,7 @@ MetaGles3 * meta_renderer_native_get_gles3 (MetaRendererNative *renderer_native)
 MetaRendererNativeGpuData * meta_renderer_native_get_gpu_data (MetaRendererNative *renderer_native,
                                                                MetaGpuKms         *gpu_kms);
 
+META_EXPORT_TEST
 gboolean meta_renderer_native_has_pending_mode_sets (MetaRendererNative *renderer_native);
 
 gboolean meta_renderer_native_has_pending_mode_set (MetaRendererNative *renderer_native);
@@ -83,22 +87,22 @@ void meta_renderer_native_notify_mode_sets_reset (MetaRendererNative *renderer_n
 
 void meta_renderer_native_post_mode_set_updates (MetaRendererNative *renderer_native);
 
+void meta_renderer_native_queue_mode_set_update (MetaRendererNative *renderer_native,
+                                                 MetaKmsUpdate      *new_kms_update);
+
 void meta_renderer_native_queue_power_save_page_flip (MetaRendererNative *renderer_native,
                                                       CoglOnscreen       *onscreen);
 
 CoglFramebuffer * meta_renderer_native_create_dma_buf_framebuffer (MetaRendererNative  *renderer_native,
-                                                                   int                  dmabuf_fd,
                                                                    uint32_t             width,
                                                                    uint32_t             height,
-                                                                   uint32_t             stride,
-                                                                   uint32_t             offset,
-                                                                   uint64_t             modifier,
                                                                    uint32_t             drm_format,
+                                                                   int                  n_planes,
+                                                                   int                 *fds,
+                                                                   uint32_t            *strides,
+                                                                   uint32_t            *offsets,
+                                                                   uint64_t            *modifiers,
                                                                    GError             **error);
 
 gboolean meta_renderer_native_pop_pending_mode_set (MetaRendererNative *renderer_native,
                                                     MetaRendererView   *view);
-
-const CoglWinsysVtable * meta_get_renderer_native_parent_vtable (void);
-
-#endif /* META_RENDERER_NATIVE_PRIVATE_H */

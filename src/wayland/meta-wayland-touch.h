@@ -19,8 +19,7 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_WAYLAND_TOUCH_H
-#define META_WAYLAND_TOUCH_H
+#pragma once
 
 #include <glib.h>
 #include <wayland-server.h>
@@ -40,6 +39,8 @@ struct _MetaWaylandTouch
   MetaWaylandInputDevice parent;
 
   struct wl_list resource_list;
+
+  uint32_t latest_touch_down_serial;
 
   guint queued_frame_id;
   GHashTable *touch_surfaces; /* HT of MetaWaylandSurface->MetaWaylandTouchSurface */
@@ -75,4 +76,5 @@ gboolean meta_wayland_touch_get_press_coords (MetaWaylandTouch     *touch,
 gboolean meta_wayland_touch_can_popup        (MetaWaylandTouch *touch,
                                               uint32_t          serial);
 
-#endif /* META_WAYLAND_TOUCH_H */
+MetaWaylandSurface * meta_wayland_touch_get_surface (MetaWaylandTouch     *touch,
+                                                     ClutterEventSequence *sequence);

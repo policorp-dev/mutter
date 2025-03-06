@@ -21,21 +21,17 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_BACKEND_H__
-#define __CLUTTER_BACKEND_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <cairo.h>
-#include <pango/pango.h>
+#include "cogl/cogl.h"
 
-#include <cogl/cogl.h>
-
-#include <clutter/clutter-keymap.h>
-#include <clutter/clutter-types.h>
-#include <clutter/clutter-seat.h>
+#include "clutter/clutter-keymap.h"
+#include "clutter/clutter-types.h"
+#include "clutter/clutter-seat.h"
 
 G_BEGIN_DECLS
 
@@ -56,12 +52,6 @@ CLUTTER_EXPORT
 gdouble                         clutter_backend_get_resolution          (ClutterBackend             *backend);
 
 CLUTTER_EXPORT
-void                            clutter_backend_set_font_options        (ClutterBackend             *backend,
-                                                                         const cairo_font_options_t *options);
-CLUTTER_EXPORT
-const cairo_font_options_t *    clutter_backend_get_font_options        (ClutterBackend             *backend);
-
-CLUTTER_EXPORT
 CoglContext *                   clutter_backend_get_cogl_context        (ClutterBackend             *backend);
 
 CLUTTER_EXPORT
@@ -73,6 +63,6 @@ void                            clutter_backend_set_input_method        (Clutter
 CLUTTER_EXPORT
 ClutterSeat *                   clutter_backend_get_default_seat        (ClutterBackend             *backend);
 
-G_END_DECLS
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterBackend, g_object_unref)
 
-#endif /* __CLUTTER_BACKEND_H__ */
+G_END_DECLS

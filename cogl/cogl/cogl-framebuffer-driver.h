@@ -25,13 +25,20 @@
  *
  */
 
-#ifndef COGL_FRAMEBUFFER_DRIVER_H
-#define COGL_FRAMEBUFFER_DRIVER_H
+#pragma once
 
-#include "cogl-attribute-private.h"
-#include "cogl-framebuffer.h"
+#include "cogl/cogl-attribute-private.h"
+#include "cogl/cogl-framebuffer.h"
 
-typedef struct _CoglFramebufferBits CoglFramebufferBits;
+typedef struct _CoglFramebufferBits
+{
+  int red;
+  int blue;
+  int green;
+  int alpha;
+  int depth;
+  int stencil;
+} CoglFramebufferBits;
 
 #define COGL_TYPE_FRAMEBUFFER_DRIVER (cogl_framebuffer_driver_get_type ())
 G_DECLARE_DERIVABLE_TYPE (CoglFramebufferDriver,
@@ -140,5 +147,3 @@ cogl_framebuffer_driver_read_pixels_into_bitmap (CoglFramebufferDriver  *driver,
                                                  CoglReadPixelsFlags     source,
                                                  CoglBitmap             *bitmap,
                                                  GError                **error);
-
-#endif /* COGL_FRAMEBUFFER_DRIVER_H */

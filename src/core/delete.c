@@ -31,7 +31,6 @@
 #include "compositor/compositor-private.h"
 #include "core/util-private.h"
 #include "core/window-private.h"
-#include "meta/meta-x11-errors.h"
 #include "meta/workspace.h"
 
 static void
@@ -46,7 +45,7 @@ close_dialog_response_cb (MetaCloseDialog         *dialog,
 }
 
 static void
-meta_window_ensure_close_dialog (MetaWindow *window)
+meta_window_maybe_ensure_close_dialog (MetaWindow *window)
 {
   MetaDisplay *display;
 
@@ -65,11 +64,15 @@ meta_window_ensure_close_dialog (MetaWindow *window)
 void
 meta_window_show_close_dialog (MetaWindow *window)
 {
-  meta_window_ensure_close_dialog (window);
+  meta_window_maybe_ensure_close_dialog (window);
+
+  if (!window->close_dialog)
+    return;
+
   meta_close_dialog_show (window->close_dialog);
 
   if (window->display &&
-      window->display->event_route == META_EVENT_ROUTE_NORMAL &&
+      !meta_compositor_get_current_window_drag (window->display->compositor) &&
       window == window->display->focus_window)
     meta_close_dialog_focus (window->close_dialog);
 }
@@ -92,7 +95,13 @@ void
 meta_window_check_alive_on_event (MetaWindow *window,
                                   uint32_t    timestamp)
 {
+  unsigned int check_alive_timeout;
+
   if (!meta_window_can_ping (window))
+    return;
+
+  check_alive_timeout = meta_prefs_get_check_alive_timeout ();
+  if (check_alive_timeout == 0)
     return;
 
   meta_display_ping_window (window, timestamp);

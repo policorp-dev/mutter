@@ -12,14 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_BACKEND_NATIVE_TYPES_H
-#define META_BACKEND_NATIVE_TYPES_H
+#pragma once
 
 typedef struct _MetaBackendNative MetaBackendNative;
 typedef struct _MetaSeatNative MetaSeatNative;
@@ -44,7 +41,6 @@ typedef enum _MetaBackendNativeMode
 {
   META_BACKEND_NATIVE_MODE_DEFAULT = 0,
   META_BACKEND_NATIVE_MODE_HEADLESS,
-  META_BACKEND_NATIVE_MODE_TEST,
+  META_BACKEND_NATIVE_MODE_TEST_VKMS,
+  META_BACKEND_NATIVE_MODE_TEST_HEADLESS,
 } MetaBackendNativeMode;
-
-#endif /* META_BACKEND_NATIVE_TYPES_H */

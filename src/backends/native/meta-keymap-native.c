@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -55,10 +53,10 @@ meta_keymap_native_finalize (GObject *object)
   G_OBJECT_CLASS (meta_keymap_native_parent_class)->finalize (object);
 }
 
-static PangoDirection
+static ClutterTextDirection
 meta_keymap_native_get_direction (ClutterKeymap *keymap)
 {
-  return PANGO_DIRECTION_NEUTRAL;
+  return CLUTTER_TEXT_DIRECTION_DEFAULT;
 }
 
 static void

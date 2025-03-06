@@ -17,8 +17,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef MONITOR_TEST_UTILS_H
-#define MONITOR_TEST_UTILS_H
+#pragma once
 
 #include <glib.h>
 
@@ -89,6 +88,7 @@ typedef struct _MonitorTestCaseMode
   int width;
   int height;
   float refresh_rate;
+  MetaCrtcRefreshRateMode refresh_rate_mode;
   MetaCrtcModeFlag flags;
 } MonitorTestCaseMode;
 
@@ -103,17 +103,23 @@ typedef struct _MonitorTestCaseOutput
   int width_mm;
   int height_mm;
   MetaTileInfo tile_info;
+  gboolean dynamic_scale;
   float scale;
   gboolean is_laptop_panel;
   gboolean is_underscanning;
   unsigned int max_bpc;
+  MetaOutputRGBRange rgb_range;
   const char *serial;
-  MetaMonitorTransform panel_orientation_transform;
+  MtkMonitorTransform panel_orientation_transform;
   gboolean hotplug_mode;
   int suggested_x;
   int suggested_y;
+  int backlight_min;
+  int backlight_max;
   gboolean has_edid_info;
   MetaEdidInfo edid_info;
+  uint64_t supported_color_spaces;
+  uint64_t supported_hdr_eotfs;
 } MonitorTestCaseOutput;
 
 typedef struct _MonitorTestCaseCrtc
@@ -145,6 +151,7 @@ typedef struct _MonitorTestCaseMonitorMode
   int width;
   int height;
   float refresh_rate;
+  MetaCrtcRefreshRateMode refresh_rate_mode;
   int n_scales;
   float scales[MAX_N_SCALES];
   MetaCrtcModeFlag flags;
@@ -162,20 +169,21 @@ typedef struct _MonitorTestCaseMonitor
   int height_mm;
   gboolean is_underscanning;
   unsigned int max_bpc;
+  MetaOutputRGBRange rgb_range;
 } MonitorTestCaseMonitor;
 
 typedef struct _MonitorTestCaseLogicalMonitor
 {
-  MetaRectangle layout;
+  MtkRectangle layout;
   float scale;
   int monitors[MAX_N_MONITORS];
   int n_monitors;
-  MetaMonitorTransform transform;
+  MtkMonitorTransform transform;
 } MonitorTestCaseLogicalMonitor;
 
 typedef struct _MonitorTestCaseCrtcExpect
 {
-  MetaMonitorTransform transform;
+  MtkMonitorTransform transform;
   int current_mode;
   float x;
   float y;
@@ -241,5 +249,3 @@ void meta_wait_for_orientation (MetaOrientationManager *orientation_manager,
 META_EXPORT
 void meta_wait_for_possible_orientation_change (MetaOrientationManager *orientation_manager,
                                                 unsigned int           *times_signalled_out);
-
-#endif /* MONITOR_TEST_UTILS_H */

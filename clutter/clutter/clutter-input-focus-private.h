@@ -12,15 +12,12 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef __CLUTTER_INPUT_FOCUS_PRIVATE_H__
-#define __CLUTTER_INPUT_FOCUS_PRIVATE_H__
+#pragma once
 
 void clutter_input_focus_focus_in  (ClutterInputFocus  *focus,
                                     ClutterInputMethod *method);
@@ -28,14 +25,4 @@ void clutter_input_focus_focus_out (ClutterInputFocus  *focus);
 
 void clutter_input_focus_commit (ClutterInputFocus *focus,
                                  const gchar       *text);
-void clutter_input_focus_delete_surrounding (ClutterInputFocus *focus,
-                                             int                offset,
-                                             guint              len);
 void clutter_input_focus_request_surrounding (ClutterInputFocus *focus);
-
-void clutter_input_focus_set_preedit_text (ClutterInputFocus *focus,
-                                           const gchar       *preedit,
-                                           unsigned int       cursor,
-                                           unsigned int       anchor);
-
-#endif /* __CLUTTER_INPUT_FOCUS_PRIVATE_H__ */

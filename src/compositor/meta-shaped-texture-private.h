@@ -19,20 +19,20 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __META_SHAPED_TEXTURE_PRIVATE_H__
-#define __META_SHAPED_TEXTURE_PRIVATE_H__
+#pragma once
 
 #include "backends/meta-monitor-manager-private.h"
 #include "meta/meta-shaped-texture.h"
 
-MetaShapedTexture * meta_shaped_texture_new (void);
+MetaShapedTexture * meta_shaped_texture_new (ClutterContext    *clutter_context,
+                                             ClutterColorState *color_state);
 void meta_shaped_texture_set_texture (MetaShapedTexture *stex,
-                                      CoglTexture       *texture);
+                                      MetaMultiTexture  *multi_texture);
+void meta_shaped_texture_set_color_state (MetaShapedTexture *stex,
+                                          ClutterColorState *color_state);
 void meta_shaped_texture_set_is_y_inverted (MetaShapedTexture *stex,
                                             gboolean           is_y_inverted);
 void meta_shaped_texture_set_snippet (MetaShapedTexture *stex,
@@ -40,11 +40,11 @@ void meta_shaped_texture_set_snippet (MetaShapedTexture *stex,
 void meta_shaped_texture_set_fallback_size (MetaShapedTexture *stex,
                                             int                fallback_width,
                                             int                fallback_height);
-cairo_region_t * meta_shaped_texture_get_opaque_region (MetaShapedTexture *stex);
+MtkRegion * meta_shaped_texture_get_opaque_region (MetaShapedTexture *stex);
 gboolean meta_shaped_texture_is_opaque (MetaShapedTexture *stex);
 gboolean meta_shaped_texture_has_alpha (MetaShapedTexture *stex);
 void meta_shaped_texture_set_transform (MetaShapedTexture    *stex,
-                                        MetaMonitorTransform  transform);
+                                        MtkMonitorTransform  transform);
 void meta_shaped_texture_set_viewport_src_rect (MetaShapedTexture *stex,
                                                 graphene_rect_t   *src_rect);
 void meta_shaped_texture_reset_viewport_src_rect (MetaShapedTexture *stex);
@@ -54,25 +54,22 @@ void meta_shaped_texture_set_viewport_dst_size (MetaShapedTexture *stex,
 void meta_shaped_texture_reset_viewport_dst_size (MetaShapedTexture *stex);
 void meta_shaped_texture_set_buffer_scale (MetaShapedTexture *stex,
                                            int                buffer_scale);
-int meta_shaped_texture_get_buffer_scale (MetaShapedTexture *stex);
 
-gboolean meta_shaped_texture_update_area (MetaShapedTexture     *stex,
-                                          int                    x,
-                                          int                    y,
-                                          int                    width,
-                                          int                    height,
-                                          cairo_rectangle_int_t *clip);
+gboolean meta_shaped_texture_update_area (MetaShapedTexture  *stex,
+                                          const MtkRectangle *area,
+                                          MtkRectangle       *clip);
 
 int meta_shaped_texture_get_width (MetaShapedTexture *stex);
 int meta_shaped_texture_get_height (MetaShapedTexture *stex);
 
+float meta_shaped_texture_get_unscaled_width (MetaShapedTexture *stex);
+float meta_shaped_texture_get_unscaled_height (MetaShapedTexture *stex);
+
 void meta_shaped_texture_set_clip_region (MetaShapedTexture *stex,
-                                          cairo_region_t    *clip_region);
+                                          MtkRegion         *clip_region);
 void meta_shaped_texture_set_opaque_region (MetaShapedTexture *stex,
-                                            cairo_region_t    *opaque_region);
+                                            MtkRegion         *opaque_region);
 
 void meta_shaped_texture_ensure_size_valid (MetaShapedTexture *stex);
 
 gboolean meta_shaped_texture_should_get_via_offscreen (MetaShapedTexture *stex);
-
-#endif

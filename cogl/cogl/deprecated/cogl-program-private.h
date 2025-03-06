@@ -28,17 +28,15 @@
  *
  */
 
-#ifndef __COGL_PROGRAM_H
-#define __COGL_PROGRAM_H
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-shader-private.h"
+#include "cogl/cogl-boxed-value.h"
 
 typedef struct _CoglProgram CoglProgram;
 
 struct _CoglProgram
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   GSList *attached_shaders;
 
@@ -47,6 +45,7 @@ struct _CoglProgram
   /* An age counter that changes whenever the list of shaders is modified */
   unsigned int age;
 };
+
 
 typedef struct _CoglProgramUniform CoglProgramUniform;
 
@@ -72,14 +71,13 @@ struct _CoglProgramUniform
    the last time it was flushed. This will cause it to requery all of
    the locations and assume that all uniforms are dirty */
 void
-_cogl_program_flush_uniforms (CoglProgram *program,
-                              GLuint gl_program,
-                              gboolean gl_program_changed);
+_cogl_program_flush_uniforms (CoglContext *ctx,
+                              CoglProgram *program,
+                              GLuint       gl_program,
+                              gboolean     gl_program_changed);
 
 gboolean
-_cogl_program_has_fragment_shader (CoglHandle handle);
+_cogl_program_has_fragment_shader (CoglProgram *self);
 
 gboolean
-_cogl_program_has_vertex_shader (CoglHandle handle);
-
-#endif /* __COGL_PROGRAM_H */
+_cogl_program_has_vertex_shader (CoglProgram *self);

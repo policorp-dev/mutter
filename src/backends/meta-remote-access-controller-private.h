@@ -12,20 +12,19 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_REMOTE_ACCESS_CONTROLLER_PRIVATE_H
-#define META_REMOTE_ACCESS_CONTROLLER_PRIVATE_H
+#pragma once
 
 #include "backends/meta-backend-types.h"
 #include "meta/meta-remote-access-controller.h"
 
-MetaRemoteAccessController * meta_remote_access_controller_new (MetaRemoteDesktop *remote_desktop,
-                                                                MetaScreenCast    *screen_cast);
+MetaRemoteAccessController * meta_remote_access_controller_new (void);
+
+void meta_remote_access_controller_add (MetaRemoteAccessController *controller,
+                                        MetaDbusSessionManager     *session_manager);
 
 void meta_remote_access_controller_notify_new_handle (MetaRemoteAccessController *controller,
                                                       MetaRemoteAccessHandle     *handle);
@@ -34,5 +33,3 @@ void meta_remote_access_handle_notify_stopped (MetaRemoteAccessHandle *handle);
 
 void meta_remote_access_handle_set_disable_animations (MetaRemoteAccessHandle *handle,
                                                        gboolean                disable_animations);
-
-#endif /* META_REMOTE_ACCESS_CONTROLLER_PRIVATE_H */

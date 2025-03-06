@@ -31,16 +31,20 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_STACK_TRACKER_H
-#define META_STACK_TRACKER_H
+#pragma once
+
+#ifdef HAVE_X11_CLIENT
+#include <X11/Xlib.h>
+#endif
 
 #include "core/util-private.h"
 #include "meta/display.h"
 #include "meta/window.h"
 
 typedef struct _MetaStackTracker MetaStackTracker;
+typedef struct _MetaStack MetaStack;
 
-MetaStackTracker *meta_stack_tracker_new  (MetaDisplay      *display);
+MetaStackTracker *meta_stack_tracker_new  (MetaStack        *stack);
 void              meta_stack_tracker_free (MetaStackTracker *tracker);
 
 /* These functions are called when we make an X call that changes the
@@ -67,6 +71,7 @@ void meta_stack_tracker_restack_at_bottom (MetaStackTracker *tracker,
 
 /* These functions are used to update the stack when we get events
  * reflecting changes to the stacking order */
+#ifdef HAVE_X11_CLIENT
 void meta_stack_tracker_create_event    (MetaStackTracker    *tracker,
 					 XCreateWindowEvent  *event);
 void meta_stack_tracker_destroy_event   (MetaStackTracker    *tracker,
@@ -75,6 +80,7 @@ void meta_stack_tracker_reparent_event  (MetaStackTracker    *tracker,
 					 XReparentEvent      *event);
 void meta_stack_tracker_configure_event (MetaStackTracker    *tracker,
 					 XConfigureEvent     *event);
+#endif
 
 META_EXPORT_TEST
 void meta_stack_tracker_get_stack  (MetaStackTracker *tracker,
@@ -83,5 +89,3 @@ void meta_stack_tracker_get_stack  (MetaStackTracker *tracker,
 
 void meta_stack_tracker_sync_stack       (MetaStackTracker *tracker);
 void meta_stack_tracker_queue_sync_stack (MetaStackTracker *tracker);
-
-#endif /* META_STACK_TRACKER_H */

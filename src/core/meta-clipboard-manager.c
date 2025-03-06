@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -22,6 +20,7 @@
 #include "config.h"
 
 #include "core/meta-clipboard-manager.h"
+#include "core/meta-selection-private.h"
 #include "meta/meta-selection-source-memory.h"
 
 #define MAX_TEXT_SIZE (4 * 1024 * 1024) /* 4MB */
@@ -66,23 +65,23 @@ mimetype_match (const char *mimetype,
 static void
 transfer_cb (MetaSelection *selection,
              GAsyncResult  *result,
-             GOutputStream *output)
+             GOutputStream *output_stream)
 {
-  MetaDisplay *display = meta_get_display ();
-  GError *error = NULL;
+  MetaDisplay *display = meta_selection_get_display (selection);
+  g_autoptr (GOutputStream) output = output_stream;
+  g_autoptr (GError) error = NULL;
 
   if (!meta_selection_transfer_finish (selection, result, &error))
     {
-      g_warning ("Failed to store clipboard: %s", error->message);
-      g_error_free (error);
-      g_object_unref (output);
+      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Failed to store clipboard: %s", error->message);
+
       return;
     }
 
   g_output_stream_close (output, NULL, NULL);
   display->saved_clipboard =
     g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (output));
-  g_object_unref (output);
 }
 
 static void
@@ -105,6 +104,8 @@ owner_changed_cb (MetaSelection       *selection,
       /* New selection source, find the best mimetype in order to
        * keep a copy of it.
        */
+      g_cancellable_cancel (display->saved_clipboard_cancellable);
+      g_clear_object (&display->saved_clipboard_cancellable);
       g_clear_object (&display->selection_source);
       g_clear_pointer (&display->saved_clipboard_mimetype, g_free);
       g_clear_pointer (&display->saved_clipboard, g_bytes_unref);
@@ -127,7 +128,7 @@ owner_changed_cb (MetaSelection       *selection,
             }
         }
 
-      if (best_idx < 0)
+      if (!best)
         {
           g_list_free_full (mimetypes, g_free);
           return;
@@ -136,23 +137,36 @@ owner_changed_cb (MetaSelection       *selection,
       display->saved_clipboard_mimetype = g_strdup (best);
       g_list_free_full (mimetypes, g_free);
       output = g_memory_output_stream_new_resizable ();
+      display->saved_clipboard_cancellable = g_cancellable_new ();
       meta_selection_transfer_async (selection,
                                      META_SELECTION_CLIPBOARD,
                                      display->saved_clipboard_mimetype,
                                      transfer_size,
                                      output,
-                                     NULL,
+                                     display->saved_clipboard_cancellable,
                                      (GAsyncReadyCallback) transfer_cb,
                                      output);
     }
   else if (!new_owner && display->saved_clipboard)
     {
+      g_autoptr (GError) error = NULL;
+      g_autoptr (MetaSelectionSource) new_source = NULL;
+
+      g_assert (display->saved_clipboard_mimetype != NULL);
+
       /* Old owner is gone, time to take over */
-      new_owner = meta_selection_source_memory_new (display->saved_clipboard_mimetype,
-                                                    display->saved_clipboard);
-      g_set_object (&display->selection_source, new_owner);
-      meta_selection_set_owner (selection, selection_type, new_owner);
-      g_object_unref (new_owner);
+      new_source = meta_selection_source_memory_new (display->saved_clipboard_mimetype,
+                                                     display->saved_clipboard,
+                                                     &error);
+      if (!new_source)
+        {
+          g_warning ("MetaClipboardManager failed to create new MetaSelectionSourceMemory: %s",
+                     error->message);
+          return;
+        }
+
+      g_set_object (&display->selection_source, new_source);
+      meta_selection_set_owner (selection, selection_type, new_source);
     }
 }
 
@@ -171,6 +185,8 @@ meta_clipboard_manager_shutdown (MetaDisplay *display)
 {
   MetaSelection *selection;
 
+  g_cancellable_cancel (display->saved_clipboard_cancellable);
+  g_clear_object (&display->saved_clipboard_cancellable);
   g_clear_object (&display->selection_source);
   g_clear_pointer (&display->saved_clipboard, g_bytes_unref);
   g_clear_pointer (&display->saved_clipboard_mimetype, g_free);

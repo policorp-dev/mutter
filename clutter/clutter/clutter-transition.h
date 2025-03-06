@@ -21,35 +21,25 @@
  * Author: Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_TRANSITION_H__
-#define __CLUTTER_TRANSITION_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-types.h>
-#include <clutter/clutter-timeline.h>
+#include "clutter/clutter-types.h"
+#include "clutter/clutter-timeline.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_TRANSITION                 (clutter_transition_get_type ())
-#define CLUTTER_TRANSITION(obj)                 (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TRANSITION, ClutterTransition))
-#define CLUTTER_IS_TRANSITION(obj)              (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_TRANSITION))
-#define CLUTTER_TRANSITION_CLASS(klass)         (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_TRANSITION, ClutterTransitionClass))
-#define CLUTTER_IS_TRANSITION_CLASS(klass)      (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_TRANSITION))
-#define CLUTTER_TRANSITION_GET_CLASS(obj)       (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_TRANSITION, ClutterTransitionClass))
 
-typedef struct _ClutterTransitionPrivate        ClutterTransitionPrivate;
-typedef struct _ClutterTransitionClass          ClutterTransitionClass;
-
-struct _ClutterTransition
-{
-  /*< private >*/
-  ClutterTimeline parent_instance;
-
-  ClutterTransitionPrivate *priv;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterTransition,
+                          clutter_transition,
+                          CLUTTER,
+                          TRANSITION,
+                          ClutterTimeline)
 
 /**
  * ClutterTransitionClass:
@@ -78,13 +68,7 @@ struct _ClutterTransitionClass
                           ClutterAnimatable *animatable,
                           ClutterInterval   *interval,
                           gdouble            progress);
-
-  /*< private >*/
-  gpointer _padding[8];
 };
-
-CLUTTER_EXPORT
-GType clutter_transition_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 void                    clutter_transition_set_interval                 (ClutterTransition *transition,
@@ -118,5 +102,3 @@ CLUTTER_EXPORT
 gboolean                clutter_transition_get_remove_on_complete       (ClutterTransition *transition);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_TRANSITION_H__ */

@@ -30,23 +30,20 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-i18n-private.h"
-#include "cogl-util.h"
-#include "cogl-feature-private.h"
-#include "cogl-context-private.h"
-#include "cogl-framebuffer.h"
-#include "cogl-onscreen-private.h"
-#include "cogl-swap-chain-private.h"
-#include "cogl-renderer-private.h"
-#include "cogl-onscreen-template-private.h"
-#include "cogl-egl.h"
-#include "cogl-private.h"
-#include "cogl-trace.h"
-#include "winsys/cogl-winsys-egl-private.h"
-#include "winsys/cogl-winsys-private.h"
-#include "winsys/cogl-onscreen-egl.h"
+#include "cogl/cogl-util.h"
+#include "cogl/cogl-feature-private.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer.h"
+#include "cogl/cogl-onscreen-private.h"
+#include "cogl/cogl-renderer-private.h"
+#include "cogl/cogl-private.h"
+#include "cogl/cogl-trace.h"
+#include "cogl/winsys/cogl-winsys-egl-private.h"
+#include "cogl/winsys/cogl-winsys-private.h"
+#include "cogl/winsys/cogl-onscreen-egl.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -89,7 +86,7 @@
 #define COGL_WINSYS_FEATURE_END()               \
   { NULL, 0 },                                  \
     };
-#include "winsys/cogl-winsys-egl-feature-functions.h"
+#include "cogl/winsys/cogl-winsys-egl-feature-functions.h"
 
 /* Define an array of features */
 #undef COGL_WINSYS_FEATURE_BEGIN
@@ -106,25 +103,19 @@
 
 static const CoglFeatureData winsys_feature_data[] =
   {
-#include "winsys/cogl-winsys-egl-feature-functions.h"
+#include "cogl/winsys/cogl-winsys-egl-feature-functions.h"
   };
 
 static GCallback
 _cogl_winsys_renderer_get_proc_address (CoglRenderer *renderer,
-                                        const char *name,
-                                        gboolean in_core)
+                                        const char   *name)
 {
-  void *ptr = NULL;
+  GCallback result = eglGetProcAddress (name);
 
-  if (!in_core)
-    ptr = eglGetProcAddress (name);
+  if (result == NULL)
+    g_module_symbol (renderer->libgl_module, name, (gpointer *)&result);
 
-  /* eglGetProcAddress doesn't support fetching core API so we need to
-     get that separately with GModule */
-  if (ptr == NULL)
-    g_module_symbol (renderer->libgl_module, name, &ptr);
-
-  return ptr;
+  return result;
 }
 
 static void
@@ -137,10 +128,9 @@ _cogl_winsys_renderer_disconnect (CoglRenderer *renderer)
 static void
 _cogl_winsys_renderer_bind_api (CoglRenderer *renderer)
 {
-  if (renderer->driver == COGL_DRIVER_GL ||
-      renderer->driver == COGL_DRIVER_GL3)
+  if (renderer->driver_id == COGL_DRIVER_ID_GL3)
     eglBindAPI (EGL_OPENGL_API);
-  else if (renderer->driver == COGL_DRIVER_GLES2)
+  else if (renderer->driver_id == COGL_DRIVER_ID_GLES2)
     eglBindAPI (EGL_OPENGL_ES_API);
 }
 
@@ -162,7 +152,7 @@ check_egl_extensions (CoglRenderer *renderer)
   for (i = 0; i < G_N_ELEMENTS (winsys_feature_data); i++)
     if (_cogl_feature_check (renderer,
                              "EGL", winsys_feature_data + i, 0, 0,
-                             COGL_DRIVER_GL, /* the driver isn't used */
+                             COGL_DRIVER_ID_GL3, /* the driver isn't used */
                              split_extensions,
                              egl_renderer))
       {
@@ -204,9 +194,8 @@ _cogl_winsys_renderer_connect (CoglRenderer *renderer,
 }
 
 void
-cogl_display_egl_determine_attributes (CoglDisplay                 *display,
-                                       const CoglFramebufferConfig *config,
-                                       EGLint                      *attributes)
+cogl_display_egl_determine_attributes (CoglDisplay *display,
+                                       EGLint      *attributes)
 {
   CoglRenderer *renderer = display->renderer;
   CoglRendererEGL *egl_renderer = renderer->winsys;
@@ -215,14 +204,10 @@ cogl_display_egl_determine_attributes (CoglDisplay                 *display,
   /* Let the platform add attributes first, including setting the
    * EGL_SURFACE_TYPE */
   i = egl_renderer->platform_vtable->add_config_attributes (display,
-                                                            config,
                                                             attributes);
 
-  if (config->need_stencil)
-    {
-      attributes[i++] = EGL_STENCIL_SIZE;
-      attributes[i++] = 2;
-    }
+  attributes[i++] = EGL_STENCIL_SIZE;
+  attributes[i++] = 2;
 
   attributes[i++] = EGL_RED_SIZE;
   attributes[i++] = 1;
@@ -241,18 +226,9 @@ cogl_display_egl_determine_attributes (CoglDisplay                 *display,
   attributes[i++] = EGL_DONT_CARE;
 
   attributes[i++] = EGL_RENDERABLE_TYPE;
-  attributes[i++] = ((renderer->driver == COGL_DRIVER_GL ||
-                      renderer->driver == COGL_DRIVER_GL3) ?
+  attributes[i++] = (renderer->driver_id == COGL_DRIVER_ID_GL3 ?
                      EGL_OPENGL_BIT :
                      EGL_OPENGL_ES2_BIT);
-
-  if (config->samples_per_pixel)
-    {
-       attributes[i++] = EGL_SAMPLE_BUFFERS;
-       attributes[i++] = 1;
-       attributes[i++] = EGL_SAMPLES;
-       attributes[i++] = config->samples_per_pixel;
-    }
 
   attributes[i++] = EGL_NONE;
 
@@ -318,45 +294,6 @@ cleanup_context (CoglDisplay *display)
     egl_renderer->platform_vtable->cleanup_context (display);
 }
 
-static void
-print_attribs (EGLDisplay egl_display,
-               EGLConfig  egl_config)
-{
-  const EGLint names[] =
-    {
-      EGL_BUFFER_SIZE,
-      EGL_RED_SIZE,
-      EGL_GREEN_SIZE,
-      EGL_BLUE_SIZE,
-      EGL_ALPHA_SIZE,
-    };
-  struct
-    {
-      EGLint buffer_size;
-      EGLint red_size;
-      EGLint green_size;
-      EGLint blue_size;
-      EGLint alpha_size;
-    } values;
-  int i;
-
-  for (i = 0; i < G_N_ELEMENTS (names); i++)
-    {
-      if (!eglGetConfigAttrib (egl_display,
-                               egl_config,
-                               names[i],
-                               (EGLint *) &values + i))
-        ((EGLint *) &values)[i] = -1;
-    }
-
-  COGL_NOTE (WINSYS, "EGL color depth is %d-bit (R:G:B:A = %d:%d:%d:%d)",
-             (int) values.buffer_size,
-             (int) values.red_size,
-             (int) values.green_size,
-             (int) values.blue_size,
-             (int) values.alpha_size);
-}
-
 static gboolean
 try_create_context (CoglDisplay *display,
                     GError **error)
@@ -377,26 +314,30 @@ try_create_context (CoglDisplay *display,
   cogl_renderer_bind_api (renderer);
 
   cogl_display_egl_determine_attributes (display,
-                                         &display->onscreen_template->config,
                                          cfg_attribs);
 
   edpy = egl_renderer->edpy;
 
-  if (!egl_renderer->platform_vtable->choose_config (display,
-                                                     cfg_attribs,
-                                                     &config,
-                                                     &config_error))
+  if (!(egl_renderer->private_features &
+        COGL_EGL_WINSYS_FEATURE_NO_CONFIG_CONTEXT) ||
+      egl_renderer->needs_config)
     {
-      g_set_error (error, COGL_WINSYS_ERROR,
-                   COGL_WINSYS_ERROR_CREATE_CONTEXT,
-                   "Couldn't choose config: %s", config_error->message);
-      g_error_free (config_error);
-      goto err;
+      if (!egl_renderer->platform_vtable->choose_config (display,
+                                                         cfg_attribs,
+                                                         &config,
+                                                         &config_error))
+        {
+          g_set_error (error, COGL_WINSYS_ERROR,
+                       COGL_WINSYS_ERROR_CREATE_CONTEXT,
+                       "Couldn't choose config: %s", config_error->message);
+          g_error_free (config_error);
+          goto err;
+        }
+
+      egl_display->egl_config = config;
     }
 
-  egl_display->egl_config = config;
-
-  if (display->renderer->driver == COGL_DRIVER_GL3)
+  if (display->renderer->driver_id == COGL_DRIVER_ID_GL3)
     {
       if (!(egl_renderer->private_features &
             COGL_EGL_WINSYS_FEATURE_CREATE_CONTEXT))
@@ -415,7 +356,7 @@ try_create_context (CoglDisplay *display,
       attribs[i++] = EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR;
       attribs[i++] = EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR;
     }
-  else if (display->renderer->driver == COGL_DRIVER_GLES2)
+  else if (display->renderer->driver_id == COGL_DRIVER_ID_GLES2)
     {
       attribs[i++] = EGL_CONTEXT_CLIENT_VERSION;
       attribs[i++] = 2;
@@ -430,10 +371,21 @@ try_create_context (CoglDisplay *display,
 
   attribs[i++] = EGL_NONE;
 
-  egl_display->egl_context = eglCreateContext (edpy,
-                                               config,
-                                               EGL_NO_CONTEXT,
-                                               attribs);
+  if (egl_renderer->private_features &
+      COGL_EGL_WINSYS_FEATURE_NO_CONFIG_CONTEXT)
+    {
+      egl_display->egl_context = eglCreateContext (edpy,
+                                                   EGL_NO_CONFIG_KHR,
+                                                   EGL_NO_CONTEXT,
+                                                   attribs);
+    }
+  else
+    {
+      egl_display->egl_context = eglCreateContext (edpy,
+                                                   config,
+                                                   EGL_NO_CONTEXT,
+                                                   attribs);
+    }
 
   if (egl_display->egl_context == EGL_NO_CONTEXT)
     {
@@ -453,13 +405,13 @@ try_create_context (CoglDisplay *display,
 
       if (value != EGL_CONTEXT_PRIORITY_HIGH_IMG)
         g_message ("Failed to obtain high priority context");
+      else
+        g_message ("Obtained a high priority EGL context");
     }
 
   if (egl_renderer->platform_vtable->context_created &&
       !egl_renderer->platform_vtable->context_created (display, error))
     return FALSE;
-
-  print_attribs (egl_renderer->edpy, config);
 
   return TRUE;
 
@@ -481,6 +433,9 @@ _cogl_winsys_display_destroy (CoglDisplay *display)
   CoglDisplayEGL *egl_display = display->winsys;
 
   g_return_if_fail (egl_display != NULL);
+
+  if (egl_renderer->sync != EGL_NO_SYNC_KHR)
+    egl_renderer->pf_eglDestroySync (egl_renderer->edpy, egl_renderer->sync);
 
   cleanup_context (display);
 
@@ -510,8 +465,6 @@ _cogl_winsys_display_setup (CoglDisplay *display,
 
   if (!try_create_context (display, error))
     goto error;
-
-  egl_display->found_egl_config = TRUE;
 
   return TRUE;
 
@@ -550,6 +503,9 @@ _cogl_winsys_context_init (CoglContext *context, GError **error)
       _cogl_has_private_feature (context, COGL_PRIVATE_FEATURE_OES_EGL_SYNC))
     COGL_FLAGS_SET (context->features, COGL_FEATURE_ID_FENCE, TRUE);
 
+  if (egl_renderer->private_features & COGL_EGL_WINSYS_FEATURE_NATIVE_FENCE_SYNC)
+    COGL_FLAGS_SET (context->features, COGL_FEATURE_ID_SYNC_FD, TRUE);
+
   if (egl_renderer->private_features & COGL_EGL_WINSYS_FEATURE_BUFFER_AGE)
     {
       COGL_FLAGS_SET (context->winsys_features,
@@ -578,41 +534,36 @@ _cogl_winsys_context_deinit (CoglContext *context)
 }
 
 #if defined(EGL_KHR_fence_sync) || defined(EGL_KHR_reusable_sync)
-static void *
-_cogl_winsys_fence_add (CoglContext *context)
+
+static int
+_cogl_winsys_get_sync_fd (CoglContext *context)
 {
   CoglRendererEGL *renderer = context->display->renderer->winsys;
-  void *ret;
+  int fd;
 
-  if (renderer->pf_eglCreateSync)
-    ret = renderer->pf_eglCreateSync (renderer->edpy,
-                                      EGL_SYNC_FENCE_KHR,
-                                      NULL);
-  else
-    ret = NULL;
+  if (!renderer->pf_eglDupNativeFenceFD)
+    return -1;
 
-  return ret;
-}
+  fd = renderer->pf_eglDupNativeFenceFD (renderer->edpy, renderer->sync);
+  if (fd == EGL_NO_NATIVE_FENCE_FD_ANDROID)
+    return -1;
 
-static gboolean
-_cogl_winsys_fence_is_complete (CoglContext *context, void *fence)
-{
-  CoglRendererEGL *renderer = context->display->renderer->winsys;
-  EGLint ret;
-
-  ret = renderer->pf_eglClientWaitSync (renderer->edpy,
-                                        fence,
-                                        EGL_SYNC_FLUSH_COMMANDS_BIT_KHR,
-                                        0);
-  return (ret == EGL_CONDITION_SATISFIED_KHR);
+  return fd;
 }
 
 static void
-_cogl_winsys_fence_destroy (CoglContext *context, void *fence)
+_cogl_winsys_update_sync (CoglContext *context)
 {
   CoglRendererEGL *renderer = context->display->renderer->winsys;
 
-  renderer->pf_eglDestroySync (renderer->edpy, fence);
+  if (!renderer->pf_eglDestroySync || !renderer->pf_eglCreateSync)
+    return;
+
+  if (renderer->sync != EGL_NO_SYNC_KHR)
+    renderer->pf_eglDestroySync (renderer->edpy, renderer->sync);
+
+  renderer->sync = renderer->pf_eglCreateSync (renderer->edpy,
+        EGL_SYNC_NATIVE_FENCE_ANDROID, NULL);
 }
 #endif
 
@@ -633,9 +584,8 @@ static CoglWinsysVtable _cogl_winsys_vtable =
     .context_deinit = _cogl_winsys_context_deinit,
 
 #if defined(EGL_KHR_fence_sync) || defined(EGL_KHR_reusable_sync)
-    .fence_add = _cogl_winsys_fence_add,
-    .fence_is_complete = _cogl_winsys_fence_is_complete,
-    .fence_destroy = _cogl_winsys_fence_destroy,
+    .get_sync_fd = _cogl_winsys_get_sync_fd,
+    .update_sync = _cogl_winsys_update_sync,
 #endif
   };
 
@@ -702,26 +652,8 @@ _cogl_egl_destroy_image (CoglContext *ctx,
 }
 #endif
 
-#ifdef EGL_WL_bind_wayland_display
-gboolean
-_cogl_egl_query_wayland_buffer (CoglContext *ctx,
-                                struct wl_resource *buffer,
-                                int attribute,
-                                int *value)
-{
-  CoglRendererEGL *egl_renderer = ctx->display->renderer->winsys;
-
-  g_return_val_if_fail (egl_renderer->pf_eglQueryWaylandBuffer, FALSE);
-
-  return egl_renderer->pf_eglQueryWaylandBuffer (egl_renderer->edpy,
-                                                 buffer,
-                                                 attribute,
-                                                 value);
-}
-#endif
-
 EGLDisplay
-cogl_egl_context_get_egl_display (CoglContext *context)
+cogl_context_get_egl_display (CoglContext *context)
 {
   CoglRendererEGL *egl_renderer = context->display->renderer->winsys;
 

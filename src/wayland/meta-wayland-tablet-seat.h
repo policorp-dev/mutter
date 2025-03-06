@@ -19,8 +19,7 @@
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
 
-#ifndef META_WAYLAND_TABLET_SEAT_H
-#define META_WAYLAND_TABLET_SEAT_H
+#pragma once
 
 #include <glib.h>
 #include <wayland-server.h>
@@ -78,4 +77,17 @@ GList                 *meta_wayland_tablet_seat_lookup_paired_pads   (MetaWaylan
 gboolean               meta_wayland_tablet_seat_can_popup            (MetaWaylandTabletSeat *tablet_seat,
                                                                       uint32_t               serial);
 
-#endif /* META_WAYLAND_TABLET_SEAT_H */
+gboolean meta_wayland_tablet_seat_get_grab_info (MetaWaylandTabletSeat *tablet_seat,
+                                                 MetaWaylandSurface    *surface,
+                                                 uint32_t               serial,
+                                                 gboolean               require_pressed,
+                                                 ClutterInputDevice   **device_out,
+                                                 float                 *x,
+                                                 float                 *y);
+
+MetaWaylandSurface * meta_wayland_tablet_seat_get_current_surface (MetaWaylandTabletSeat *tablet_seat,
+                                                                   ClutterInputDevice    *device);
+
+void meta_wayland_tablet_seat_focus_surface (MetaWaylandTabletSeat *tablet_seat,
+                                             ClutterInputDevice    *device,
+                                             MetaWaylandSurface    *surface);

@@ -245,7 +245,7 @@ on_name_acquired (GDBusConnection *connection,
                   const char      *name,
                   gpointer         user_data)
 {
-  meta_verbose ("Acquired name %s", name);
+  meta_topic (META_DEBUG_DBUS, "Acquired name %s", name);
 }
 
 static void
@@ -253,7 +253,7 @@ on_name_lost (GDBusConnection *connection,
               const char      *name,
               gpointer         user_data)
 {
-  meta_verbose ("Lost or failed to acquire name %s", name);
+  meta_topic (META_DEBUG_DBUS, "Lost or failed to acquire name %s", name);
 }
 
 MetaIdleMonitor *
@@ -266,7 +266,7 @@ meta_idle_manager_get_monitor (MetaIdleManager    *idle_manager,
 MetaIdleMonitor *
 meta_idle_manager_get_core_monitor (MetaIdleManager *idle_manager)
 {
-  MetaBackend *backend = meta_get_backend ();
+  MetaBackend *backend = idle_manager->backend;
   ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
   ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
 

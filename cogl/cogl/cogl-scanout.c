@@ -25,14 +25,36 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-scanout.h"
+#include "cogl/cogl-scanout.h"
 
-G_DEFINE_INTERFACE (CoglScanout, cogl_scanout, G_TYPE_OBJECT)
+enum
+{
+  SCANOUT_FAILED,
+
+  N_SIGNALS
+};
+
+static guint signals[N_SIGNALS];
+
+G_DEFINE_INTERFACE (CoglScanoutBuffer, cogl_scanout_buffer, G_TYPE_OBJECT)
+
+struct _CoglScanout
+{
+  GObject parent;
+
+  CoglScanoutBuffer *scanout_buffer;
+
+  gboolean has_src_rect;
+  graphene_rect_t src_rect;
+  MtkRectangle dst_rect;
+};
+
+G_DEFINE_FINAL_TYPE (CoglScanout, cogl_scanout, G_TYPE_OBJECT);
 
 static void
-cogl_scanout_default_init (CoglScanoutInterface *iface)
+cogl_scanout_buffer_default_init (CoglScanoutBufferInterface *iface)
 {
 }
 
@@ -43,14 +65,118 @@ cogl_scanout_blit_to_framebuffer (CoglScanout      *scanout,
                                   int               y,
                                   GError          **error)
 {
-  CoglScanoutInterface *iface;
+  CoglScanoutBufferInterface *iface =
+    COGL_SCANOUT_BUFFER_GET_IFACE (scanout->scanout_buffer);
 
-  g_return_val_if_fail (COGL_IS_SCANOUT (scanout), FALSE);
+  return iface->blit_to_framebuffer (scanout, framebuffer, x, y, error);
+}
 
-  iface = COGL_SCANOUT_GET_IFACE (scanout);
+int
+cogl_scanout_buffer_get_width (CoglScanoutBuffer *scanout_buffer)
+{
+  CoglScanoutBufferInterface *iface =
+    COGL_SCANOUT_BUFFER_GET_IFACE (scanout_buffer);
 
-  if (iface->blit_to_framebuffer)
-    return iface->blit_to_framebuffer (scanout, framebuffer, x, y, error);
-  else
-    return FALSE;
+  return iface->get_width (scanout_buffer);
+}
+
+int
+cogl_scanout_buffer_get_height (CoglScanoutBuffer *scanout_buffer)
+{
+  CoglScanoutBufferInterface *iface =
+    COGL_SCANOUT_BUFFER_GET_IFACE (scanout_buffer);
+
+  return iface->get_height (scanout_buffer);
+}
+
+CoglScanoutBuffer *
+cogl_scanout_get_buffer (CoglScanout *scanout)
+{
+  return scanout->scanout_buffer;
+}
+
+void
+cogl_scanout_notify_failed (CoglScanout  *scanout,
+                            CoglOnscreen *onscreen)
+{
+  g_signal_emit (scanout, signals[SCANOUT_FAILED], 0, onscreen);
+}
+
+CoglScanout *
+cogl_scanout_new (CoglScanoutBuffer  *scanout_buffer,
+                  const MtkRectangle *dst_rect)
+{
+  CoglScanout *scanout;
+
+  g_return_val_if_fail (dst_rect, NULL);
+
+  scanout = g_object_new (COGL_TYPE_SCANOUT, NULL);
+  scanout->scanout_buffer = scanout_buffer;
+  scanout->dst_rect = *dst_rect;
+
+  return scanout;
+}
+
+void
+cogl_scanout_get_src_rect (CoglScanout     *scanout,
+                           graphene_rect_t *rect)
+{
+  if (scanout->has_src_rect)
+    {
+      *rect = scanout->src_rect;
+      return;
+    }
+
+  rect->origin.x = 0;
+  rect->origin.y = 0;
+  rect->size.width = cogl_scanout_buffer_get_width (scanout->scanout_buffer);
+  rect->size.height = cogl_scanout_buffer_get_height (scanout->scanout_buffer);
+}
+
+void
+cogl_scanout_set_src_rect (CoglScanout           *scanout,
+                           const graphene_rect_t *rect)
+{
+  if (rect != NULL)
+    scanout->src_rect = *rect;
+
+  scanout->has_src_rect = rect != NULL;
+}
+
+void
+cogl_scanout_get_dst_rect (CoglScanout  *scanout,
+                           MtkRectangle *dst_rect)
+{
+  *dst_rect = scanout->dst_rect;
+}
+
+static void
+cogl_scanout_finalize (GObject *object)
+{
+  CoglScanout *scanout = COGL_SCANOUT (object);
+
+  g_clear_object (&scanout->scanout_buffer);
+
+  G_OBJECT_CLASS (cogl_scanout_parent_class)->finalize (object);
+}
+
+static void
+cogl_scanout_class_init (CoglScanoutClass *klass)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+  object_class->finalize = cogl_scanout_finalize;
+
+  signals[SCANOUT_FAILED] =
+    g_signal_new ("scanout-failed",
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST,
+                  0, NULL, NULL, NULL,
+                  G_TYPE_NONE, 1,
+                  COGL_TYPE_ONSCREEN);
+}
+
+static void
+cogl_scanout_init (CoglScanout *scanout)
+{
 }

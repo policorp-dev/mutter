@@ -6,17 +6,16 @@ static void
 test_framebuffer_get_bits (void)
 {
   CoglRenderer *renderer;
-  CoglTexture2D *tex_a;
+  CoglTexture *tex_a;
   CoglOffscreen *offscreen_a;
   CoglFramebuffer *fb_a;
-  CoglTexture2D *tex_rgba;
+  CoglTexture *tex_rgba;
   CoglOffscreen *offscreen_rgba;
   CoglFramebuffer *fb_rgba;
 
   renderer = cogl_context_get_renderer (test_ctx);
 
-  if (cogl_renderer_get_driver (renderer) != COGL_DRIVER_GL &&
-      cogl_renderer_get_driver (renderer) != COGL_DRIVER_GL3)
+  if (cogl_renderer_get_driver_id (renderer) != COGL_DRIVER_ID_GL3)
     {
       g_test_skip ("Test requires OpenGL");
       return;
@@ -45,9 +44,9 @@ test_framebuffer_get_bits (void)
   g_assert_cmpint (cogl_framebuffer_get_alpha_bits (fb_rgba), >=, 1);
 
   g_object_unref (fb_rgba);
-  cogl_object_unref (tex_rgba);
+  g_object_unref (tex_rgba);
   g_object_unref (fb_a);
-  cogl_object_unref (tex_a);
+  g_object_unref (tex_a);
 }
 
 COGL_TEST_SUITE (

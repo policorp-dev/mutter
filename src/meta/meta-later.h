@@ -17,10 +17,9 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_LATER_H
-#define META_LATER_H
+#pragma once
 
-#include <meta/types.h>
+#include "meta/types.h"
 
 /**
  * MetaLaterType:
@@ -43,14 +42,9 @@ typedef enum
   META_LATER_IDLE
 } MetaLaterType;
 
+#define META_TYPE_LATERS (meta_laters_get_type ())
 META_EXPORT
-guint meta_later_add    (MetaLaterType  when,
-                         GSourceFunc    func,
-                         gpointer       data,
-                         GDestroyNotify notify);
-
-META_EXPORT
-void  meta_later_remove (guint          later_id);
+G_DECLARE_FINAL_TYPE (MetaLaters, meta_laters, META, LATERS, GObject)
 
 META_EXPORT
 unsigned int meta_laters_add (MetaLaters     *laters,
@@ -62,5 +56,3 @@ unsigned int meta_laters_add (MetaLaters     *laters,
 META_EXPORT
 void meta_laters_remove (MetaLaters   *laters,
                          unsigned int  later_id);
-
-#endif /* META_LATER_H */

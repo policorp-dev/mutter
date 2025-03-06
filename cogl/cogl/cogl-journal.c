@@ -28,21 +28,21 @@
  *
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-debug.h"
-#include "cogl-context-private.h"
-#include "cogl-graphene.h"
-#include "cogl-journal-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-texture-2d-private.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-framebuffer-private.h"
-#include "cogl-profile.h"
-#include "cogl-attribute-private.h"
-#include "cogl-point-in-poly-private.h"
-#include "cogl-private.h"
-#include "cogl1-context.h"
+#include "cogl/cogl-debug.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-graphene.h"
+#include "cogl/cogl-journal-private.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/cogl-texture-2d-private.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/cogl-profile.h"
+#include "cogl/cogl-attribute-private.h"
+#include "cogl/cogl-point-in-poly-private.h"
+#include "cogl/cogl-trace.h"
+#include "cogl/cogl-private.h"
 
 #include <string.h>
 #include <gmodule.h>
@@ -86,10 +86,10 @@
 #define N_POS_COMPONENTS  POS_STRIDE
 #define COLOR_STRIDE      1 /* number of 32bit words */
 #define TEX_STRIDE        2 /* number of 32bit words */
-#define MIN_LAYER_PADING  2
+#define MIN_LAYER_PADDING  2
 #define GET_JOURNAL_VB_STRIDE_FOR_N_LAYERS(N_LAYERS) \
   (POS_STRIDE + COLOR_STRIDE + \
-   TEX_STRIDE * (N_LAYERS < MIN_LAYER_PADING ? MIN_LAYER_PADING : N_LAYERS))
+   TEX_STRIDE * (N_LAYERS < MIN_LAYER_PADDING ? MIN_LAYER_PADDING : N_LAYERS))
 
 /* If a batch is longer than this threshold then we'll assume it's not
    worth doing software clipping and it's cheaper to program the GPU
@@ -122,9 +122,12 @@ typedef void (*CoglJournalBatchCallback) (CoglJournalEntry *start,
 typedef gboolean (*CoglJournalBatchTest) (CoglJournalEntry *entry0,
                                           CoglJournalEntry *entry1);
 
-void
-_cogl_journal_free (CoglJournal *journal)
+G_DEFINE_FINAL_TYPE (CoglJournal, cogl_journal, G_TYPE_OBJECT);
+
+static void
+cogl_journal_dispose (GObject *object)
 {
+  CoglJournal *journal = COGL_JOURNAL (object);
   int i;
 
   if (journal->entries)
@@ -134,21 +137,32 @@ _cogl_journal_free (CoglJournal *journal)
 
   for (i = 0; i < COGL_JOURNAL_VBO_POOL_SIZE; i++)
     if (journal->vbo_pool[i])
-      cogl_object_unref (journal->vbo_pool[i]);
+      g_object_unref (journal->vbo_pool[i]);
 
-  g_free (journal);
+  G_OBJECT_CLASS (cogl_journal_parent_class)->dispose (object);
+}
+
+static void
+cogl_journal_init (CoglJournal *journal)
+{
+}
+
+static void
+cogl_journal_class_init (CoglJournalClass *class)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (class);
+
+  object_class->dispose = cogl_journal_dispose;
 }
 
 CoglJournal *
 _cogl_journal_new (CoglFramebuffer *framebuffer)
 {
-  CoglJournal *journal = g_new0 (CoglJournal, 1);
+  CoglJournal *journal = g_object_new (COGL_TYPE_JOURNAL, NULL);
 
   journal->framebuffer = framebuffer;
   journal->entries = g_array_new (FALSE, FALSE, sizeof (CoglJournalEntry));
   journal->vertices = g_array_new (FALSE, FALSE, sizeof (float));
-
-  _cogl_list_init (&journal->pending_fences);
 
   return journal;
 }
@@ -327,12 +341,16 @@ _cogl_journal_flush_modelview_and_entries (CoglJournalEntry *batch_start,
   if (G_UNLIKELY (COGL_DEBUG_ENABLED (COGL_DEBUG_RECTANGLES)))
     {
       static CoglPipeline *outline = NULL;
-      uint8_t color_intensity;
+      float color_intensity;
       int i;
       CoglAttribute *loop_attributes[1];
+      CoglColor color;
 
       if (outline == NULL)
-        outline = cogl_pipeline_new (ctx);
+        {
+          outline = cogl_pipeline_new (ctx);
+          cogl_pipeline_set_static_name (outline, "CoglJournal (outline)");
+        }
 
       /* The least significant three bits represent the three
          components so that the order of colours goes red, green,
@@ -341,15 +359,16 @@ _cogl_journal_flush_modelview_and_entries (CoglJournalEntry *batch_start,
          in the order 0xff, 0xcc, 0x99, and 0x66. This gives a total
          of 24 colours. If there are more than 24 batches on the stage
          then it will wrap around */
-      color_intensity = 0xff - 0x33 * (ctx->journal_rectangles_color >> 3);
-      cogl_pipeline_set_color4ub (outline,
-                                  (ctx->journal_rectangles_color & 1) ?
-                                  color_intensity : 0,
-                                  (ctx->journal_rectangles_color & 2) ?
-                                  color_intensity : 0,
-                                  (ctx->journal_rectangles_color & 4) ?
-                                  color_intensity : 0,
-                                  0xff);
+      color_intensity = (0xff - 0x33 * (ctx->journal_rectangles_color >> 3) ) / 255.0f;
+      cogl_color_init_from_4f (&color,
+                               (ctx->journal_rectangles_color & 1) ?
+                               color_intensity : 0.0f,
+                               (ctx->journal_rectangles_color & 2) ?
+                               color_intensity : 0.0f,
+                               (ctx->journal_rectangles_color & 4) ?
+                               color_intensity : 0.0f,
+                               1.0f);
+      cogl_pipeline_set_color (outline, &color);
 
       loop_attributes[0] = attributes[0]; /* we just want the position */
       for (i = 0; i < batch_len; i++)
@@ -429,8 +448,7 @@ compare_entry_pipelines (CoglJournalEntry *entry0, CoglJournalEntry *entry1)
                             entry1->pipeline,
                             (COGL_PIPELINE_STATE_ALL &
                              ~COGL_PIPELINE_STATE_COLOR),
-                            COGL_PIPELINE_LAYER_STATE_ALL,
-                            0))
+                            COGL_PIPELINE_LAYER_STATE_ALL))
     return TRUE;
   else
     return FALSE;
@@ -521,7 +539,7 @@ _cogl_journal_flush_texcoord_vbo_offsets_and_entries (
   /* NB: attributes 0 and 1 are position and color */
 
   for (i = 2; i < state->attributes->len; i++)
-    cogl_object_unref (g_array_index (state->attributes, CoglAttribute *, i));
+    g_object_unref (g_array_index (state->attributes, CoglAttribute *, i));
 
   g_array_set_size (state->attributes, batch_start->n_layers + 2);
 
@@ -589,7 +607,7 @@ _cogl_journal_flush_vbo_offsets_and_entries (CoglJournalEntry *batch_start,
   state->stride = stride;
 
   for (i = 0; i < state->attributes->len; i++)
-    cogl_object_unref (g_array_index (state->attributes, CoglAttribute *, i));
+    g_object_unref (g_array_index (state->attributes, CoglAttribute *, i));
 
   g_array_set_size (state->attributes, 2);
 
@@ -610,7 +628,7 @@ _cogl_journal_flush_vbo_offsets_and_entries (CoglJournalEntry *batch_start,
                         4,
                         COGL_ATTRIBUTE_TYPE_UNSIGNED_BYTE);
 
-  state->indices = cogl_get_rectangle_indices (ctx, batch_len);
+  state->indices = cogl_context_get_rectangle_indices (ctx, batch_len);
 
   /* We only create new Attributes when the stride within the
    * AttributeBuffer changes. (due to a change in the number of pipeline
@@ -621,7 +639,7 @@ _cogl_journal_flush_vbo_offsets_and_entries (CoglJournalEntry *batch_start,
   state->current_vertex = 0;
 
   if (G_UNLIKELY (COGL_DEBUG_ENABLED (COGL_DEBUG_JOURNAL)) &&
-      cogl_has_feature (ctx, COGL_FEATURE_ID_MAP_BUFFER_FOR_READ))
+      cogl_context_has_feature (ctx, COGL_FEATURE_ID_MAP_BUFFER_FOR_READ))
     {
       uint8_t *verts;
 
@@ -664,8 +682,8 @@ compare_entry_strides (CoglJournalEntry *entry0, CoglJournalEntry *entry1)
   /* TODO: We should be padding the n_layers == 1 case as if it were
    * n_layers == 2 so we can reduce the need to split batches. */
   if (entry0->n_layers == entry1->n_layers ||
-      (entry0->n_layers <= MIN_LAYER_PADING &&
-       entry1->n_layers <= MIN_LAYER_PADING))
+      (entry0->n_layers <= MIN_LAYER_PADDING &&
+       entry1->n_layers <= MIN_LAYER_PADDING))
     return TRUE;
   else
     return FALSE;
@@ -1129,7 +1147,7 @@ create_attribute_buffer (CoglJournal *journal,
   else if (cogl_buffer_get_size (COGL_BUFFER (vbo)) < n_bytes)
     {
       /* If the buffer is too small then we'll just recreate it */
-      cogl_object_unref (vbo);
+      g_object_unref (vbo);
       vbo = cogl_attribute_buffer_new_with_size (ctx, n_bytes);
       journal->vbo_pool[journal->next_vbo_in_pool] = vbo;
     }
@@ -1137,7 +1155,7 @@ create_attribute_buffer (CoglJournal *journal,
   journal->next_vbo_in_pool = ((journal->next_vbo_in_pool + 1) %
                                COGL_JOURNAL_VBO_POOL_SIZE);
 
-  return cogl_object_ref (vbo);
+  return g_object_ref (vbo);
 }
 
 static CoglAttributeBuffer *
@@ -1331,18 +1349,6 @@ _cogl_journal_all_entries_within_bounds (CoglJournal *journal,
   return TRUE;
 }
 
-static void
-post_fences (CoglJournal *journal)
-{
-  CoglFenceClosure *fence, *tmp;
-
-  _cogl_list_for_each_safe (fence, tmp, &journal->pending_fences, link)
-    {
-      _cogl_list_remove (&fence->link);
-      _cogl_fence_submit (fence);
-    }
-}
-
 /* XXX NB: When _cogl_journal_flush() returns all state relating
  * to pipelines, all glEnable flags and current matrix state
  * is undefined.
@@ -1365,9 +1371,10 @@ _cogl_journal_flush (CoglJournal *journal)
                      "The time spent discarding the Cogl journal after a flush",
                      0 /* no application private data */);
 
+  COGL_TRACE_BEGIN_SCOPED (Flush, "Cogl::Journal::flush()");
+
   if (journal->entries->len == 0)
     {
-      post_fences (journal);
       return;
     }
 
@@ -1459,16 +1466,14 @@ _cogl_journal_flush (CoglJournal *journal)
                   &state);
 
   for (i = 0; i < state.attributes->len; i++)
-    cogl_object_unref (g_array_index (state.attributes, CoglAttribute *, i));
+    g_object_unref (g_array_index (state.attributes, CoglAttribute *, i));
   g_array_set_size (state.attributes, 0);
 
-  cogl_object_unref (state.attribute_buffer);
+  g_object_unref (state.attribute_buffer);
 
   COGL_TIMER_START (_cogl_uprof_context, discard_timer);
   _cogl_journal_discard (journal);
   COGL_TIMER_STOP (_cogl_uprof_context, discard_timer);
-
-  post_fences (journal);
 
   COGL_TIMER_STOP (_cogl_uprof_context, flush_timer);
 }
@@ -1506,7 +1511,7 @@ _cogl_journal_log_quad (CoglJournal  *journal,
   int next_entry;
   uint32_t disable_layers;
   CoglJournalEntry *entry;
-  CoglPipeline *final_pipeline;
+  CoglPipeline *final_pipeline, *color_authority;
   CoglClipStack *clip_stack;
   CoglPipelineFlushOptions flush_options;
   CoglMatrixStack *modelview_stack;
@@ -1541,7 +1546,9 @@ _cogl_journal_log_quad (CoglJournal  *journal,
 
   /* FIXME: This is a hacky optimization, since it will break if we
    * change the definition of CoglColor: */
-  _cogl_pipeline_get_colorubv (pipeline, (uint8_t *) v);
+  color_authority = _cogl_pipeline_get_authority (pipeline,
+                                                  COGL_PIPELINE_STATE_COLOR);
+  memcpy ((uint8_t *) v, &color_authority->color, sizeof (CoglColor));
   v++;
 
   memcpy (v, position, sizeof (float) * 2);
@@ -1602,7 +1609,7 @@ _cogl_journal_log_quad (CoglJournal  *journal,
   cogl_framebuffer_get_viewport4fv (framebuffer, entry->viewport);
 
   if (G_UNLIKELY (final_pipeline != pipeline))
-    cogl_object_unref (final_pipeline);
+    g_object_unref (final_pipeline);
 
   modelview_stack =
     _cogl_framebuffer_get_modelview_stack (framebuffer);
@@ -1698,11 +1705,11 @@ entry_to_screen_polygon (CoglFramebuffer *framebuffer,
  * to Cogl window/framebuffer coordinates (ranging from 0 to buffer-size) with
  * (0,0) being top left. */
 #define VIEWPORT_TRANSFORM_X(x, vp_origin_x, vp_width) \
-    (  ( ((x) + 1.0) * ((vp_width) / 2.0) ) + (vp_origin_x)  )
+    (  ( ((x) + 1.0f) * ((vp_width) / 2.0f) ) + (vp_origin_x)  )
 /* Note: for Y we first flip all coordinates around the X axis while in
  * normalized device coordinates */
 #define VIEWPORT_TRANSFORM_Y(y, vp_origin_y, vp_height) \
-    (  ( ((-(y)) + 1.0) * ((vp_height) / 2.0) ) + (vp_origin_y)  )
+    (  ( ((-(y)) + 1.0f) * ((vp_height) / 2.0f) ) + (vp_origin_y)  )
 
   /* Scale from normalized device coordinates (in range [-1,1]) to
    * window coordinates ranging [0,window-size] ... */
@@ -1733,7 +1740,6 @@ try_checking_point_hits_entry_after_clipping (CoglFramebuffer *framebuffer,
                                               float y,
                                               gboolean *hit)
 {
-  gboolean can_software_clip = TRUE;
   gboolean needs_software_clip = FALSE;
   CoglClipStack *clip_entry;
 
@@ -1754,15 +1760,7 @@ try_checking_point_hits_entry_after_clipping (CoglFramebuffer *framebuffer,
           return TRUE;
         }
 
-      if (clip_entry->type == COGL_CLIP_STACK_WINDOW_RECT)
-        {
-          /* XXX: technically we could still run the software clip in
-           * this case because for our purposes we know this clip
-           * can be ignored now, but [can_]sofware_clip_entry() doesn't
-           * know this and will bail out. */
-          can_software_clip = FALSE;
-        }
-      else if (clip_entry->type == COGL_CLIP_STACK_RECT)
+      if (clip_entry->type == COGL_CLIP_STACK_RECT)
         {
           CoglClipStackRect *rect_entry = (CoglClipStackRect *)entry;
 
@@ -1780,9 +1778,6 @@ try_checking_point_hits_entry_after_clipping (CoglFramebuffer *framebuffer,
     {
       ClipBounds clip_bounds;
       float poly[16];
-
-      if (!can_software_clip)
-        return FALSE;
 
       if (!can_software_clip_entry (entry, NULL,
                                     entry->clip_stack, &clip_bounds))
@@ -1876,8 +1871,7 @@ _cogl_journal_try_read_pixel (CoglJournal *journal,
       if (!_cogl_pipeline_equal (ctx->opaque_color_pipeline, entry->pipeline,
                                  (COGL_PIPELINE_STATE_ALL &
                                   ~COGL_PIPELINE_STATE_COLOR),
-                                 COGL_PIPELINE_LAYER_STATE_ALL,
-                                 0))
+                                 COGL_PIPELINE_LAYER_STATE_ALL))
         return FALSE;
 
 

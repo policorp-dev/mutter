@@ -28,14 +28,14 @@
  *
  */
 
-#ifndef __COGL_WINSYS_EGL_PRIVATE_H
-#define __COGL_WINSYS_EGL_PRIVATE_H
+#pragma once
 
-#include "cogl-defines.h"
-#include "cogl-context.h"
-#include "cogl-context-private.h"
-#include "cogl-framebuffer-private.h"
-#include "winsys/cogl-winsys-private.h"
+#include <EGL/eglext.h>
+
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-framebuffer-private.h"
+#include "cogl/winsys/cogl-winsys-private.h"
 
 /* XXX: depending on what version of Mesa you have then
  * eglQueryWaylandBuffer may take a wl_buffer or wl_resource argument
@@ -80,9 +80,8 @@ typedef struct _CoglWinsysEGLVtable
   (* context_deinit) (CoglContext *context);
 
   int
-  (* add_config_attributes) (CoglDisplay                 *display,
-                             const CoglFramebufferConfig *config,
-                             EGLint                      *attributes);
+  (* add_config_attributes) (CoglDisplay *display,
+                             EGLint      *attributes);
   gboolean
   (* choose_config) (CoglDisplay *display,
                      EGLint *attributes,
@@ -94,14 +93,16 @@ typedef struct _CoglWinsysEGLVtable
 
 typedef enum _CoglEGLWinsysFeature
 {
-  COGL_EGL_WINSYS_FEATURE_SWAP_REGION                   =1L<<0,
-  COGL_EGL_WINSYS_FEATURE_EGL_IMAGE_FROM_X11_PIXMAP     =1L<<1,
-  COGL_EGL_WINSYS_FEATURE_EGL_IMAGE_FROM_WAYLAND_BUFFER =1L<<2,
-  COGL_EGL_WINSYS_FEATURE_CREATE_CONTEXT                =1L<<3,
-  COGL_EGL_WINSYS_FEATURE_BUFFER_AGE                    =1L<<4,
-  COGL_EGL_WINSYS_FEATURE_FENCE_SYNC                    =1L<<5,
-  COGL_EGL_WINSYS_FEATURE_SURFACELESS_CONTEXT           =1L<<6,
-  COGL_EGL_WINSYS_FEATURE_CONTEXT_PRIORITY              =1L<<7,
+  COGL_EGL_WINSYS_FEATURE_SWAP_REGION                   = 1L << 0,
+  COGL_EGL_WINSYS_FEATURE_EGL_IMAGE_FROM_X11_PIXMAP     = 1L << 1,
+  COGL_EGL_WINSYS_FEATURE_EGL_IMAGE_FROM_WAYLAND_BUFFER = 1L << 2,
+  COGL_EGL_WINSYS_FEATURE_CREATE_CONTEXT                = 1L << 3,
+  COGL_EGL_WINSYS_FEATURE_BUFFER_AGE                    = 1L << 4,
+  COGL_EGL_WINSYS_FEATURE_FENCE_SYNC                    = 1L << 5,
+  COGL_EGL_WINSYS_FEATURE_SURFACELESS_CONTEXT           = 1L << 6,
+  COGL_EGL_WINSYS_FEATURE_CONTEXT_PRIORITY              = 1L << 7,
+  COGL_EGL_WINSYS_FEATURE_NO_CONFIG_CONTEXT             = 1L << 8,
+  COGL_EGL_WINSYS_FEATURE_NATIVE_FENCE_SYNC             = 1L << 9,
 } CoglEGLWinsysFeature;
 
 typedef struct _CoglRendererEGL
@@ -120,6 +121,11 @@ typedef struct _CoglRendererEGL
   /* vtable for platform specific parts */
   const CoglWinsysEGLVtable *platform_vtable;
 
+  gboolean needs_config;
+
+  /* Sync for latest submitted work */
+  EGLSyncKHR sync;
+
   /* Function pointers for EGL specific extensions */
 #define COGL_WINSYS_FEATURE_BEGIN(a, b, c, d)
 
@@ -128,7 +134,7 @@ typedef struct _CoglRendererEGL
 
 #define COGL_WINSYS_FEATURE_END()
 
-#include "winsys/cogl-winsys-egl-feature-functions.h"
+#include "cogl/winsys/cogl-winsys-egl-feature-functions.h"
 
 #undef COGL_WINSYS_FEATURE_BEGIN
 #undef COGL_WINSYS_FEATURE_FUNCTION
@@ -142,7 +148,6 @@ typedef struct _CoglDisplayEGL
   EGLSurface egl_surface;
 
   EGLConfig egl_config;
-  gboolean found_egl_config;
 
   EGLSurface current_read_surface;
   EGLSurface current_draw_surface;
@@ -182,21 +187,11 @@ _cogl_egl_destroy_image (CoglContext *ctx,
                          EGLImageKHR image);
 #endif
 
-#ifdef EGL_WL_bind_wayland_display
-gboolean
-_cogl_egl_query_wayland_buffer (CoglContext *ctx,
-                                struct wl_resource *buffer,
-                                int attribute,
-                                int *value);
-#endif
 
 COGL_EXPORT gboolean
 _cogl_winsys_egl_renderer_connect_common (CoglRenderer *renderer,
                                           GError **error);
 
-void
-cogl_display_egl_determine_attributes (CoglDisplay                 *display,
-                                       const CoglFramebufferConfig *config,
-                                       EGLint                      *attributes);
-
-#endif /* __COGL_WINSYS_EGL_PRIVATE_H */
+COGL_EXPORT void
+cogl_display_egl_determine_attributes (CoglDisplay *display,
+                                       EGLint      *attributes);

@@ -1,13 +1,12 @@
 /* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; -*- */
 
 /**
- * SECTION:window-props
- * @short_description: MetaWindow property handling
+ * MetaWindow property handling
  *
  * A system which can inspect sets of properties of given windows
  * and take appropriate action given their values.
  *
- * Note that all the meta_window_reload_propert* functions require a
+ * Note that all the meta_window_reload_property* functions require a
  * round trip to the server.
  */
 
@@ -28,8 +27,9 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WINDOW_PROPS_H
-#define META_WINDOW_PROPS_H
+#pragma once
+
+#include <X11/Xutil.h>
 
 #include "core/window-private.h"
 
@@ -63,7 +63,7 @@ void meta_window_load_initial_properties (MetaWindow *window);
  * meta_x11_display_init_window_prop_hooks:
  * @x11_display:  The X11 display.
  *
- * Initialises the hooks used for the reload_propert* functions
+ * Initialises the hooks used for the reload_property* functions
  * on a particular display, and stores a pointer to them in the
  * x11_display.
  */
@@ -72,24 +72,7 @@ void meta_x11_display_init_window_prop_hooks (MetaX11Display *x11_display);
 /**
  * meta_x11_display_free_window_prop_hooks:
  * @x11_display:  The X11 display.
- * Frees the hooks used for the reload_propert* functions
+ * Frees the hooks used for the reload_property* functions
  * for a particular display.
  */
 void meta_x11_display_free_window_prop_hooks (MetaX11Display *x11_display);
-
-/**
- * meta_set_normal_hints:
- * @window:   The window to set the size hints on.
- * @hints:    Either some X size hints, or NULL for default.
- *
- * Sets the size hints for a window.  This happens when a
- * WM_NORMAL_HINTS property is set on a window, but it is public
- * because the size hints are set to defaults when a window is
- * created.  See
- * http://tronche.com/gui/x/icccm/sec-4.html#WM_NORMAL_HINTS
- * for the X details.
- */
-void meta_set_normal_hints (MetaWindow *window,
-			    XSizeHints *hints);
-
-#endif /* META_WINDOW_PROPS_H */

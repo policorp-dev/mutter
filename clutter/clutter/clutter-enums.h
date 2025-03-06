@@ -19,8 +19,7 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_ENUMS_H__
-#define __CLUTTER_ENUMS_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
@@ -29,41 +28,6 @@
 #include <glib-object.h>
 
 G_BEGIN_DECLS
-
-/**
- * ClutterGravity:
- * @CLUTTER_GRAVITY_NONE: Do not apply any gravity
- * @CLUTTER_GRAVITY_NORTH: Scale from topmost downwards
- * @CLUTTER_GRAVITY_NORTH_EAST: Scale from the top right corner
- * @CLUTTER_GRAVITY_EAST: Scale from the right side
- * @CLUTTER_GRAVITY_SOUTH_EAST: Scale from the bottom right corner
- * @CLUTTER_GRAVITY_SOUTH: Scale from the bottom upwards
- * @CLUTTER_GRAVITY_SOUTH_WEST: Scale from the bottom left corner
- * @CLUTTER_GRAVITY_WEST: Scale from the left side
- * @CLUTTER_GRAVITY_NORTH_WEST: Scale from the top left corner
- * @CLUTTER_GRAVITY_CENTER: Scale from the center.
- *
- * Gravity of the scaling operations.
- * 
- * When a gravity different than %CLUTTER_GRAVITY_NONE is used, 
- * an actor is scaled keeping the position of the specified portion 
- * at the same coordinates.
- *
- * Deprecated: 1.22: Use the normalized #ClutterActor pivot point instead
- */
-typedef enum /*< prefix=CLUTTER_GRAVITY >*/
-{
-  CLUTTER_GRAVITY_NONE       = 0,
-  CLUTTER_GRAVITY_NORTH,
-  CLUTTER_GRAVITY_NORTH_EAST,
-  CLUTTER_GRAVITY_EAST,
-  CLUTTER_GRAVITY_SOUTH_EAST,
-  CLUTTER_GRAVITY_SOUTH,
-  CLUTTER_GRAVITY_SOUTH_WEST,
-  CLUTTER_GRAVITY_WEST,
-  CLUTTER_GRAVITY_NORTH_WEST,
-  CLUTTER_GRAVITY_CENTER
-} ClutterGravity;
 
 /**
  * ClutterRotateAxis:
@@ -79,21 +43,6 @@ typedef enum /*< prefix=CLUTTER >*/
   CLUTTER_Y_AXIS,
   CLUTTER_Z_AXIS
 } ClutterRotateAxis;
-
-/**
- * ClutterRotateDirection:
- * @CLUTTER_ROTATE_CW: Clockwise rotation
- * @CLUTTER_ROTATE_CCW: Counter-clockwise rotation
- *
- * Direction of a rotation.
- *
- * Deprecated: 1.22
- */
-typedef enum /*< prefix=CLUTTER_ROTATE >*/
-{
-  CLUTTER_ROTATE_CW,
-  CLUTTER_ROTATE_CCW
-} ClutterRotateDirection;
 
 /**
  * ClutterRequestMode:
@@ -184,8 +133,8 @@ typedef enum /*< prefix=CLUTTER_REQUEST >*/
  * @CLUTTER_ANIMATION_LAST: last animation mode, used as a guard for
  *   registered global alpha functions
  *
- * The animation modes used by [iface@Animatable]. 
- * 
+ * The animation modes used by [iface@Animatable].
+ *
  * This enumeration can be expanded in later versions of Clutter.
  *
  * <figure id="easing-modes">
@@ -285,19 +234,6 @@ typedef enum
   CLUTTER_TEXT_DIRECTION_LTR,
   CLUTTER_TEXT_DIRECTION_RTL
 } ClutterTextDirection;
-
-/**
- * ClutterShaderType:
- * @CLUTTER_VERTEX_SHADER: a vertex shader
- * @CLUTTER_FRAGMENT_SHADER: a fragment shader
- *
- * The type of GLSL shader program
- */
-typedef enum
-{
-  CLUTTER_VERTEX_SHADER,
-  CLUTTER_FRAGMENT_SHADER
-} ClutterShaderType;
 
 /**
  * ClutterModifierType:
@@ -457,30 +393,6 @@ typedef enum {
 } ClutterPointerA11yTimeoutType;
 
 /**
- * ClutterActorFlags:
- * @CLUTTER_ACTOR_MAPPED: the actor will be painted (is visible, and inside
- *   a toplevel, and all parents visible)
- * @CLUTTER_ACTOR_REALIZED: the resources associated to the actor have been
- *   allocated
- * @CLUTTER_ACTOR_REACTIVE: the actor 'reacts' to mouse events emitting event
- *   signals
- * @CLUTTER_ACTOR_VISIBLE: the actor has been shown by the application program
- * @CLUTTER_ACTOR_NO_LAYOUT: the actor provides an explicit layout management
- *   policy for its children; this flag will prevent Clutter from automatic
- *   queueing of relayout and will defer all layouting to the actor itself
- *
- * Flags used to signal the state of an actor.
- */
-typedef enum /*< prefix=CLUTTER_ACTOR >*/
-{
-  CLUTTER_ACTOR_MAPPED    = 1 << 1,
-  CLUTTER_ACTOR_REALIZED  = 1 << 2,
-  CLUTTER_ACTOR_REACTIVE  = 1 << 3,
-  CLUTTER_ACTOR_VISIBLE   = 1 << 4,
-  CLUTTER_ACTOR_NO_LAYOUT = 1 << 5
-} ClutterActorFlags;
-
-/**
  * ClutterOffscreenRedirect:
  * @CLUTTER_OFFSCREEN_REDIRECT_AUTOMATIC_FOR_OPACITY: Only redirect
  *   the actor if it is semi-transparent and its has_overlaps()
@@ -518,59 +430,17 @@ typedef enum /*< prefix=CLUTTER_ALIGN >*/
 } ClutterAlignAxis;
 
 /**
- * ClutterInterpolation:
- * @CLUTTER_INTERPOLATION_LINEAR: linear interpolation
- * @CLUTTER_INTERPOLATION_CUBIC: cubic interpolation
- *
- * The mode of interpolation between key frames
- *
- * Deprecated: 1.22
- */
-typedef enum
-{
-  CLUTTER_INTERPOLATION_LINEAR,
-  CLUTTER_INTERPOLATION_CUBIC
-} ClutterInterpolation;
-
-/**
- * ClutterBinAlignment:
- * @CLUTTER_BIN_ALIGNMENT_FIXED: Fixed position alignment; the
- *   #ClutterBinLayout will honour the fixed position provided
- *   by the actors themselves when allocating them
- * @CLUTTER_BIN_ALIGNMENT_FILL: Fill the allocation size
- * @CLUTTER_BIN_ALIGNMENT_START: Position the actors at the top
- *   or left side of the container, depending on the axis
- * @CLUTTER_BIN_ALIGNMENT_END: Position the actors at the bottom
- *   or right side of the container, depending on the axis
- * @CLUTTER_BIN_ALIGNMENT_CENTER: Position the actors at the
- *   center of the container, depending on the axis
- *
- * The alignment policies available on each axis for #ClutterBinLayout
- *
- * Deprecated: 1.12: Use #ClutterActorAlign and the #ClutterActor
- *   API instead
- */
-typedef enum
-{
-  CLUTTER_BIN_ALIGNMENT_FIXED,
-  CLUTTER_BIN_ALIGNMENT_FILL,
-  CLUTTER_BIN_ALIGNMENT_START,
-  CLUTTER_BIN_ALIGNMENT_END,
-  CLUTTER_BIN_ALIGNMENT_CENTER
-} ClutterBinAlignment;
-
-/**
  * ClutterBindCoordinate:
  * @CLUTTER_BIND_X: Bind the X coordinate
  * @CLUTTER_BIND_Y: Bind the Y coordinate
  * @CLUTTER_BIND_WIDTH: Bind the width
  * @CLUTTER_BIND_HEIGHT: Bind the height
  * @CLUTTER_BIND_POSITION: Equivalent to to %CLUTTER_BIND_X and
- *   %CLUTTER_BIND_Y (added in Clutter 1.6)
+ *   %CLUTTER_BIND_Y
  * @CLUTTER_BIND_SIZE: Equivalent to %CLUTTER_BIND_WIDTH and
- *   %CLUTTER_BIND_HEIGHT (added in Clutter 1.6)
+ *   %CLUTTER_BIND_HEIGHT
  * @CLUTTER_BIND_ALL: Equivalent to %CLUTTER_BIND_POSITION and
- *   %CLUTTER_BIND_SIZE (added in Clutter 1.10)
+ *   %CLUTTER_BIND_SIZE
  *
  * Specifies which property should be used in a binding
  */
@@ -602,22 +472,6 @@ typedef enum /*< prefix=CLUTTER_EFFECT_PAINT >*/
   CLUTTER_EFFECT_PAINT_BYPASS_EFFECT = (1 << 1)
 } ClutterEffectPaintFlags;
 
-/**
- * ClutterBoxAlignment:
- * @CLUTTER_BOX_ALIGNMENT_START: Align the child to the top or to
- *   to the left, depending on the used axis
- * @CLUTTER_BOX_ALIGNMENT_CENTER: Align the child to the center
- * @CLUTTER_BOX_ALIGNMENT_END: Align the child to the bottom or to
- *   the right, depending on the used axis
- *
- * The alignment policies available on each axis of the #ClutterBoxLayout
- */
-typedef enum
-{
-  CLUTTER_BOX_ALIGNMENT_START,
-  CLUTTER_BOX_ALIGNMENT_END,
-  CLUTTER_BOX_ALIGNMENT_CENTER
-} ClutterBoxAlignment;
 
 /**
  * ClutterLongPressState:
@@ -636,127 +490,6 @@ typedef enum /*< prefix=CLUTTER_LONG_PRESS >*/
 } ClutterLongPressState;
 
 /**
- * ClutterStaticColor:
- * @CLUTTER_COLOR_WHITE: White color (ffffffff)
- * @CLUTTER_COLOR_BLACK: Black color (000000ff)
- * @CLUTTER_COLOR_RED: Red color (ff0000ff)
- * @CLUTTER_COLOR_DARK_RED: Dark red color (800000ff)
- * @CLUTTER_COLOR_GREEN: Green color (00ff00ff)
- * @CLUTTER_COLOR_DARK_GREEN: Dark green color (008000ff)
- * @CLUTTER_COLOR_BLUE: Blue color (0000ffff)
- * @CLUTTER_COLOR_DARK_BLUE: Dark blue color (000080ff)
- * @CLUTTER_COLOR_CYAN: Cyan color (00ffffff)
- * @CLUTTER_COLOR_DARK_CYAN: Dark cyan color (008080ff)
- * @CLUTTER_COLOR_MAGENTA: Magenta color (ff00ffff)
- * @CLUTTER_COLOR_DARK_MAGENTA: Dark magenta color (800080ff)
- * @CLUTTER_COLOR_YELLOW: Yellow color (ffff00ff)
- * @CLUTTER_COLOR_DARK_YELLOW: Dark yellow color (808000ff)
- * @CLUTTER_COLOR_GRAY: Gray color (a0a0a4ff)
- * @CLUTTER_COLOR_DARK_GRAY: Dark Gray color (808080ff)
- * @CLUTTER_COLOR_LIGHT_GRAY: Light gray color (c0c0c0ff)
- * @CLUTTER_COLOR_BUTTER: Butter color (edd400ff)
- * @CLUTTER_COLOR_BUTTER_LIGHT: Light butter color (fce94fff)
- * @CLUTTER_COLOR_BUTTER_DARK: Dark butter color (c4a000ff)
- * @CLUTTER_COLOR_ORANGE: Orange color (f57900ff)
- * @CLUTTER_COLOR_ORANGE_LIGHT: Light orange color (fcaf3fff)
- * @CLUTTER_COLOR_ORANGE_DARK: Dark orange color (ce5c00ff)
- * @CLUTTER_COLOR_CHOCOLATE: Chocolate color (c17d11ff)
- * @CLUTTER_COLOR_CHOCOLATE_LIGHT: Light chocolate color (e9b96eff)
- * @CLUTTER_COLOR_CHOCOLATE_DARK: Dark chocolate color (8f5902ff)
- * @CLUTTER_COLOR_CHAMELEON: Chameleon color (73d216ff)
- * @CLUTTER_COLOR_CHAMELEON_LIGHT: Light chameleon color (8ae234ff)
- * @CLUTTER_COLOR_CHAMELEON_DARK: Dark chameleon color (4e9a06ff)
- * @CLUTTER_COLOR_SKY_BLUE: Sky color (3465a4ff)
- * @CLUTTER_COLOR_SKY_BLUE_LIGHT: Light sky color (729fcfff)
- * @CLUTTER_COLOR_SKY_BLUE_DARK: Dark sky color (204a87ff)
- * @CLUTTER_COLOR_PLUM: Plum color (75507bff)
- * @CLUTTER_COLOR_PLUM_LIGHT: Light plum color (ad7fa8ff)
- * @CLUTTER_COLOR_PLUM_DARK: Dark plum color (5c3566ff)
- * @CLUTTER_COLOR_SCARLET_RED: Scarlet red color (cc0000ff)
- * @CLUTTER_COLOR_SCARLET_RED_LIGHT: Light scarlet red color (ef2929ff)
- * @CLUTTER_COLOR_SCARLET_RED_DARK: Dark scarlet red color (a40000ff)
- * @CLUTTER_COLOR_ALUMINIUM_1: Aluminium, first variant (eeeeecff)
- * @CLUTTER_COLOR_ALUMINIUM_2: Aluminium, second variant (d3d7cfff)
- * @CLUTTER_COLOR_ALUMINIUM_3: Aluminium, third variant (babdb6ff)
- * @CLUTTER_COLOR_ALUMINIUM_4: Aluminium, fourth variant (888a85ff)
- * @CLUTTER_COLOR_ALUMINIUM_5: Aluminium, fifth variant (555753ff)
- * @CLUTTER_COLOR_ALUMINIUM_6: Aluminium, sixth variant (2e3436ff)
- * @CLUTTER_COLOR_TRANSPARENT: Transparent color (00000000)
- *
- * Named colors, for accessing global colors defined by Clutter
- */
-typedef enum /*< prefix=CLUTTER_COLOR >*/
-{
-  /* CGA/EGA-like palette */
-  CLUTTER_COLOR_WHITE           = 0,
-  CLUTTER_COLOR_BLACK,
-  CLUTTER_COLOR_RED,
-  CLUTTER_COLOR_DARK_RED,
-  CLUTTER_COLOR_GREEN,
-  CLUTTER_COLOR_DARK_GREEN,
-  CLUTTER_COLOR_BLUE,
-  CLUTTER_COLOR_DARK_BLUE,
-  CLUTTER_COLOR_CYAN,
-  CLUTTER_COLOR_DARK_CYAN,
-  CLUTTER_COLOR_MAGENTA,
-  CLUTTER_COLOR_DARK_MAGENTA,
-  CLUTTER_COLOR_YELLOW,
-  CLUTTER_COLOR_DARK_YELLOW,
-  CLUTTER_COLOR_GRAY,
-  CLUTTER_COLOR_DARK_GRAY,
-  CLUTTER_COLOR_LIGHT_GRAY,
-
-  /* Tango icon palette */
-  CLUTTER_COLOR_BUTTER,
-  CLUTTER_COLOR_BUTTER_LIGHT,
-  CLUTTER_COLOR_BUTTER_DARK,
-  CLUTTER_COLOR_ORANGE,
-  CLUTTER_COLOR_ORANGE_LIGHT,
-  CLUTTER_COLOR_ORANGE_DARK,
-  CLUTTER_COLOR_CHOCOLATE,
-  CLUTTER_COLOR_CHOCOLATE_LIGHT,
-  CLUTTER_COLOR_CHOCOLATE_DARK,
-  CLUTTER_COLOR_CHAMELEON,
-  CLUTTER_COLOR_CHAMELEON_LIGHT,
-  CLUTTER_COLOR_CHAMELEON_DARK,
-  CLUTTER_COLOR_SKY_BLUE,
-  CLUTTER_COLOR_SKY_BLUE_LIGHT,
-  CLUTTER_COLOR_SKY_BLUE_DARK,
-  CLUTTER_COLOR_PLUM,
-  CLUTTER_COLOR_PLUM_LIGHT,
-  CLUTTER_COLOR_PLUM_DARK,
-  CLUTTER_COLOR_SCARLET_RED,
-  CLUTTER_COLOR_SCARLET_RED_LIGHT,
-  CLUTTER_COLOR_SCARLET_RED_DARK,
-  CLUTTER_COLOR_ALUMINIUM_1,
-  CLUTTER_COLOR_ALUMINIUM_2,
-  CLUTTER_COLOR_ALUMINIUM_3,
-  CLUTTER_COLOR_ALUMINIUM_4,
-  CLUTTER_COLOR_ALUMINIUM_5,
-  CLUTTER_COLOR_ALUMINIUM_6,
-
-  /* Fully transparent black */
-  CLUTTER_COLOR_TRANSPARENT
-} ClutterStaticColor;
-
-/**
- * ClutterDragAxis:
- * @CLUTTER_DRAG_AXIS_NONE: No constraint
- * @CLUTTER_DRAG_X_AXIS: Set a constraint on the X axis
- * @CLUTTER_DRAG_Y_AXIS: Set a constraint on the Y axis
- *
- * The axis of the constraint that should be applied on the
- * dragging action
- */
-typedef enum /*< prefix=CLUTTER_DRAG >*/
-{
-  CLUTTER_DRAG_AXIS_NONE = 0,
-
-  CLUTTER_DRAG_X_AXIS,
-  CLUTTER_DRAG_Y_AXIS
-} ClutterDragAxis;
-
-/**
  * ClutterEventFlags:
  * @CLUTTER_EVENT_NONE: No flag set
  * @CLUTTER_EVENT_FLAG_SYNTHETIC: Synthetic event
@@ -772,6 +505,8 @@ typedef enum /*< flags prefix=CLUTTER_EVENT >*/
   CLUTTER_EVENT_FLAG_REPEATED     = 1 << 2,
   CLUTTER_EVENT_FLAG_RELATIVE_MOTION = 1 << 3,
   CLUTTER_EVENT_FLAG_GRAB_NOTIFY  = 1 << 4,
+  CLUTTER_EVENT_FLAG_POINTER_EMULATED = 1 << 5,
+  CLUTTER_EVENT_FLAG_A11Y_MODIFIER_FIRST_CLICK = 1 << 6,
 } ClutterEventFlags;
 
 /**
@@ -786,28 +521,20 @@ typedef enum /*< flags prefix=CLUTTER_EVENT >*/
  * @CLUTTER_BUTTON_RELEASE: Pointer button release event
  * @CLUTTER_SCROLL: Pointer scroll event
  * @CLUTTER_TOUCH_BEGIN: A new touch event sequence has started;
- *   event added in 1.10
  * @CLUTTER_TOUCH_UPDATE: A touch event sequence has been updated;
- *   event added in 1.10
  * @CLUTTER_TOUCH_END: A touch event sequence has finished;
- *   event added in 1.10
  * @CLUTTER_TOUCH_CANCEL: A touch event sequence has been canceled;
- *   event added in 1.10
  * @CLUTTER_TOUCHPAD_PINCH: A pinch gesture event, the current state is
- *   determined by its phase field; event added in 1.24
+ *   determined by its phase field;
  * @CLUTTER_TOUCHPAD_SWIPE: A swipe gesture event, the current state is
- *   determined by its phase field; event added in 1.24
+ *   determined by its phase field;
  * @CLUTTER_TOUCHPAD_HOLD: A hold gesture event, the current state is
  *   determined by its phase field. A hold gesture starts when the user places a
  *   finger on the touchpad and ends when all fingers are lifted. It is
  *   cancelled when the finger(s) move past a certain threshold.
- *   Event added in 40.4
  * @CLUTTER_PROXIMITY_IN: A tool entered in proximity to a tablet;
- *   event added in 1.28
  * @CLUTTER_PROXIMITY_OUT: A tool left from the proximity area of a tablet;
- *   event added in 1.28
  * @CLUTTER_EVENT_LAST: Marks the end of the #ClutterEventType enumeration;
- *   added in 1.10
  *
  * Types of events.
  */
@@ -867,22 +594,6 @@ typedef enum /*< prefix=CLUTTER_SCROLL >*/
 } ClutterScrollDirection;
 
 /**
- * ClutterFlowOrientation:
- * @CLUTTER_FLOW_HORIZONTAL: Arrange the children of the flow layout
- *   horizontally first
- * @CLUTTER_FLOW_VERTICAL: Arrange the children of the flow layout
- *   vertically first
- *
- * The direction of the arrangement of the children inside
- * a #ClutterFlowLayout
- */
-typedef enum /*< prefix=CLUTTER_FLOW >*/
-{
-  CLUTTER_FLOW_HORIZONTAL,
-  CLUTTER_FLOW_VERTICAL
-} ClutterFlowOrientation;
-
-/**
  * ClutterInputDeviceCapabilities:
  * @CLUTTER_INPUT_CAPABILITY_NONE: No capabilities
  * @CLUTTER_INPUT_CAPABILITY_POINTER: Pointer capability
@@ -903,6 +614,8 @@ typedef enum /*< prefix=CLUTTER_INPUT_CAPABILITY >*/
   CLUTTER_INPUT_CAPABILITY_TOUCH = 1 << 3,
   CLUTTER_INPUT_CAPABILITY_TABLET_TOOL = 1 << 4,
   CLUTTER_INPUT_CAPABILITY_TABLET_PAD = 1 << 5,
+  CLUTTER_INPUT_CAPABILITY_TRACKBALL = 1 << 6,
+  CLUTTER_INPUT_CAPABILITY_TRACKPOINT = 1 << 7,
 } ClutterInputCapabilities;
 
 /**
@@ -1078,48 +791,6 @@ typedef enum /*< prefix=CLUTTER_PAN >*/
 } ClutterPanAxis;
 
 /**
- * ClutterTextureFlags:
- * @CLUTTER_TEXTURE_NONE: No flags
- * @CLUTTER_TEXTURE_RGB_FLAG_BGR: Unused flag
- * @CLUTTER_TEXTURE_RGB_FLAG_PREMULT: Unused flag
- * @CLUTTER_TEXTURE_YUV_FLAG_YUV2: Unused flag
- *
- * Flags for clutter_texture_set_from_rgb_data().
- *
- * Deprecated: 1.22: The #ClutterTexture class was the only user of
- *   this API
- */
-typedef enum /*< prefix=CLUTTER_TEXTURE >*/
-{
-  CLUTTER_TEXTURE_NONE             = 0,
-  CLUTTER_TEXTURE_RGB_FLAG_BGR     = 1 << 1,
-  CLUTTER_TEXTURE_RGB_FLAG_PREMULT = 1 << 2, /* FIXME: not handled */
-  CLUTTER_TEXTURE_YUV_FLAG_YUV2    = 1 << 3
-} ClutterTextureFlags;
-
-/**
- * ClutterTextureQuality:
- * @CLUTTER_TEXTURE_QUALITY_LOW: fastest rendering will use nearest neighbour
- *   interpolation when rendering. good setting.
- * @CLUTTER_TEXTURE_QUALITY_MEDIUM: higher quality rendering without using
- *   extra resources.
- * @CLUTTER_TEXTURE_QUALITY_HIGH: render the texture with the best quality
- *   available using extra memory.
- *
- * Enumaration controlling the texture quality.
- *
- * Deprecated: 1.22: The #ClutterTexture class was the only user of
- *   this API; use #ClutterImage and clutter_actor_set_content_scaling_filters()
- *   instead.
- */
-typedef enum /*< prefix=CLUTTER_TEXTURE_QUALITY >*/
-{
-  CLUTTER_TEXTURE_QUALITY_LOW,
-  CLUTTER_TEXTURE_QUALITY_MEDIUM,
-  CLUTTER_TEXTURE_QUALITY_HIGH
-} ClutterTextureQuality;
-
-/**
  * ClutterTimelineDirection:
  * @CLUTTER_TIMELINE_FORWARD: forward direction for a timeline
  * @CLUTTER_TIMELINE_BACKWARD: backward direction for a timeline
@@ -1131,59 +802,6 @@ typedef enum
   CLUTTER_TIMELINE_FORWARD,
   CLUTTER_TIMELINE_BACKWARD
 } ClutterTimelineDirection;
-
-/**
- * ClutterUnitType:
- * @CLUTTER_UNIT_PIXEL: Unit expressed in pixels (with subpixel precision)
- * @CLUTTER_UNIT_EM: Unit expressed in em
- * @CLUTTER_UNIT_MM: Unit expressed in millimeters
- * @CLUTTER_UNIT_POINT: Unit expressed in points
- * @CLUTTER_UNIT_CM: Unit expressed in centimeters
- *
- * The type of unit in which a value is expressed
- *
- * This enumeration might be expanded at later date
- */
-typedef enum /*< prefix=CLUTTER_UNIT >*/
-{
-  CLUTTER_UNIT_PIXEL,
-  CLUTTER_UNIT_EM,
-  CLUTTER_UNIT_MM,
-  CLUTTER_UNIT_POINT,
-  CLUTTER_UNIT_CM
-} ClutterUnitType;
-
-#define CLUTTER_PATH_RELATIVE           (32)
-
-/**
- * ClutterPathNodeType:
- * @CLUTTER_PATH_MOVE_TO: jump to the given position
- * @CLUTTER_PATH_LINE_TO: create a line from the last node to the
- *   given position
- * @CLUTTER_PATH_CURVE_TO: bezier curve using the last position and
- *   three control points.
- * @CLUTTER_PATH_CLOSE: create a line from the last node to the last
- *   %CLUTTER_PATH_MOVE_TO node.
- * @CLUTTER_PATH_REL_MOVE_TO: same as %CLUTTER_PATH_MOVE_TO but with
- *   coordinates relative to the last node.
- * @CLUTTER_PATH_REL_LINE_TO: same as %CLUTTER_PATH_LINE_TO but with
- *   coordinates relative to the last node.
- * @CLUTTER_PATH_REL_CURVE_TO: same as %CLUTTER_PATH_CURVE_TO but with
- *   coordinates relative to the last node.
- *
- * Types of nodes in a #ClutterPath.
- */
-typedef enum
-{
-  CLUTTER_PATH_MOVE_TO      = 0,
-  CLUTTER_PATH_LINE_TO      = 1,
-  CLUTTER_PATH_CURVE_TO     = 2,
-  CLUTTER_PATH_CLOSE        = 3,
-
-  CLUTTER_PATH_REL_MOVE_TO  = CLUTTER_PATH_MOVE_TO | CLUTTER_PATH_RELATIVE,
-  CLUTTER_PATH_REL_LINE_TO  = CLUTTER_PATH_LINE_TO | CLUTTER_PATH_RELATIVE,
-  CLUTTER_PATH_REL_CURVE_TO = CLUTTER_PATH_CURVE_TO | CLUTTER_PATH_RELATIVE
-} ClutterPathNodeType;
 
 /**
  * ClutterActorAlign:
@@ -1200,8 +818,9 @@ typedef enum
  * assigned to it during the allocation.
  *
  * Alignment only matters if the allocated space given to an actor is
- * bigger than its natural size; for example, when the #ClutterActor:x-expand
- * or the #ClutterActor:y-expand properties of #ClutterActor are set to %TRUE.
+ * bigger than its natural size; for example, when
+ * the [property@Clutter.Actor:x-expand] or the [property@Clutter.Actor:y-expand]
+ * properties of #ClutterActor are set to %TRUE.
  */
 typedef enum
 {
@@ -1218,7 +837,7 @@ typedef enum
  * @CLUTTER_REPAINT_FLAGS_POST_PAINT: Run the repaint function after
  *   painting the stages
  *
- * Flags to pass to clutter_threads_add_repaint_func_full().
+ * Flags to pass to [func@Clutter.threads_add_repaint_func].
  */
 typedef enum
 {
@@ -1293,25 +912,6 @@ typedef enum
 } ClutterOrientation;
 
 /**
- * ClutterScrollMode:
- * @CLUTTER_SCROLL_NONE: Ignore scrolling
- * @CLUTTER_SCROLL_HORIZONTALLY: Scroll only horizontally
- * @CLUTTER_SCROLL_VERTICALLY: Scroll only vertically
- * @CLUTTER_SCROLL_BOTH: Scroll in both directions
- *
- * Scroll modes.
- */
-typedef enum /*< prefix=CLUTTER_SCROLL >*/
-{
-  CLUTTER_SCROLL_NONE         = 0,
-
-  CLUTTER_SCROLL_HORIZONTALLY = 1 << 0,
-  CLUTTER_SCROLL_VERTICALLY   = 1 << 1,
-
-  CLUTTER_SCROLL_BOTH         = CLUTTER_SCROLL_HORIZONTALLY | CLUTTER_SCROLL_VERTICALLY
-} ClutterScrollMode;
-
-/**
  * ClutterGridPosition:
  * @CLUTTER_GRID_POSITION_LEFT: left position
  * @CLUTTER_GRID_POSITION_RIGHT: right position
@@ -1346,19 +946,19 @@ typedef enum
 } ClutterContentRepeat;
 
 /**
- * ClutterColorspace:
- * @CLUTTER_COLORSPACE_UNKNOWN: Unknown colorspace
- * @CLUTTER_COLORSPACE_SRGB: Default sRGB colorspace
- * @CLUTTER_COLORSPACE_BT2020: BT2020 colorspace
+ * ClutterEncodingRequiredFormat:
+ * @CLUTTER_ENCODING_REQUIRED_FORMAT_UINT8: 8bpc uint
+ * @CLUTTER_ENCODING_REQUIRED_FORMAT_UINT10: 10bpc uint
+ * @CLUTTER_ENCODING_REQUIRED_FORMAT_FP16: 16bpc floating point
  *
- * Colorspace informations.
+ * The texture format required to store a specific encoding.
  */
 typedef enum
 {
-  CLUTTER_COLORSPACE_UNKNOWN,
-  CLUTTER_COLORSPACE_SRGB,
-  CLUTTER_COLORSPACE_BT2020
-} ClutterColorspace;
+  CLUTTER_ENCODING_REQUIRED_FORMAT_UINT8 = 0,
+  CLUTTER_ENCODING_REQUIRED_FORMAT_UINT10 = 1,
+  CLUTTER_ENCODING_REQUIRED_FORMAT_FP16 = 2,
+} ClutterEncodingRequiredFormat;
 
 /**
  * ClutterStepMode:
@@ -1410,9 +1010,9 @@ typedef enum
  * @CLUTTER_TOUCHPAD_GESTURE_PHASE_CANCEL: The gesture was cancelled, all
  *   changes should be undone.
  *
- * The phase of a touchpad gesture event. 
- * 
- * All gestures are guaranteed to begin with an event of type 
+ * The phase of a touchpad gesture event.
+ *
+ * All gestures are guaranteed to begin with an event of type
  * %CLUTTER_TOUCHPAD_GESTURE_PHASE_BEGIN, followed by a number
  * of %CLUTTER_TOUCHPAD_GESTURE_PHASE_UPDATE (possibly 0).
  *
@@ -1448,8 +1048,8 @@ typedef enum
  * @CLUTTER_SCROLL_SOURCE_CONTINUOUS: The scroll event is originated by the
  *   motion of some device (eg. a scroll button is set).
  *
- * The scroll source determines the source of the scroll event. 
- * 
+ * The scroll source determines the source of the scroll event.
+ *
  * Keep in mind that the source device #ClutterInputDeviceType is not enough
  * to infer the scroll source.6
  */
@@ -1468,7 +1068,7 @@ typedef enum
  * @CLUTTER_SCROLL_FINISHED_VERTICAL: The vertical axis stopped.
  *
  * Flags used to notify the axes that were stopped in a #ClutterScrollEvent.
- * 
+ *
  * These can be used to trigger post-scroll effects like kinetic scrolling.6
  */
 typedef enum
@@ -1575,6 +1175,15 @@ typedef enum
                             CLUTTER_GRAB_STATE_KEYBOARD),
 } ClutterGrabState;
 
-G_END_DECLS
+typedef enum /*< prefix=CLUTTER_GESTURE_STATE >*/
+{
+  CLUTTER_GESTURE_STATE_WAITING,
+  CLUTTER_GESTURE_STATE_POSSIBLE,
+  CLUTTER_GESTURE_STATE_RECOGNIZING,
+  CLUTTER_GESTURE_STATE_COMPLETED,
+  CLUTTER_GESTURE_STATE_CANCELLED,
 
-#endif /* __CLUTTER_ENUMS_H__ */
+  CLUTTER_N_GESTURE_STATES
+} ClutterGestureState;
+
+G_END_DECLS

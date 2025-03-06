@@ -15,13 +15,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <atk/atk.h>
 #include <clutter/clutter.h>
+#include <clutter/clutter-pango.h>
 
 #include "cally-examples-util.h"
 
@@ -36,11 +35,11 @@ make_ui (ClutterActor *stage)
   ClutterActor    *editable      = NULL;
   ClutterActor    *rectangle     = NULL;
   ClutterActor    *label         = NULL;
-  ClutterColor     color_stage   = { 0x00, 0x00, 0x00, 0xff };
-  ClutterColor     color_text    = { 0xff, 0x00, 0x00, 0xff };
-  ClutterColor     color_sel     = { 0x00, 0xff, 0x00, 0x55 };
-  ClutterColor     color_label   = { 0x00, 0xff, 0x55, 0xff };
-  ClutterColor     color_rect    = { 0x00, 0xff, 0xff, 0x55 };
+  CoglColor color_stage = { 0x00, 0x00, 0x00, 0xff };
+  CoglColor color_text = { 0xff, 0x00, 0x00, 0xff };
+  CoglColor color_sel = { 0x00, 0xff, 0x00, 0x55 };
+  CoglColor color_label = { 0x00, 0xff, 0x55, 0xff };
+  CoglColor color_rect = { 0x00, 0xff, 0xff, 0x55 };
   ClutterActor    *full_entry    = NULL;
   ClutterActor    *cloned_entry  = NULL;
 
@@ -74,11 +73,11 @@ make_ui (ClutterActor *stage)
   full_entry = clutter_actor_new ();
   clutter_actor_set_position (full_entry, 0, 50);
   clutter_actor_set_size (full_entry, 100, 75);
-  clutter_container_add_actor (CLUTTER_CONTAINER (full_entry), label);
-  clutter_container_add_actor (CLUTTER_CONTAINER (full_entry), editable);
-  clutter_container_add_actor (CLUTTER_CONTAINER (full_entry), rectangle);
+  clutter_actor_add_child (full_entry, label);
+  clutter_actor_add_child (full_entry, editable);
+  clutter_actor_add_child (full_entry, rectangle);
   clutter_actor_set_scale (full_entry, 2, 1);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), full_entry);
+  clutter_actor_add_child (stage, full_entry);
 
   /* Cloning! */
   cloned_entry = clutter_clone_new (full_entry);
@@ -86,7 +85,7 @@ make_ui (ClutterActor *stage)
   clutter_actor_set_scale (cloned_entry, 1, 2);
   clutter_actor_set_reactive (cloned_entry, TRUE);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), cloned_entry);
+  clutter_actor_add_child (stage, cloned_entry);
 }
 
 int
@@ -99,7 +98,6 @@ main (int argc, char *argv[])
   cally_util_a11y_init (&argc, &argv);
 
   stage = clutter_test_get_stage ();
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Cally - Clone Test");
   g_signal_connect (stage, "destroy", G_CALLBACK (clutter_test_quit), NULL);
 
   make_ui (stage);

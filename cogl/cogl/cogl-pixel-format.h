@@ -28,38 +28,21 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_PIXEL_FORMAT_H__
-#define __COGL_PIXEL_FORMAT_H__
-
 #include <stdint.h>
 #include <stddef.h>
 
-#include <cogl/cogl-defines.h>
-#include <cogl/cogl-macros.h>
+#include "cogl/cogl-macros.h"
 
 #include <glib.h>
 #include <glib-object.h>
 
 G_BEGIN_DECLS
-
-/**
- * SECTION:cogl-pixel-format
- * @short_description: Pixel formats supported by Cogl
- *
- * The pixel format of an image descrbes how the bits of each pixel are
- * represented in memory. For example: an image can be laid out as one long
- * sequence of pixels, where each pixel is a sequence of 8 bits of Red, Green
- * and Blue. The amount of bits that are used can be different for each pixel
- * format, as well as the components (for example an Alpha layer to include
- * transparency, or non_RGBA).
- *
- * Other examples of factors that can influence the layout in memory are the
- * system's endianness.
- */
 
 #define COGL_A_BIT              (1 << 4)
 #define COGL_BGR_BIT            (1 << 5)
@@ -96,17 +79,18 @@ G_BEGIN_DECLS
  * The mapping is the following (see discussion on bug #660188):
  *
  * 0     = undefined
- * 1, 8  = 1 bpp (e.g. A_8, G_8)
+ * 1, 8  = 1 bpp (e.g. A_8, R_8)
  * 2     = 3 bpp, aligned (e.g. 888)
  * 3     = 4 bpp, aligned (e.g. 8888)
  * 4-6   = 2 bpp, not aligned (e.g. 565, 4444, 5551)
  * 7     = YUV: undefined bpp, undefined alignment
  * 9     = 2 bpp, aligned
- * 10    = depth, aligned (8, 16, 24, 32, 32f)
+ * 10    = 8 bpp, RGBA_161616
  * 11    = 8 bpp fp16
- * 12    = 3 bpp, not aligned
+ * 12    = 16 bpp fp32
  * 13    = 4 bpp, not aligned (e.g. 2101010)
- * 14-15 = undefined
+ * 14    = 2 bpp, aligned (e.g. G_16)
+ * 15    = 4 bpp, aligned (e.g. RG_1616)
  *
  * Note: the gap at 10-11 is just because we wanted to maintain that
  * all non-aligned formats have the third bit set in case that's
@@ -147,28 +131,36 @@ G_BEGIN_DECLS
  * @COGL_PIXEL_FORMAT_RGBA_4444: RGBA, 16 bits
  * @COGL_PIXEL_FORMAT_RGBA_5551: RGBA, 16 bits
  * @COGL_PIXEL_FORMAT_YUV: Not currently supported
- * @COGL_PIXEL_FORMAT_G_8: Single luminance component
+ * @COGL_PIXEL_FORMAT_R_8: Single luminance component
  * @COGL_PIXEL_FORMAT_RGB_888: RGB, 24 bits
  * @COGL_PIXEL_FORMAT_BGR_888: BGR, 24 bits
+ * @COGL_PIXEL_FORMAT_RGBX_8888: RGBX, 32 bits
  * @COGL_PIXEL_FORMAT_RGBA_8888: RGBA, 32 bits
+ * @COGL_PIXEL_FORMAT_BGRX_8888: BGRX, 32 bits
  * @COGL_PIXEL_FORMAT_BGRA_8888: BGRA, 32 bits
+ * @COGL_PIXEL_FORMAT_XRGB_8888: XRGB, 32 bits
  * @COGL_PIXEL_FORMAT_ARGB_8888: ARGB, 32 bits
+ * @COGL_PIXEL_FORMAT_XBGR_8888: XBGR, 32 bits
  * @COGL_PIXEL_FORMAT_ABGR_8888: ABGR, 32 bits
- * @COGL_PIXEL_FORMAT_RGBA_1010102 : RGBA, 32 bits, 10 bpc
- * @COGL_PIXEL_FORMAT_BGRA_1010102 : BGRA, 32 bits, 10 bpc
- * @COGL_PIXEL_FORMAT_ARGB_2101010 : ARGB, 32 bits, 10 bpc
- * @COGL_PIXEL_FORMAT_ABGR_2101010 : ABGR, 32 bits, 10 bpc
  * @COGL_PIXEL_FORMAT_RGBA_8888_PRE: Premultiplied RGBA, 32 bits
  * @COGL_PIXEL_FORMAT_BGRA_8888_PRE: Premultiplied BGRA, 32 bits
  * @COGL_PIXEL_FORMAT_ARGB_8888_PRE: Premultiplied ARGB, 32 bits
  * @COGL_PIXEL_FORMAT_ABGR_8888_PRE: Premultiplied ABGR, 32 bits
  * @COGL_PIXEL_FORMAT_RGBA_4444_PRE: Premultiplied RGBA, 16 bits
  * @COGL_PIXEL_FORMAT_RGBA_5551_PRE: Premultiplied RGBA, 16 bits
+ * @COGL_PIXEL_FORMAT_RGBA_1010102 : RGBA, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_BGRA_1010102 : BGRA, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_XRGB_2101010 : XRGB, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_ARGB_2101010 : ARGB, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_XBGR_2101010 : XBGR, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_ABGR_2101010 : ABGR, 32 bits, 10 bpc
  * @COGL_PIXEL_FORMAT_RGBA_1010102_PRE: Premultiplied RGBA, 32 bits, 10 bpc
  * @COGL_PIXEL_FORMAT_BGRA_1010102_PRE: Premultiplied BGRA, 32 bits, 10 bpc
  * @COGL_PIXEL_FORMAT_ARGB_2101010_PRE: Premultiplied ARGB, 32 bits, 10 bpc
  * @COGL_PIXEL_FORMAT_ABGR_2101010_PRE: Premultiplied ABGR, 32 bits, 10 bpc
+ * @COGL_PIXEL_FORMAT_RGBX_FP_16161616: RGBX half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_RGBA_FP_16161616: RGBA half floating point, 64 bit
+ * @COGL_PIXEL_FORMAT_BGRX_FP_16161616: BGRX half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_BGRA_FP_16161616: BGRA half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_ARGB_FP_16161616: ARGB half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_ABGR_FP_16161616: ABGR half floating point, 64 bit
@@ -176,6 +168,11 @@ G_BEGIN_DECLS
  * @COGL_PIXEL_FORMAT_BGRA_FP_16161616_PRE: Premultiplied BGRA half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_ARGB_FP_16161616_PRE: Premultiplied ARGB half floating point, 64 bit
  * @COGL_PIXEL_FORMAT_ABGR_FP_16161616_PRE: Premultiplied ABGR half floating point, 64 bit
+ * @COGL_PIXEL_FORMAT_RGBA_FP_32323232: RGBA floating point, 128 bit
+ * @COGL_PIXEL_FORMAT_RGBA_FP_32323232_PRE: Premultiplied RGBA floating point, 128 bit
+ * @COGL_PIXEL_FORMAT_R_16: Single luminance component, 16 bits
+ * @COGL_PIXEL_FORMAT_RG_1616: RG, 32 bits
+ * @COGL_PIXEL_FORMAT_RGBA_16161616: RGBA, 64 bits, 16bpc
  *
  * Pixel formats used by Cogl. For the formats with a byte per
  * component, the order of the components specify the order in
@@ -195,8 +192,6 @@ G_BEGIN_DECLS
  * When uploading a texture %COGL_PIXEL_FORMAT_ANY can be used as the
  * internal format. Cogl will try to pick the best format to use
  * internally and convert the texture data if necessary.
- *
- * Since: 0.8
  */
 typedef enum /*< prefix=COGL_PIXEL_FORMAT >*/
 {
@@ -207,31 +202,20 @@ typedef enum /*< prefix=COGL_PIXEL_FORMAT >*/
   COGL_PIXEL_FORMAT_RGBA_4444     = 5 | COGL_A_BIT,
   COGL_PIXEL_FORMAT_RGBA_5551     = 6 | COGL_A_BIT,
   COGL_PIXEL_FORMAT_YUV           = 7,
-  COGL_PIXEL_FORMAT_G_8           = 8,
-
+  COGL_PIXEL_FORMAT_R_8           = 8,
   COGL_PIXEL_FORMAT_RG_88         = 9,
 
   COGL_PIXEL_FORMAT_RGB_888       = 2,
   COGL_PIXEL_FORMAT_BGR_888       = (2 | COGL_BGR_BIT),
 
+  COGL_PIXEL_FORMAT_RGBX_8888     = 3,
   COGL_PIXEL_FORMAT_RGBA_8888     = (3 | COGL_A_BIT),
+  COGL_PIXEL_FORMAT_BGRX_8888     = (3 | COGL_BGR_BIT),
   COGL_PIXEL_FORMAT_BGRA_8888     = (3 | COGL_A_BIT | COGL_BGR_BIT),
+  COGL_PIXEL_FORMAT_XRGB_8888     = (3 | COGL_AFIRST_BIT),
   COGL_PIXEL_FORMAT_ARGB_8888     = (3 | COGL_A_BIT | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_XBGR_8888     = (3 | COGL_BGR_BIT | COGL_AFIRST_BIT),
   COGL_PIXEL_FORMAT_ABGR_8888     = (3 | COGL_A_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
-
-  COGL_PIXEL_FORMAT_RGBA_1010102  = (13 | COGL_A_BIT),
-  COGL_PIXEL_FORMAT_BGRA_1010102  = (13 | COGL_A_BIT | COGL_BGR_BIT),
-  COGL_PIXEL_FORMAT_XRGB_2101010  = (13 | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_ARGB_2101010  = (13 | COGL_A_BIT | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_XBGR_2101010  = (13 | COGL_BGR_BIT | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_ABGR_2101010  = (13 | COGL_A_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
-
-  COGL_PIXEL_FORMAT_RGBA_FP_16161616 = (11 | COGL_A_BIT),
-  COGL_PIXEL_FORMAT_BGRA_FP_16161616 = (11 | COGL_A_BIT | COGL_BGR_BIT),
-  COGL_PIXEL_FORMAT_XRGB_FP_16161616 = (11 | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_ARGB_FP_16161616 = (11 | COGL_A_BIT | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_XBGR_FP_16161616 = (11 | COGL_BGR_BIT | COGL_AFIRST_BIT),
-  COGL_PIXEL_FORMAT_ABGR_FP_16161616 = (11 | COGL_A_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
 
   COGL_PIXEL_FORMAT_RGBA_8888_PRE = (3 | COGL_A_BIT | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_BGRA_8888_PRE = (3 | COGL_A_BIT | COGL_PREMULT_BIT | COGL_BGR_BIT),
@@ -240,21 +224,55 @@ typedef enum /*< prefix=COGL_PIXEL_FORMAT >*/
   COGL_PIXEL_FORMAT_RGBA_4444_PRE = (COGL_PIXEL_FORMAT_RGBA_4444 | COGL_A_BIT | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_RGBA_5551_PRE = (COGL_PIXEL_FORMAT_RGBA_5551 | COGL_A_BIT | COGL_PREMULT_BIT),
 
+  COGL_PIXEL_FORMAT_RGBA_1010102  = (13 | COGL_A_BIT),
+  COGL_PIXEL_FORMAT_BGRA_1010102  = (13 | COGL_A_BIT | COGL_BGR_BIT),
+  COGL_PIXEL_FORMAT_XRGB_2101010  = (13 | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_ARGB_2101010  = (13 | COGL_A_BIT | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_XBGR_2101010  = (13 | COGL_BGR_BIT | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_ABGR_2101010  = (13 | COGL_A_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
+
   COGL_PIXEL_FORMAT_RGBA_1010102_PRE = (COGL_PIXEL_FORMAT_RGBA_1010102 | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_BGRA_1010102_PRE = (COGL_PIXEL_FORMAT_BGRA_1010102 | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_ARGB_2101010_PRE = (COGL_PIXEL_FORMAT_ARGB_2101010 | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_ABGR_2101010_PRE = (COGL_PIXEL_FORMAT_ABGR_2101010 | COGL_PREMULT_BIT),
+
+  COGL_PIXEL_FORMAT_RGBX_FP_16161616 = 11,
+  COGL_PIXEL_FORMAT_RGBA_FP_16161616 = (11 | COGL_A_BIT),
+  COGL_PIXEL_FORMAT_BGRX_FP_16161616 = (11 | COGL_BGR_BIT),
+  COGL_PIXEL_FORMAT_BGRA_FP_16161616 = (11 | COGL_A_BIT | COGL_BGR_BIT),
+  COGL_PIXEL_FORMAT_XRGB_FP_16161616 = (11 | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_ARGB_FP_16161616 = (11 | COGL_A_BIT | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_XBGR_FP_16161616 = (11 | COGL_BGR_BIT | COGL_AFIRST_BIT),
+  COGL_PIXEL_FORMAT_ABGR_FP_16161616 = (11 | COGL_A_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
 
   COGL_PIXEL_FORMAT_RGBA_FP_16161616_PRE = (11 | COGL_A_BIT | COGL_PREMULT_BIT),
   COGL_PIXEL_FORMAT_BGRA_FP_16161616_PRE = (11 | COGL_A_BIT | COGL_PREMULT_BIT | COGL_BGR_BIT),
   COGL_PIXEL_FORMAT_ARGB_FP_16161616_PRE = (11 | COGL_A_BIT | COGL_PREMULT_BIT | COGL_AFIRST_BIT),
   COGL_PIXEL_FORMAT_ABGR_FP_16161616_PRE = (11 | COGL_A_BIT | COGL_PREMULT_BIT | COGL_BGR_BIT | COGL_AFIRST_BIT),
 
+  COGL_PIXEL_FORMAT_RGBA_FP_32323232 = (12 | COGL_A_BIT),
+  COGL_PIXEL_FORMAT_RGBA_FP_32323232_PRE = (12 | COGL_A_BIT | COGL_PREMULT_BIT),
+
+  COGL_PIXEL_FORMAT_R_16          = 14,
+  COGL_PIXEL_FORMAT_RG_1616       = 15,
+  COGL_PIXEL_FORMAT_RGBA_16161616 = (10 | COGL_A_BIT),
+  COGL_PIXEL_FORMAT_RGBA_16161616_PRE = (10 | COGL_A_BIT | COGL_PREMULT_BIT),
+
   COGL_PIXEL_FORMAT_DEPTH_16  = (9 | COGL_DEPTH_BIT),
-  COGL_PIXEL_FORMAT_DEPTH_32  = (3 | COGL_DEPTH_BIT),
 
   COGL_PIXEL_FORMAT_DEPTH_24_STENCIL_8 = (3 | COGL_DEPTH_BIT | COGL_STENCIL_BIT)
 } CoglPixelFormat;
+
+/**
+ * COGL_PIXEL_FORMAT_CAIRO_ARGB32_COMPAT:
+ *
+ * Architecture dependant format, similar to CAIRO_ARGB32.
+*/
+#if G_BYTE_ORDER == G_LITTLE_ENDIAN
+#define COGL_PIXEL_FORMAT_CAIRO_ARGB32_COMPAT COGL_PIXEL_FORMAT_BGRA_8888_PRE
+#else
+#define COGL_PIXEL_FORMAT_CAIRO_ARGB32_COMPAT COGL_PIXEL_FORMAT_ARGB_8888_PRE
+#endif
 
 /**
  * COGL_PIXEL_FORMAT_MAX_PLANES:
@@ -306,7 +324,7 @@ gboolean
 _cogl_pixel_format_is_endian_dependant (CoglPixelFormat format);
 
 /*
- * COGL_PIXEL_FORMAT_CAN_HAVE_PREMULT(format):
+ * _cogl_pixel_format_can_have_premult:
  * @format: a #CoglPixelFormat
  *
  * Returns TRUE if the pixel format can take a premult bit. This is
@@ -314,8 +332,11 @@ _cogl_pixel_format_is_endian_dependant (CoglPixelFormat format);
  * COGL_PIXEL_FORMAT_A_8 (because that doesn't have any other
  * components to multiply by the alpha).
  */
-#define COGL_PIXEL_FORMAT_CAN_HAVE_PREMULT(format) \
-  (((format) & COGL_A_BIT) && (format) != COGL_PIXEL_FORMAT_A_8)
+static inline gboolean
+_cogl_pixel_format_can_have_premult (CoglPixelFormat format)
+{
+    return (((format) & COGL_A_BIT) && (format) != COGL_PIXEL_FORMAT_A_8);
+}
 
 /**
  * cogl_pixel_format_get_n_planes:
@@ -340,5 +361,3 @@ COGL_EXPORT const char *
 cogl_pixel_format_to_string (CoglPixelFormat format);
 
 G_END_DECLS
-
-#endif /* __COGL_PIXEL_FORMAT_H__ */

@@ -18,6 +18,9 @@
 #include "config.h"
 
 #include "backends/meta-virtual-monitor.h"
+#include "backends/native/meta-backend-native.h"
+#include "backends/native/meta-kms.h"
+#include "backends/native/meta-kms-device.h"
 #include "compositor/meta-window-actor-private.h"
 #include "core/window-private.h"
 #include "meta-test/meta-context-test.h"
@@ -27,7 +30,7 @@
 #include "backends/native/meta-renderer-native.h"
 #include "tests/meta-ref-test.h"
 #include "wayland/meta-window-wayland.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
 
 static MetaContext *test_context;
 static MetaWaylandTestDriver *test_driver;
@@ -37,10 +40,10 @@ static MetaWindow *test_window = NULL;
 
 #define assert_wayland_surface_size(window, width, height) \
 { \
-  g_assert_cmpint (meta_wayland_surface_get_width (window->surface), \
+  g_assert_cmpint (meta_wayland_surface_get_width (meta_window_get_wayland_surface (window)), \
                    ==, \
                    width); \
-  g_assert_cmpint (meta_wayland_surface_get_height (window->surface), \
+  g_assert_cmpint (meta_wayland_surface_get_height (meta_window_get_wayland_surface (window)), \
                    ==, \
                    height); \
 }
@@ -105,13 +108,13 @@ wait_for_window_added (MetaWindow *window)
 static void
 toplevel_fullscreen (void)
 {
-  MetaRectangle rect;
+  MtkRectangle rect;
 
   wait_for_first_frame (test_window);
 
   meta_window_get_frame_rect (test_window, &rect);
-  g_assert_cmpint (rect.width, ==, 100);
-  g_assert_cmpint (rect.height, ==, 100);
+  g_assert_cmpint (rect.width, ==, 640);
+  g_assert_cmpint (rect.height, ==, 480);
   g_assert_cmpint (rect.x, ==, 0);
   g_assert_cmpint (rect.y, ==, 0);
   assert_wayland_surface_size (test_window, 10, 10);
@@ -121,7 +124,7 @@ static void
 toplevel_fullscreen_ref_test (void)
 {
   MetaWindowWayland *wl_window = META_WINDOW_WAYLAND (test_window);
-  MetaRectangle rect;
+  MtkRectangle rect;
 
   wait_for_window_added (test_window);
   assert_wayland_surface_size (test_window, 10, 10);
@@ -154,8 +157,8 @@ toplevel_fullscreen_ref_test (void)
     g_main_context_iteration (NULL, FALSE);
 
   meta_window_get_frame_rect (test_window, &rect);
-  g_assert_cmpint (rect.width, ==, 100);
-  g_assert_cmpint (rect.height, ==, 100);
+  g_assert_cmpint (rect.width, ==, 640);
+  g_assert_cmpint (rect.height, ==, 480);
   g_assert_cmpint (rect.x, ==, 0);
   g_assert_cmpint (rect.y, ==, 0);
   assert_wayland_surface_size (test_window, 10, 10);
@@ -170,12 +173,32 @@ on_before_tests (void)
 {
   MetaWaylandCompositor *compositor =
     meta_context_get_wayland_compositor (test_context);
+  MetaBackend *backend = meta_context_get_backend (test_context);
+  MetaMonitorManager *monitor_manager =
+    meta_backend_get_monitor_manager (backend);
+#ifdef MUTTER_PRIVILEGED_TEST
+  MetaKms *kms = meta_backend_native_get_kms (META_BACKEND_NATIVE (backend));
+  MetaKmsDevice *kms_device = meta_kms_get_devices (kms)->data;
+#endif
 
   test_driver = meta_wayland_test_driver_new (compositor);
 
-  virtual_monitor = meta_create_test_monitor (test_context, 100, 100, 10.0);
+#ifdef MUTTER_PRIVILEGED_TEST
+  meta_wayland_test_driver_set_property (test_driver,
+                                         "gpu-path",
+                                         meta_kms_device_get_path (kms_device));
 
-  wayland_test_client = meta_wayland_test_client_new ("fullscreen");
+  meta_set_custom_monitor_config_full (backend,
+                                       "vkms-640x480.xml",
+                                       META_MONITORS_CONFIG_FLAG_NONE);
+#else
+  virtual_monitor = meta_create_test_monitor (test_context,
+                                              640, 480, 60.0);
+#endif
+  meta_monitor_manager_reload (monitor_manager);
+
+  wayland_test_client = meta_wayland_test_client_new (test_context,
+                                                      "fullscreen");
 
   while (!(test_window =
            meta_find_window_from_title (test_context, "fullscreen")))
@@ -208,10 +231,16 @@ main (int   argc,
       char *argv[])
 {
   g_autoptr (MetaContext) context = NULL;
+  MetaTestRunFlags test_run_flags;
 
+#ifdef MUTTER_PRIVILEGED_TEST
+  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_VKMS,
+                                      META_CONTEXT_TEST_FLAG_NO_X11);
+#else
   context = meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
                                       META_CONTEXT_TEST_FLAG_NO_X11);
-  g_assert (meta_context_configure (context, &argc, &argv, NULL));
+#endif
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
 
   test_context = context;
 
@@ -222,6 +251,11 @@ main (int   argc,
   g_signal_connect (context, "after-tests",
                     G_CALLBACK (on_after_tests), NULL);
 
+#ifdef MUTTER_PRIVILEGED_TEST
+  test_run_flags = META_TEST_RUN_FLAG_CAN_SKIP;
+#else
+  test_run_flags = META_TEST_RUN_FLAG_NONE;
+#endif
   return meta_context_test_run_tests (META_CONTEXT_TEST (context),
-                                      META_TEST_RUN_FLAG_NONE);
+                                      test_run_flags);
 }

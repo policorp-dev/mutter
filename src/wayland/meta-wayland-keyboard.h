@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -42,8 +40,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef META_WAYLAND_KEYBOARD_H
-#define META_WAYLAND_KEYBOARD_H
+#pragma once
 
 #include <wayland-server.h>
 #include <xkbcommon/xkbcommon.h>
@@ -56,57 +53,6 @@
 G_DECLARE_FINAL_TYPE (MetaWaylandKeyboard, meta_wayland_keyboard,
                       META, WAYLAND_KEYBOARD,
                       MetaWaylandInputDevice)
-
-struct _MetaWaylandKeyboardGrabInterface
-{
-  gboolean (*key)       (MetaWaylandKeyboardGrab *grab,
-                         const ClutterEvent      *event);
-  void     (*modifiers) (MetaWaylandKeyboardGrab *grab,
-                         ClutterModifierType      modifiers);
-};
-
-struct _MetaWaylandKeyboardGrab
-{
-  const MetaWaylandKeyboardGrabInterface *interface;
-  MetaWaylandKeyboard *keyboard;
-};
-
-typedef struct
-{
-  struct xkb_keymap *keymap;
-  struct xkb_state *state;
-  MetaAnonymousFile *keymap_rofile;
-} MetaWaylandXkbInfo;
-
-struct _MetaWaylandKeyboard
-{
-  MetaWaylandInputDevice parent;
-
-  struct wl_list resource_list;
-  struct wl_list focus_resource_list;
-
-  MetaWaylandSurface *focus_surface;
-  struct wl_listener focus_surface_listener;
-  uint32_t focus_serial;
-
-  uint32_t key_down_keycode;
-  uint32_t key_down_serial;
-
-  uint32_t key_up_keycode;
-  uint32_t key_up_serial;
-
-  struct wl_array pressed_keys;
-
-  MetaWaylandXkbInfo xkb_info;
-  enum xkb_state_component mods_changed;
-  xkb_mod_mask_t kbd_a11y_latched_mods;
-  xkb_mod_mask_t kbd_a11y_locked_mods;
-
-  MetaWaylandKeyboardGrab *grab;
-  MetaWaylandKeyboardGrab default_grab;
-
-  GSettings *settings;
-};
 
 void meta_wayland_keyboard_enable (MetaWaylandKeyboard *keyboard);
 
@@ -125,8 +71,6 @@ void meta_wayland_keyboard_update_key_state (MetaWaylandKeyboard *compositor,
 void meta_wayland_keyboard_set_focus (MetaWaylandKeyboard *keyboard,
                                       MetaWaylandSurface *surface);
 
-struct wl_client * meta_wayland_keyboard_get_focus_client (MetaWaylandKeyboard *keyboard);
-
 void meta_wayland_keyboard_create_new_resource (MetaWaylandKeyboard *keyboard,
                                                 struct wl_client    *client,
                                                 struct wl_resource  *seat_resource,
@@ -137,9 +81,3 @@ gboolean meta_wayland_keyboard_can_grab_surface (MetaWaylandKeyboard *keyboard,
                                                  uint32_t             serial);
 gboolean meta_wayland_keyboard_can_popup (MetaWaylandKeyboard *keyboard,
                                           uint32_t             serial);
-
-void meta_wayland_keyboard_start_grab (MetaWaylandKeyboard     *keyboard,
-                                       MetaWaylandKeyboardGrab *grab);
-void meta_wayland_keyboard_end_grab   (MetaWaylandKeyboard     *keyboard);
-
-#endif /* META_WAYLAND_KEYBOARD_H */

@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_PLANE_PRIVATE_H
-#define META_KMS_PLANE_PRIVATE_H
+#pragma once
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -42,6 +39,12 @@ typedef enum _MetaKmsPlaneProp
   META_KMS_PLANE_PROP_FB_ID,
   META_KMS_PLANE_PROP_CRTC_ID,
   META_KMS_PLANE_PROP_FB_DAMAGE_CLIPS_ID,
+  META_KMS_PLANE_PROP_IN_FENCE_FD,
+  META_KMS_PLANE_PROP_HOTSPOT_X,
+  META_KMS_PLANE_PROP_HOTSPOT_Y,
+  META_KMS_PLANE_PROP_SIZE_HINTS,
+  META_KMS_PLANE_PROP_YCBCR_COLOR_ENCODING,
+  META_KMS_PLANE_PROP_YCBCR_COLOR_RANGE,
   META_KMS_PLANE_N_PROPS
 } MetaKmsPlaneProp;
 
@@ -87,5 +90,3 @@ uint64_t meta_kms_plane_get_prop_drm_value (MetaKmsPlane     *plane,
 
 MetaKmsPropType meta_kms_plane_get_prop_internal_type (MetaKmsPlane     *plane,
                                                        MetaKmsPlaneProp  prop);
-
-#endif /* META_KMS_PLANE_PRIVATE_H */

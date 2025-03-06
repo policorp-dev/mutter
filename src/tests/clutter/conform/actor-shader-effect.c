@@ -1,4 +1,3 @@
-#define CLUTTER_DISABLE_DEPRECATION_WARNINGS
 #include <clutter/clutter.h>
 
 #include "tests/clutter-test-utils.h"
@@ -103,7 +102,7 @@ foo_new_shader_effect_get_static_source (ClutterShaderEffect *effect)
 
   /* This should only be called once even though we have two actors
      using this effect */
-  g_assert (!already_called);
+  g_assert_false (already_called);
 
   already_called = TRUE;
 
@@ -202,7 +201,7 @@ static ClutterActor *
 make_actor (GType shader_type)
 {
   ClutterActor *rect;
-  const ClutterColor white = { 0xff, 0xff, 0xff, 0xff };
+  const CoglColor white = { 0xff, 0xff, 0xff, 0xff };
 
   rect = clutter_actor_new ();
   clutter_actor_set_background_color (rect, &white);
@@ -233,7 +232,8 @@ get_pixel (CoglFramebuffer *fb,
 static void
 view_painted_cb (ClutterStage     *stage,
                  ClutterStageView *view,
-                 cairo_region_t   *redraw_clip,
+                 MtkRegion        *redraw_clip,
+                 ClutterFrame     *frame,
                  gpointer          data)
 {
   CoglFramebuffer *fb = clutter_stage_view_get_framebuffer (view);
@@ -262,22 +262,22 @@ actor_shader_effect (void)
   stage = clutter_test_get_stage ();
 
   rect = make_actor (foo_old_shader_effect_get_type ());
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), rect);
+  clutter_actor_add_child (stage, rect);
   actors = g_list_prepend (actors, rect);
 
   rect = make_actor (foo_new_shader_effect_get_type ());
   clutter_actor_set_x (rect, 100);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), rect);
+  clutter_actor_add_child (stage, rect);
   actors = g_list_prepend (actors, rect);
 
   rect = make_actor (foo_another_new_shader_effect_get_type ());
   clutter_actor_set_x (rect, 200);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), rect);
+  clutter_actor_add_child (stage, rect);
   actors = g_list_prepend (actors, rect);
 
   rect = make_actor (foo_new_shader_effect_get_type ());
   clutter_actor_set_x (rect, 300);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), rect);
+  clutter_actor_add_child (stage, rect);
   actors = g_list_prepend (actors, rect);
 
   clutter_actor_show (stage);

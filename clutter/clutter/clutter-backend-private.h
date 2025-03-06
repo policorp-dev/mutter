@@ -19,12 +19,15 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLUTTER_BACKEND_PRIVATE_H__
-#define __CLUTTER_BACKEND_PRIVATE_H__
+#pragma once
 
-#include <clutter/clutter-backend.h>
-#include <clutter/clutter-seat.h>
-#include <clutter/clutter-stage-window.h>
+#ifdef HAVE_FONTS
+#include <cairo.h>
+#endif
+
+#include "clutter/clutter-backend.h"
+#include "clutter/clutter-seat.h"
+#include "clutter/clutter-stage-window.h"
 
 #define CLUTTER_BACKEND_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_BACKEND, ClutterBackendClass))
 #define CLUTTER_IS_BACKEND_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_BACKEND))
@@ -39,6 +42,8 @@ struct _ClutterBackend
   /*< private >*/
   GObject parent_instance;
 
+  ClutterContext *context;
+
   CoglRenderer *cogl_renderer;
   CoglDisplay *cogl_display;
   CoglContext *cogl_context;
@@ -46,12 +51,9 @@ struct _ClutterBackend
 
   CoglOnscreen *dummy_onscreen;
 
+#ifdef HAVE_FONTS
   cairo_font_options_t *font_options;
-
-  gchar *font_name;
-
-  gfloat units_per_em;
-  gint32 units_serial;
+#endif
 
   float fallback_resource_scale;
 
@@ -66,23 +68,13 @@ struct _ClutterBackendClass
   GObjectClass parent_class;
 
   /* vfuncs */
-  gboolean              (* finish_init)        (ClutterBackend  *backend,
-                                                GError         **error);
   ClutterStageWindow *  (* create_stage)       (ClutterBackend  *backend,
                                                 ClutterStage    *wrapper,
                                                 GError         **error);
   CoglRenderer *        (* get_renderer)       (ClutterBackend  *backend,
                                                 GError         **error);
-  CoglDisplay *         (* get_display)        (ClutterBackend  *backend,
-                                                CoglRenderer    *renderer,
-                                                CoglSwapChain   *swap_chain,
-                                                GError         **error);
   gboolean              (* create_context)     (ClutterBackend  *backend,
                                                 GError         **error);
-
-  gboolean              (* translate_event)    (ClutterBackend     *backend,
-                                                gpointer            native,
-                                                ClutterEvent       *event);
 
   ClutterSeat *         (* get_default_seat)   (ClutterBackend *backend);
 
@@ -90,8 +82,6 @@ struct _ClutterBackendClass
 
   /* signals */
   void (* resolution_changed) (ClutterBackend *backend);
-  void (* font_changed)       (ClutterBackend *backend);
-  void (* settings_changed)   (ClutterBackend *backend);
 };
 
 ClutterStageWindow *    _clutter_backend_create_stage                   (ClutterBackend         *backend,
@@ -99,20 +89,6 @@ ClutterStageWindow *    _clutter_backend_create_stage                   (Clutter
                                                                          GError                **error);
 gboolean                _clutter_backend_create_context                 (ClutterBackend         *backend,
                                                                          GError                **error);
-
-gboolean                _clutter_backend_finish_init                    (ClutterBackend         *backend,
-                                                                         GError                **error);
-
-CLUTTER_EXPORT
-gboolean                _clutter_backend_translate_event                (ClutterBackend         *backend,
-                                                                         gpointer                native,
-                                                                         ClutterEvent           *event);
-
-gfloat                  _clutter_backend_get_units_per_em               (ClutterBackend         *backend,
-                                                                         PangoFontDescription   *font_desc);
-gint32                  _clutter_backend_get_units_serial               (ClutterBackend         *backend);
-
-void                    clutter_set_allowed_drivers                     (const char             *drivers);
 
 CLUTTER_EXPORT
 ClutterStageWindow *    clutter_backend_get_stage_window                (ClutterBackend         *backend);
@@ -129,5 +105,3 @@ CLUTTER_EXPORT
 void clutter_backend_destroy (ClutterBackend *backend);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_BACKEND_PRIVATE_H__ */

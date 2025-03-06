@@ -21,13 +21,13 @@
 
 
 /**
- * SECTION:meta-background-content
- * @title: MetaBackgroundContent
- * @short_description: ClutterContent for painting the root window background
+ * MetaBackgroundContent:
  *
- */
-
-/*
+ * This class handles tracking and painting the root window background.
+ *
+ * By integrating with [class@Meta.WindowGroup] we can avoid painting parts of
+ * the background that are obscured by other windows.
+ *
  * The overall model drawing model of this content is that we have one
  * texture, or two interpolated textures, possibly with alpha or
  * margins that let the underlying background show through, blended
@@ -229,11 +229,11 @@ struct _MetaBackgroundContent
   ChangedFlags changed;
   CoglPipeline *pipeline;
   PipelineFlags pipeline_flags;
-  cairo_rectangle_int_t texture_area;
+  MtkRectangle texture_area;
   int texture_width, texture_height;
 
-  cairo_region_t *clip_region;
-  cairo_region_t *unobscured_region;
+  MtkRegion *clip_region;
+  MtkRegion *unobscured_region;
 };
 
 static void clutter_content_iface_init (ClutterContentInterface *iface);
@@ -264,29 +264,29 @@ static GParamSpec *properties[N_PROPS] = { NULL, };
 
 static void
 set_clip_region (MetaBackgroundContent *self,
-                 cairo_region_t        *clip_region)
+                 MtkRegion             *clip_region)
 {
-  g_clear_pointer (&self->clip_region, cairo_region_destroy);
+  g_clear_pointer (&self->clip_region, mtk_region_unref);
   if (clip_region)
     {
-      if (cairo_region_is_empty (clip_region))
-        self->clip_region = cairo_region_reference (clip_region);
+      if (mtk_region_is_empty (clip_region))
+        self->clip_region = mtk_region_ref (clip_region);
       else
-        self->clip_region = cairo_region_copy (clip_region);
+        self->clip_region = mtk_region_copy (clip_region);
     }
 }
 
 static void
 set_unobscured_region (MetaBackgroundContent *self,
-                       cairo_region_t        *unobscured_region)
+                       MtkRegion             *unobscured_region)
 {
-  g_clear_pointer (&self->unobscured_region, cairo_region_destroy);
+  g_clear_pointer (&self->unobscured_region, mtk_region_unref);
   if (unobscured_region)
     {
-      if (cairo_region_is_empty (unobscured_region))
-        self->unobscured_region = cairo_region_reference (unobscured_region);
+      if (mtk_region_is_empty (unobscured_region))
+        self->unobscured_region = mtk_region_ref (unobscured_region);
       else
-        self->unobscured_region = cairo_region_copy (unobscured_region);
+        self->unobscured_region = mtk_region_copy (unobscured_region);
     }
 }
 
@@ -306,7 +306,8 @@ on_background_changed (MetaBackground        *background,
 }
 
 static CoglPipeline *
-make_pipeline (PipelineFlags pipeline_flags)
+make_pipeline (CoglContext   *cogl_context,
+               PipelineFlags  pipeline_flags)
 {
   static CoglPipeline *templates[PIPELINE_ALL + 1];
   CoglPipeline **templatep;
@@ -320,7 +321,7 @@ make_pipeline (PipelineFlags pipeline_flags)
        * so we need to prevent identical pipelines from getting cached
        * separately, by reusing the same shader snippets.
        */
-      *templatep = COGL_PIPELINE (meta_create_texture_pipeline (NULL));
+      *templatep = COGL_PIPELINE (meta_create_texture_pipeline (cogl_context, NULL));
 
       if ((pipeline_flags & PIPELINE_VIGNETTE) != 0)
         {
@@ -389,13 +390,18 @@ static void
 setup_pipeline (MetaBackgroundContent *self,
                 ClutterActor          *actor,
                 ClutterPaintContext   *paint_context,
-                cairo_rectangle_int_t *actor_pixel_rect)
+                MtkRectangle          *actor_pixel_rect)
 {
+  MetaContext *context = meta_display_get_context (self->display);
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
   PipelineFlags pipeline_flags = 0;
   guint8 opacity;
   float color_component;
   CoglFramebuffer *fb;
   CoglPipelineFilter min_filter, mag_filter;
+  CoglColor color;
 
   opacity = clutter_actor_get_paint_opacity (actor);
   if (opacity < 255)
@@ -408,12 +414,12 @@ setup_pipeline (MetaBackgroundContent *self,
     pipeline_flags |= PIPELINE_ROUNDED_CLIP | PIPELINE_BLEND;
 
   if (pipeline_flags != self->pipeline_flags)
-    g_clear_pointer (&self->pipeline, cogl_object_unref);
+    g_clear_object (&self->pipeline);
 
   if (self->pipeline == NULL)
     {
       self->pipeline_flags = pipeline_flags;
-      self->pipeline = make_pipeline (pipeline_flags);
+      self->pipeline = make_pipeline (cogl_context, pipeline_flags);
       self->changed = CHANGED_ALL;
     }
 
@@ -447,19 +453,20 @@ setup_pipeline (MetaBackgroundContent *self,
       cogl_pipeline_set_uniform_1f (self->pipeline,
                                     cogl_pipeline_get_uniform_location (self->pipeline,
                                                                         "vignette_sharpness"),
-                                    self->vignette_sharpness);
+                                    (float) self->vignette_sharpness);
 
       self->changed &= ~CHANGED_VIGNETTE_PARAMETERS;
     }
 
   if (self->changed & CHANGED_GRADIENT_PARAMETERS)
     {
-      MetaRectangle monitor_geometry;
+      MtkRectangle monitor_geometry;
       float gradient_height_perc;
 
       meta_display_get_monitor_geometry (self->display,
                                          self->monitor, &monitor_geometry);
-      gradient_height_perc = MAX (0.0001, self->gradient_height / (float)monitor_geometry.height);
+      gradient_height_perc = MAX (0.0001f,
+                                  self->gradient_height / (float) monitor_geometry.height);
       cogl_pipeline_set_uniform_1f (self->pipeline,
                                     cogl_pipeline_get_uniform_location (self->pipeline,
                                                                         "gradient_height_perc"),
@@ -467,7 +474,7 @@ setup_pipeline (MetaBackgroundContent *self,
       cogl_pipeline_set_uniform_1f (self->pipeline,
                                     cogl_pipeline_get_uniform_location (self->pipeline,
                                                                         "gradient_max_darkness"),
-                                    self->gradient_max_darkness);
+                                    (float) self->gradient_max_darkness);
 
       self->changed &= ~CHANGED_GRADIENT_PARAMETERS;
     }
@@ -478,9 +485,9 @@ setup_pipeline (MetaBackgroundContent *self,
       float bounds_x1, bounds_x2, bounds_y1, bounds_y2;
       float clip_radius;
 
-      monitor_scale = meta_is_stage_views_scaled ()
+      monitor_scale = meta_backend_is_stage_views_scaled (backend)
         ? meta_display_get_monitor_scale (self->display, self->monitor)
-        : 1.0;
+        : 1.0f;
 
       if (self->rounded_clip_bounds_set)
         {
@@ -532,15 +539,16 @@ setup_pipeline (MetaBackgroundContent *self,
     }
 
   if (self->vignette)
-    color_component = self->vignette_brightness * opacity / 255.;
+    color_component = (float) (self->vignette_brightness * opacity / 255.0);
   else
-    color_component = opacity / 255.;
+    color_component = opacity / 255.0f;
 
-  cogl_pipeline_set_color4f (self->pipeline,
-                             color_component,
-                             color_component,
-                             color_component,
-                             opacity / 255.);
+  cogl_color_init_from_4f (&color,
+                           color_component,
+                           color_component,
+                           color_component,
+                           opacity / 255.0f);
+  cogl_pipeline_set_color (self->pipeline, &color);
 
   fb = clutter_paint_context_get_framebuffer (paint_context);
   if (meta_actor_painting_untransformed (fb,
@@ -564,20 +572,22 @@ setup_pipeline (MetaBackgroundContent *self,
 
 static void
 set_glsl_parameters (MetaBackgroundContent *self,
-                     cairo_rectangle_int_t *actor_pixel_rect)
+                     MtkRectangle          *actor_pixel_rect)
 {
+  MetaContext *context = meta_display_get_context (self->display);
+  MetaBackend *backend = meta_context_get_backend (context);
   float monitor_scale;
   float scale[2];
   float offset[2];
   int pixel_step_uniform_location;
 
-  monitor_scale = meta_is_stage_views_scaled ()
+  monitor_scale = meta_backend_is_stage_views_scaled (backend)
     ? meta_display_get_monitor_scale (self->display, self->monitor)
-    : 1.0;
+    : 1.0f;
 
   float pixel_step[] = {
-    1.f / (self->texture_area.width * monitor_scale),
-    1.f / (self->texture_area.height * monitor_scale),
+    1.0f / (self->texture_area.width * monitor_scale),
+    1.0f / (self->texture_area.height * monitor_scale),
   };
 
   pixel_step_uniform_location =
@@ -589,8 +599,8 @@ set_glsl_parameters (MetaBackgroundContent *self,
    */
   scale[0] = self->texture_area.width / (float)actor_pixel_rect->width;
   scale[1] = self->texture_area.height / (float)actor_pixel_rect->height;
-  offset[0] = self->texture_area.x / (float)actor_pixel_rect->width - 0.5;
-  offset[1] = self->texture_area.y / (float)actor_pixel_rect->height - 0.5;
+  offset[0] = self->texture_area.x / (float)actor_pixel_rect->width - 0.5f;
+  offset[1] = self->texture_area.y / (float)actor_pixel_rect->height - 0.5f;
 
   cogl_pipeline_set_uniform_float (self->pipeline,
                                    cogl_pipeline_get_uniform_location (self->pipeline,
@@ -612,7 +622,7 @@ static void
 paint_clipped_rectangle (MetaBackgroundContent *self,
                          ClutterPaintNode      *node,
                          ClutterActorBox       *actor_box,
-                         cairo_rectangle_int_t *rect)
+                         MtkRectangle          *rect)
 {
   g_autoptr (ClutterPaintNode) pipeline_node = NULL;
   float h_scale, v_scale;
@@ -655,21 +665,21 @@ meta_background_content_paint_content (ClutterContent      *content,
 {
   MetaBackgroundContent *self = META_BACKGROUND_CONTENT (content);
   ClutterActorBox actor_box;
-  cairo_rectangle_int_t rect_within_actor;
-  cairo_rectangle_int_t rect_within_stage;
-  cairo_region_t *region;
+  MtkRectangle rect_within_actor;
+  MtkRectangle rect_within_stage;
+  g_autoptr (MtkRegion) region = NULL;
   int i, n_rects;
   float transformed_x, transformed_y, transformed_width, transformed_height;
   gboolean untransformed;
 
-  if ((self->clip_region && cairo_region_is_empty (self->clip_region)))
+  if ((self->clip_region && mtk_region_is_empty (self->clip_region)))
     return;
 
   clutter_actor_get_content_box (actor, &actor_box);
-  rect_within_actor.x = actor_box.x1;
-  rect_within_actor.y = actor_box.y1;
-  rect_within_actor.width = actor_box.x2 - actor_box.x1;
-  rect_within_actor.height = actor_box.y2 - actor_box.y1;
+  rect_within_actor.x = (int) actor_box.x1;
+  rect_within_actor.y = (int) actor_box.y1;
+  rect_within_actor.width = (int) (actor_box.x2 - actor_box.x1);
+  rect_within_actor.height = (int) (actor_box.y2 - actor_box.y1);
 
   if (clutter_actor_is_in_clone_paint (actor))
     {
@@ -680,14 +690,14 @@ meta_background_content_paint_content (ClutterContent      *content,
       clutter_actor_get_transformed_position (actor,
                                               &transformed_x,
                                               &transformed_y);
-      rect_within_stage.x = floorf (transformed_x);
-      rect_within_stage.y = floorf (transformed_y);
+      rect_within_stage.x = (int) floorf (transformed_x);
+      rect_within_stage.y = (int) floorf (transformed_y);
 
       clutter_actor_get_transformed_size (actor,
                                           &transformed_width,
                                           &transformed_height);
-      rect_within_stage.width = ceilf (transformed_width);
-      rect_within_stage.height = ceilf (transformed_height);
+      rect_within_stage.width = (int) ceilf (transformed_width);
+      rect_within_stage.height = (int) ceilf (transformed_height);
 
       untransformed =
         rect_within_actor.x == rect_within_stage.x &&
@@ -700,22 +710,22 @@ meta_background_content_paint_content (ClutterContent      *content,
     {
       if (self->clip_region)
         {
-          region = cairo_region_copy (self->clip_region);
-          cairo_region_intersect_rectangle (region, &rect_within_stage);
+          region = mtk_region_copy (self->clip_region);
+          mtk_region_intersect_rectangle (region, &rect_within_stage);
         }
       else
         {
-          const cairo_region_t *redraw_clip;
+          const MtkRegion *redraw_clip;
 
           redraw_clip = clutter_paint_context_get_redraw_clip (paint_context);
           if (redraw_clip)
             {
-              region = cairo_region_copy (redraw_clip);
-              cairo_region_intersect_rectangle (region, &rect_within_stage);
+              region = mtk_region_copy (redraw_clip);
+              mtk_region_intersect_rectangle (region, &rect_within_stage);
             }
           else
             {
-              region = cairo_region_create_rectangle (&rect_within_stage);
+              region = mtk_region_create_rectangle (&rect_within_stage);
             }
         }
     }
@@ -723,24 +733,21 @@ meta_background_content_paint_content (ClutterContent      *content,
     {
       if (self->clip_region)
         {
-          region = cairo_region_copy (self->clip_region);
-          cairo_region_intersect_rectangle (region, &rect_within_actor);
+          region = mtk_region_copy (self->clip_region);
+          mtk_region_intersect_rectangle (region, &rect_within_actor);
         }
       else
         {
-          region = cairo_region_create_rectangle (&rect_within_actor);
+          region = mtk_region_create_rectangle (&rect_within_actor);
         }
     }
 
   if (self->unobscured_region)
-    cairo_region_intersect (region, self->unobscured_region);
+    mtk_region_intersect (region, self->unobscured_region);
 
   /* region is now in actor space */
-  if (cairo_region_is_empty (region))
-    {
-      cairo_region_destroy (region);
-      return;
-    }
+  if (mtk_region_is_empty (region))
+    return;
 
   setup_pipeline (self, actor, paint_context, &rect_within_actor);
   set_glsl_parameters (self, &rect_within_actor);
@@ -749,24 +756,22 @@ meta_background_content_paint_content (ClutterContent      *content,
    * fall back and draw the whole thing */
 #define MAX_RECTS 64
 
-  n_rects = cairo_region_num_rectangles (region);
+  n_rects = mtk_region_num_rectangles (region);
   if (n_rects <= MAX_RECTS)
     {
       for (i = 0; i < n_rects; i++)
         {
-          cairo_rectangle_int_t rect;
-          cairo_region_get_rectangle (region, i, &rect);
+          MtkRectangle rect;
+          rect = mtk_region_get_rectangle (region, i);
           paint_clipped_rectangle (self, node, &actor_box, &rect);
         }
     }
   else
     {
-      cairo_rectangle_int_t rect;
-      cairo_region_get_extents (region, &rect);
+      MtkRectangle rect;
+      rect = mtk_region_get_extents (region);
       paint_clipped_rectangle (self, node, &actor_box, &rect);
     }
-
-  cairo_region_destroy (region);
 }
 
 static gboolean
@@ -776,7 +781,7 @@ meta_background_content_get_preferred_size (ClutterContent *content,
 
 {
   MetaBackgroundContent *background_content = META_BACKGROUND_CONTENT (content);
-  MetaRectangle monitor_geometry;
+  MtkRectangle monitor_geometry;
 
   meta_display_get_monitor_geometry (background_content->display,
                                      background_content->monitor,
@@ -802,8 +807,8 @@ static void
 set_monitor (MetaBackgroundContent *self,
              int                    monitor)
 {
-  MetaRectangle old_monitor_geometry;
-  MetaRectangle new_monitor_geometry;
+  MtkRectangle old_monitor_geometry;
+  MtkRectangle new_monitor_geometry;
   MetaDisplay *display = self->display;
 
   if(self->monitor == monitor)
@@ -826,7 +831,7 @@ meta_background_content_dispose (GObject *object)
   set_unobscured_region (self, NULL);
   meta_background_content_set_background (self, NULL);
 
-  g_clear_pointer (&self->pipeline, cogl_object_unref);
+  g_clear_object (&self->pipeline);
 
   G_OBJECT_CLASS (meta_background_content_parent_class)->dispose (object);
 }
@@ -952,72 +957,52 @@ meta_background_content_class_init (MetaBackgroundContentClass *klass)
   object_class->get_property = meta_background_content_get_property;
 
   properties[PROP_META_DISPLAY] =
-    g_param_spec_object ("meta-display",
-                         "MetaDisplay",
-                         "MetaDisplay",
+    g_param_spec_object ("meta-display", NULL, NULL,
                          META_TYPE_DISPLAY,
                          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
 
   properties[PROP_MONITOR] =
-    g_param_spec_int ("monitor",
-                      "monitor",
-                      "monitor",
+    g_param_spec_int ("monitor", NULL, NULL,
                       0, G_MAXINT, 0,
                       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
 
   properties[PROP_BACKGROUND] =
-    g_param_spec_object ("background",
-                         "Background",
-                         "MetaBackground object holding background parameters",
+    g_param_spec_object ("background", NULL, NULL,
                          META_TYPE_BACKGROUND,
                          G_PARAM_READWRITE);
 
   properties[PROP_GRADIENT] =
-    g_param_spec_boolean ("gradient",
-                          "Gradient",
-                          "Whether gradient effect is enabled",
+    g_param_spec_boolean ("gradient", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE);
 
   properties[PROP_GRADIENT_HEIGHT] =
-    g_param_spec_int ("gradient-height",
-                      "Gradient Height",
-                      "Height of gradient effect",
+    g_param_spec_int ("gradient-height", NULL, NULL,
                       0, G_MAXINT, 0,
                       G_PARAM_READWRITE);
 
   properties[PROP_GRADIENT_MAX_DARKNESS] =
-    g_param_spec_double ("gradient-max-darkness",
-                         "Gradient Max Darkness",
-                         "How dark is the gradient initially",
+    g_param_spec_double ("gradient-max-darkness", NULL, NULL,
                          0.0, 1.0, 0.0,
                          G_PARAM_READWRITE);
 
   properties[PROP_VIGNETTE] =
-    g_param_spec_boolean ("vignette",
-                          "Vignette",
-                          "Whether vignette effect is enabled",
+    g_param_spec_boolean ("vignette", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE);
 
   properties[PROP_VIGNETTE_BRIGHTNESS] =
-    g_param_spec_double ("brightness",
-                         "Vignette Brightness",
-                         "Brightness of vignette effect",
+    g_param_spec_double ("brightness", NULL, NULL,
                          0.0, 1.0, 1.0,
                          G_PARAM_READWRITE);
 
   properties[PROP_VIGNETTE_SHARPNESS] =
-    g_param_spec_double ("vignette-sharpness",
-                         "Vignette Sharpness",
-                         "Sharpness of vignette effect",
+    g_param_spec_double ("vignette-sharpness", NULL, NULL,
                          0.0, G_MAXDOUBLE, 0.0,
                          G_PARAM_READWRITE);
 
   properties[PROP_ROUNDED_CLIP_RADIUS] =
-    g_param_spec_float ("rounded-clip-radius",
-                        "Rounded clip radius",
-                        "Rounded clip radius",
+    g_param_spec_float ("rounded-clip-radius", NULL, NULL,
                         0.0, G_MAXFLOAT, 0.0,
                         G_PARAM_READWRITE |
                         G_PARAM_STATIC_STRINGS |
@@ -1043,6 +1028,7 @@ meta_background_content_init (MetaBackgroundContent *self)
 
 /**
  * meta_background_content_new:
+ * @display: a #MetaDisplay
  * @monitor: Index of the monitor for which to draw the background
  *
  * Creates a new actor to draw the background for the given monitor.
@@ -1224,24 +1210,22 @@ meta_background_content_set_rounded_clip_bounds (MetaBackgroundContent *self,
   clutter_content_invalidate (CLUTTER_CONTENT (self));
 }
 
-cairo_region_t *
+MtkRegion *
 meta_background_content_get_clip_region (MetaBackgroundContent *self)
 {
   return self->clip_region;
 }
 
 void
-meta_background_content_cull_out (MetaBackgroundContent *self,
-                                  cairo_region_t        *unobscured_region,
-                                  cairo_region_t        *clip_region)
+meta_background_content_cull_unobscured (MetaBackgroundContent *self,
+                                         MtkRegion             *unobscured_region)
 {
   set_unobscured_region (self, unobscured_region);
-  set_clip_region (self, clip_region);
 }
 
 void
-meta_background_content_reset_culling (MetaBackgroundContent *self)
+meta_background_content_cull_redraw_clip (MetaBackgroundContent *self,
+                                          MtkRegion             *clip_region)
 {
-  set_unobscured_region (self, NULL);
-  set_clip_region (self, NULL);
+  set_clip_region (self, clip_region);
 }

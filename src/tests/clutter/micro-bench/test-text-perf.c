@@ -1,4 +1,5 @@
 #include <clutter/clutter.h>
+#include <clutter/clutter-pango.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +15,8 @@ static int rows, cols;
 
 static void
 on_after_paint (ClutterActor        *actor,
-                ClutterPaintContext *paint_context,
+                ClutterStageView    *view,
+                ClutterFrame        *frame,
                 gconstpointer       *data)
 {
   static GTimer *timer = NULL;
@@ -84,7 +86,7 @@ get_character (int ch)
 static ClutterActor *
 create_label (void)
 {
-  ClutterColor label_color = { 0xff, 0xff, 0xff, 0xff };
+  CoglColor label_color = { 0xff, 0xff, 0xff, 0xff };
   ClutterActor *label;
   char         *font_name;
   GString      *str;
@@ -132,14 +134,14 @@ main (int argc, char *argv[])
 
   stage = clutter_test_get_stage ();
   clutter_actor_set_size (stage, STAGE_WIDTH, STAGE_HEIGHT);
-  clutter_actor_set_background_color (CLUTTER_ACTOR (stage), CLUTTER_COLOR_Black);
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Text Performance");
+  clutter_actor_set_background_color (CLUTTER_ACTOR (stage),
+                                      &COGL_COLOR_INIT (0, 0, 0, 255));
 
   g_signal_connect (CLUTTER_STAGE (stage), "after-paint", G_CALLBACK (on_after_paint), NULL);
 
   label = create_label ();
-  w = clutter_actor_get_width (label);
-  h = clutter_actor_get_height (label);
+  w = (int) clutter_actor_get_width (label);
+  h = (int) clutter_actor_get_height (label);
 
   /* If the label is too big to fit on the stage then scale it so that
      it will fit */
@@ -152,12 +154,12 @@ main (int argc, char *argv[])
         {
           scale = x_scale;
           cols = 1;
-          rows = STAGE_HEIGHT / (h * scale);
+          rows = (int) (STAGE_HEIGHT / (h * scale));
         }
       else
         {
           scale = y_scale;
-          cols = STAGE_WIDTH / (w * scale);
+          cols = (int) (STAGE_WIDTH / (w * scale));
           rows = 1;
         }
 
@@ -174,15 +176,15 @@ main (int argc, char *argv[])
   for (row=0; row<rows; row++)
     for (col=0; col<cols; col++)
       {
-	label = create_label();
+        label = create_label();
         clutter_actor_set_scale (label, scale, scale);
-	clutter_actor_set_position (label, w * col * scale, h * row * scale);
-	clutter_container_add_actor (CLUTTER_CONTAINER (stage), label);
+        clutter_actor_set_position (label, w * col * scale, h * row * scale);
+        clutter_actor_add_child (stage, label);
       }
 
   clutter_actor_show (stage);
 
-  clutter_threads_add_idle (queue_redraw, stage);
+  g_idle_add (queue_redraw, stage);
 
   clutter_test_main ();
 

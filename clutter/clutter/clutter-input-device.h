@@ -21,16 +21,15 @@
  * Author: Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_INPUT_DEVICE_H__
-#define __CLUTTER_INPUT_DEVICE_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-backend.h>
-#include <clutter/clutter-types.h>
-#include <clutter/clutter-seat.h>
+#include "clutter/clutter-backend.h"
+#include "clutter/clutter-types.h"
+#include "clutter/clutter-seat.h"
 
 G_BEGIN_DECLS
 
@@ -50,6 +49,9 @@ struct _ClutterInputDeviceClass
   int (* get_pad_feature_group) (ClutterInputDevice           *device,
                                  ClutterInputDevicePadFeature  feature,
                                  int                           n_feature);
+  gboolean (* get_dimensions) (ClutterInputDevice *device,
+                               unsigned int       *width,
+                               unsigned int       *height);
 };
 
 #define CLUTTER_TYPE_INPUT_DEVICE               (clutter_input_device_get_type ())
@@ -58,6 +60,8 @@ struct _ClutterInputDeviceClass
 #define CLUTTER_INPUT_DEVICE_CLASS(klass)       (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_INPUT_DEVICE, ClutterInputDeviceClass))
 #define CLUTTER_IS_INPUT_DEVICE_CLASS(klass)    (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_INPUT_DEVICE))
 #define CLUTTER_INPUT_DEVICE_GET_CLASS(obj)     (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_INPUT_DEVICE, ClutterInputDeviceClass))
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (ClutterInputDevice, g_object_unref)
 
 typedef struct _ClutterInputDeviceClass ClutterInputDeviceClass;
 
@@ -118,6 +122,9 @@ int clutter_input_device_get_pad_feature_group (ClutterInputDevice           *de
 CLUTTER_EXPORT
 ClutterInputCapabilities clutter_input_device_get_capabilities (ClutterInputDevice *device);
 
-G_END_DECLS
+CLUTTER_EXPORT
+gboolean clutter_input_device_get_dimensions (ClutterInputDevice *device,
+                                              unsigned int       *width,
+                                              unsigned int       *height);
 
-#endif /* __CLUTTER_INPUT_DEVICE_H__ */
+G_END_DECLS

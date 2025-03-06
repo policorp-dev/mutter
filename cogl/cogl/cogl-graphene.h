@@ -26,12 +26,10 @@
  *
  */
 
-#ifndef COGL_GRAPHENE_H
-#define COGL_GRAPHENE_H
+#pragma once
 
-#include <cogl/cogl-defines.h>
-#include <cogl/cogl-macros.h>
-#include <cogl/cogl-types.h>
+#include "cogl/cogl-macros.h"
+#include "cogl/cogl-types.h"
 
 #include <glib.h>
 
@@ -75,11 +73,8 @@ cogl_graphene_matrix_project_point (const graphene_matrix_t *matrix,
  * The output array can simply point to the input array to do the
  * transform in-place.
  *
- * If you need to transform 4 component points see
- * cogl_graphene_matrix_project_points().
- *
  * Here's an example with differing input/output strides:
- * |[
+ * ```c
  * typedef struct {
  *   float x,y;
  *   uint8_t r,g,b,a;
@@ -103,9 +98,7 @@ cogl_graphene_matrix_project_point (const graphene_matrix_t *matrix,
  *                               sizeof (MyOutVertex),
  *                               &results[0].x,
  *                               N_VERTICES);
- * ]|
- *
- * Stability: unstable
+ * ```
  */
 COGL_EXPORT void
 cogl_graphene_matrix_transform_points (const graphene_matrix_t *matrix,
@@ -117,10 +110,8 @@ cogl_graphene_matrix_transform_points (const graphene_matrix_t *matrix,
                                        int                      n_points);
 
 /**
- * cogl_graphene_matrix_project_points:
+ * cogl_graphene_matrix_project_points_f3:
  * @matrix: A projection matrix
- * @n_components: The number of position components for each input point.
- *                (either 2, 3 or 4)
  * @stride_in: The stride in bytes between input points.
  * @points_in: A pointer to the first component of the first input point.
  * @stride_out: The stride in bytes between output points.
@@ -128,15 +119,14 @@ cogl_graphene_matrix_transform_points (const graphene_matrix_t *matrix,
  * @n_points: The number of points to transform.
  *
  * Projects an array of input points and writes the result to another
- * array of output points. The input points can either have 2, 3 or 4
- * components each. The output points always have 4 components (known
+ * array of output points. The output points always have 4 components (known
  * as homogeneous coordinates). The output array can simply point to
  * the input array to do the transform in-place.
  *
  * Here's an example with differing input/output strides:
- * |[
+ * ```c
  * typedef struct {
- *   float x,y;
+ *   float x,y, z;
  *   uint8_t r,g,b,a;
  *   float s,t,p;
  * } MyInVertex;
@@ -151,26 +141,20 @@ cogl_graphene_matrix_transform_points (const graphene_matrix_t *matrix,
  * my_load_vertices (vertices);
  * my_get_matrix (&matrix);
  *
- * cogl_graphene_matrix_project_points (&matrix,
- *                             2,
- *                             sizeof (MyInVertex),
- *                             &vertices[0].x,
- *                             sizeof (MyOutVertex),
- *                             &results[0].x,
- *                             N_VERTICES);
- * ]|
- *
- * Stability: unstable
+ * cogl_graphene_matrix_project_points_f3 (&matrix,
+ *                                         sizeof (MyInVertex),
+ *                                         &vertices[0].x,
+ *                                         sizeof (MyOutVertex),
+ *                                         &results[0].x,
+ *                                         N_VERTICES);
+ * ```
  */
 COGL_EXPORT void
-cogl_graphene_matrix_project_points (const graphene_matrix_t *matrix,
-                                     int                      n_components,
-                                     size_t                   stride_in,
-                                     const void              *points_in,
-                                     size_t                   stride_out,
-                                     void                    *points_out,
-                                     int                      n_points);
+cogl_graphene_matrix_project_points_f3 (const graphene_matrix_t *matrix,
+                                        size_t                   stride_in,
+                                        const void              *points_in,
+                                        size_t                   stride_out,
+                                        void                    *points_out,
+                                        int                      n_points);
 
 G_END_DECLS
-
-#endif /* COGL_GRAPHENE_H */

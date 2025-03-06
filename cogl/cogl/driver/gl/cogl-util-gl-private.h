@@ -30,19 +30,19 @@
  *  Robert Bragg   <robert@linux.intel.com>
  */
 
-#ifndef _COGL_UTIL_GL_PRIVATE_H_
+#pragma once
 
-#include "cogl-types.h"
-#include "cogl-context.h"
-#include "cogl-gl-header.h"
-#include "cogl-texture.h"
+#include "cogl/cogl-driver-private.h"
+#include "cogl/cogl-types.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-texture.h"
 
 /* In OpenGL ES context, GL_CONTEXT_LOST has a _KHR prefix */
 #ifndef GL_CONTEXT_LOST
 #define GL_CONTEXT_LOST GL_CONTEXT_LOST_KHR
 #endif
 
-#ifdef COGL_GL_DEBUG
+#ifdef COGL_ENABLE_DEBUG
 
 const char *
 _cogl_gl_error_to_string (GLenum error_code);
@@ -69,42 +69,12 @@ _cogl_gl_error_to_string (GLenum error_code);
                  _cogl_gl_error_to_string (__err));     \
     }                                   } G_STMT_END
 
-#else /* !COGL_GL_DEBUG */
+#else /* !COGL_ENABLE_DEBUG */
 
 #define GE(ctx, x) ((ctx)->x)
 #define GE_RET(ret, ctx, x) (ret = ((ctx)->x))
 
-#endif /* COGL_GL_DEBUG */
-
-typedef struct _CoglGLContext {
-  GArray           *texture_units;
-  int               active_texture_unit;
-
-  /* This is used for generated fake unique sampler object numbers
-   when the sampler object extension is not supported */
-  GLuint next_fake_sampler_object_number;
-} CoglGLContext;
-
-CoglGLContext *
-_cogl_driver_gl_context (CoglContext *context);
-
-gboolean
-_cogl_driver_gl_context_init (CoglContext *context);
-
-void
-_cogl_driver_gl_context_deinit (CoglContext *context);
-
-void
-_cogl_driver_gl_flush_framebuffer_state (CoglContext          *context,
-                                         CoglFramebuffer      *draw_buffer,
-                                         CoglFramebuffer      *read_buffer,
-                                         CoglFramebufferState  state);
-
-CoglFramebufferDriver *
-_cogl_driver_gl_create_framebuffer_driver (CoglContext                        *context,
-                                           CoglFramebuffer                    *framebuffer,
-                                           const CoglFramebufferDriverConfig  *driver_config,
-                                           GError                            **error);
+#endif /* COGL_ENABLE_DEBUG */
 
 GLenum
 _cogl_gl_util_get_error (CoglContext *ctx);
@@ -114,9 +84,6 @@ _cogl_gl_util_clear_gl_errors (CoglContext *ctx);
 
 gboolean
 _cogl_gl_util_catch_out_of_memory (CoglContext *ctx, GError **error);
-
-gboolean
-_cogl_driver_gl_is_hardware_accelerated (CoglContext *context);
 
 /*
  * _cogl_context_get_gl_extensions:
@@ -142,23 +109,6 @@ gboolean
 _cogl_gl_util_parse_gl_version (const char *version_string,
                                 int *major_out,
                                 int *minor_out);
-
-CoglGraphicsResetStatus
-_cogl_gl_get_graphics_reset_status (CoglContext *context);
-
-CoglTimestampQuery *
-cogl_gl_create_timestamp_query (CoglContext *context);
-
-void
-cogl_gl_free_timestamp_query (CoglContext        *context,
-                              CoglTimestampQuery *query);
-
-int64_t
-cogl_gl_timestamp_query_get_time_ns (CoglContext        *context,
-                                     CoglTimestampQuery *query);
-
-int64_t
-cogl_gl_get_gpu_time_ns (CoglContext *context);
 
 #ifndef GL_FRAMEBUFFER
 #define GL_FRAMEBUFFER		0x8D40
@@ -253,5 +203,3 @@ cogl_gl_get_gpu_time_ns (CoglContext *context);
 #ifndef GL_TEXTURE_LOD_BIAS
 #define GL_TEXTURE_LOD_BIAS 0x8501
 #endif
-
-#endif /* _COGL_UTIL_GL_PRIVATE_H_ */

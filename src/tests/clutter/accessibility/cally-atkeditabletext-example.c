@@ -15,13 +15,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <atk/atk.h>
 #include <clutter/clutter.h>
+#include <clutter/clutter-pango.h>
 
 #include "cally-examples-util.h"
 
@@ -151,14 +150,14 @@ _create_button (const gchar *text)
 
   button = clutter_actor_new ();
   rectangle = clutter_actor_new ();
-  clutter_actor_set_background_color (rectangle, CLUTTER_COLOR_Magenta);
+  clutter_actor_set_background_color (rectangle, &COGL_COLOR_INIT (255, 0, 255, 255));
   clutter_actor_set_size (rectangle, 375, 35);
 
   label = clutter_text_new_full ("Sans Bold 32px",
                                  text,
-                                 CLUTTER_COLOR_Black);
-  clutter_container_add_actor (CLUTTER_CONTAINER (button), rectangle);
-  clutter_container_add_actor (CLUTTER_CONTAINER (button), label);
+                                 &COGL_COLOR_INIT (0, 0, 0, 255));
+  clutter_actor_add_child (button, rectangle);
+  clutter_actor_add_child (button, label);
   clutter_actor_set_reactive (button, TRUE);
 
   return button;
@@ -169,32 +168,32 @@ make_ui (ClutterActor *stage)
 {
   ClutterActor *button      = NULL;
 
-  clutter_stage_set_title (CLUTTER_STAGE (stage), "Cally - AtkEditable Test");
-  clutter_actor_set_background_color (CLUTTER_ACTOR (stage), CLUTTER_COLOR_White);
+  clutter_actor_set_background_color (CLUTTER_ACTOR (stage),
+                                      &COGL_COLOR_INIT (255, 255, 255, 255));
   clutter_actor_set_size (stage, WIDTH, HEIGHT);
 
   /* text */
   text_actor = clutter_text_new_full ("Sans Bold 32px",
                                       "Lorem ipsum dolor sit amet",
-                                      CLUTTER_COLOR_Red);
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), text_actor);
+                                      &COGL_COLOR_INIT (255, 0, 0, 255));
+  clutter_actor_add_child (stage, text_actor);
 
   /* text_editable */
   text_editable_actor = clutter_text_new_full ("Sans Bold 32px",
                                                "consectetur adipisicing elit",
-                                               CLUTTER_COLOR_Red);
+                                               &COGL_COLOR_INIT (255, 0, 0, 255));
   clutter_actor_set_position (text_editable_actor, 0, 100);
   clutter_text_set_editable (CLUTTER_TEXT (text_editable_actor), TRUE);
   clutter_text_set_selectable (CLUTTER_TEXT (text_editable_actor), TRUE);
   clutter_text_set_selection_color (CLUTTER_TEXT (text_editable_actor),
-                                    CLUTTER_COLOR_Green);
+                                    &COGL_COLOR_INIT (0, 255, 0, 255));
   clutter_text_set_activatable (CLUTTER_TEXT (text_editable_actor),
                                 TRUE);
   clutter_text_set_line_wrap (CLUTTER_TEXT (text_editable_actor), TRUE);
   clutter_actor_grab_key_focus (text_editable_actor);
   clutter_actor_set_reactive (text_editable_actor, TRUE);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), text_editable_actor);
+  clutter_actor_add_child (stage, text_editable_actor);
   g_signal_connect (text_editable_actor, "activate",
                     G_CALLBACK (activate_cb), NULL);
 
@@ -205,7 +204,7 @@ make_ui (ClutterActor *stage)
   g_signal_connect_after (button, "button-press-event",
                           G_CALLBACK (set_text_press_cb), NULL);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), button);
+  clutter_actor_add_child (stage, button);
 
   button = _create_button ("Delete");
   clutter_actor_set_position (button, 100, 250);
@@ -213,7 +212,7 @@ make_ui (ClutterActor *stage)
   g_signal_connect_after (button, "button-press-event",
                           G_CALLBACK (delete_text_press_cb), NULL);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), button);
+  clutter_actor_add_child (stage, button);
 
   button = _create_button ("Insert");
   clutter_actor_set_position (button, 100, 300);
@@ -221,7 +220,7 @@ make_ui (ClutterActor *stage)
   g_signal_connect_after (button, "button-press-event",
                           G_CALLBACK (insert_text_press_cb), NULL);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), button);
+  clutter_actor_add_child (stage, button);
 
   button = _create_button ("Activate/Deactivate");
   clutter_actor_set_position (button, 100, 350);
@@ -229,7 +228,7 @@ make_ui (ClutterActor *stage)
   g_signal_connect_after (button, "button-press-event",
                           G_CALLBACK (activate_deactivate_press_cb), NULL);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), button);
+  clutter_actor_add_child (stage, button);
 
   button = _create_button ("Cursor position");
   clutter_actor_set_position (button, 100, 450);
@@ -237,7 +236,7 @@ make_ui (ClutterActor *stage)
   g_signal_connect_after (button, "button-press-event",
                           G_CALLBACK (print_cursor_position_press_cb), NULL);
 
-  clutter_container_add_actor (CLUTTER_CONTAINER (stage), button);
+  clutter_actor_add_child (stage, button);
 
 }
 

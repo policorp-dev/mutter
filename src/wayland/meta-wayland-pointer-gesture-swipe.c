@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
@@ -29,7 +27,7 @@
 
 #include "wayland/meta-wayland-pointer.h"
 #include "wayland/meta-wayland-seat.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
 
 #include "pointer-gestures-unstable-v1-server-protocol.h"
 
@@ -39,21 +37,23 @@ handle_swipe_begin (MetaWaylandPointer *pointer,
 {
   MetaWaylandPointerClient *pointer_client;
   MetaWaylandSeat *seat;
+  MetaWaylandSurface *focus_surface;
   struct wl_resource *resource;
   uint32_t serial, fingers;
 
-  pointer_client = pointer->focus_client;
+  pointer_client = meta_wayland_pointer_get_focus_client (pointer);
+  focus_surface = meta_wayland_pointer_get_focus_surface (pointer);
   seat = meta_wayland_pointer_get_seat (pointer);
   serial = wl_display_next_serial (seat->wl_display);
   fingers = clutter_event_get_touchpad_gesture_finger_count (event);
 
-  pointer_client->active_touchpad_gesture = event->type;
+  pointer_client->active_touchpad_gesture = clutter_event_type (event);
 
   wl_resource_for_each (resource, &pointer_client->swipe_gesture_resources)
     {
       zwp_pointer_gesture_swipe_v1_send_begin (resource, serial,
                                                clutter_event_get_time (event),
-                                               pointer->focus_surface->resource,
+                                               focus_surface->resource,
                                                fingers);
     }
 }
@@ -66,7 +66,7 @@ handle_swipe_update (MetaWaylandPointer *pointer,
   struct wl_resource *resource;
   gdouble dx, dy;
 
-  pointer_client = pointer->focus_client;
+  pointer_client = meta_wayland_pointer_get_focus_client (pointer);
   clutter_event_get_gesture_motion_delta (event, &dx, &dy);
 
   wl_resource_for_each (resource, &pointer_client->swipe_gesture_resources)
@@ -87,7 +87,7 @@ broadcast_end (MetaWaylandPointer *pointer,
   MetaWaylandPointerClient *pointer_client;
   struct wl_resource *resource;
 
-  pointer_client = pointer->focus_client;
+  pointer_client = meta_wayland_pointer_get_focus_client (pointer);
 
   wl_resource_for_each (resource, &pointer_client->swipe_gesture_resources)
     {
@@ -109,7 +109,8 @@ handle_swipe_end (MetaWaylandPointer *pointer,
   seat = meta_wayland_pointer_get_seat (pointer);
   serial = wl_display_next_serial (seat->wl_display);
 
-  if (event->touchpad_swipe.phase == CLUTTER_TOUCHPAD_GESTURE_PHASE_CANCEL)
+  if (clutter_event_get_gesture_phase (event) ==
+      CLUTTER_TOUCHPAD_GESTURE_PHASE_CANCEL)
     cancelled = TRUE;
 
   broadcast_end (pointer, serial,
@@ -121,13 +122,13 @@ gboolean
 meta_wayland_pointer_gesture_swipe_handle_event (MetaWaylandPointer *pointer,
                                                  const ClutterEvent *event)
 {
-  if (event->type != CLUTTER_TOUCHPAD_SWIPE)
+  if (clutter_event_type (event) != CLUTTER_TOUCHPAD_SWIPE)
     return FALSE;
 
-  if (!pointer->focus_client)
+  if (!meta_wayland_pointer_get_focus_client (pointer))
     return FALSE;
 
-  switch (event->touchpad_swipe.phase)
+  switch (clutter_event_get_gesture_phase (event))
     {
     case CLUTTER_TOUCHPAD_GESTURE_PHASE_BEGIN:
       handle_swipe_begin (pointer, event);

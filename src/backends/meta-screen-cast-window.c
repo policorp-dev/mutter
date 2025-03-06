@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -31,7 +29,7 @@ meta_screen_cast_window_default_init (MetaScreenCastWindowInterface *iface)
 
 void
 meta_screen_cast_window_get_buffer_bounds (MetaScreenCastWindow *screen_cast_window,
-                                           MetaRectangle        *bounds)
+                                           MtkRectangle         *bounds)
 {
   META_SCREEN_CAST_WINDOW_GET_IFACE (screen_cast_window)->get_buffer_bounds (screen_cast_window,
                                                                              bounds);
@@ -55,9 +53,8 @@ gboolean
 meta_screen_cast_window_transform_cursor_position (MetaScreenCastWindow *screen_cast_window,
                                                    MetaCursorSprite     *cursor_sprite,
                                                    graphene_point_t     *cursor_position,
-                                                   float                *out_cursor_scale,
-                                                   MetaMonitorTransform *out_cursor_transform,
-                                                   graphene_point_t     *out_relative_cursor_position)
+                                                   graphene_point_t     *out_relative_cursor_position,
+                                                   float                *out_view_scale)
 {
   MetaScreenCastWindowInterface *iface =
     META_SCREEN_CAST_WINDOW_GET_IFACE (screen_cast_window);
@@ -65,14 +62,13 @@ meta_screen_cast_window_transform_cursor_position (MetaScreenCastWindow *screen_
   return iface->transform_cursor_position (screen_cast_window,
                                            cursor_sprite,
                                            cursor_position,
-                                           out_cursor_scale,
-                                           out_cursor_transform,
-                                           out_relative_cursor_position);
+                                           out_relative_cursor_position,
+                                           out_view_scale);
 }
 
 void
 meta_screen_cast_window_capture_into (MetaScreenCastWindow *screen_cast_window,
-                                      MetaRectangle        *bounds,
+                                      MtkRectangle         *bounds,
                                       uint8_t              *data)
 {
   META_SCREEN_CAST_WINDOW_GET_IFACE (screen_cast_window)->capture_into (screen_cast_window,
@@ -82,7 +78,7 @@ meta_screen_cast_window_capture_into (MetaScreenCastWindow *screen_cast_window,
 
 gboolean
 meta_screen_cast_window_blit_to_framebuffer (MetaScreenCastWindow *screen_cast_window,
-                                             MetaRectangle        *bounds,
+                                             MtkRectangle         *bounds,
                                              CoglFramebuffer      *framebuffer)
 {
   MetaScreenCastWindowInterface *iface =

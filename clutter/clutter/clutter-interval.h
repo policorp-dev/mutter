@@ -22,34 +22,24 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_INTERVAL_H__
-#define __CLUTTER_INTERVAL_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-types.h>
+#include "clutter/clutter-types.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_INTERVAL                   (clutter_interval_get_type ())
-#define CLUTTER_INTERVAL(obj)                   (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_INTERVAL, ClutterInterval))
-#define CLUTTER_IS_INTERVAL(obj)                (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_INTERVAL))
-#define CLUTTER_INTERVAL_CLASS(klass)           (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_INTERVAL, ClutterIntervalClass))
-#define CLUTTER_IS_INTERVAL_CLASS(klass)        (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_INTERVAL))
-#define CLUTTER_INTERVAL_GET_CLASS(obj)         (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_INTERVAL, ClutterIntervalClass))
 
-typedef struct _ClutterIntervalPrivate          ClutterIntervalPrivate;
-typedef struct _ClutterIntervalClass            ClutterIntervalClass;
-
-struct _ClutterInterval
-{
-  /*< private >*/
-  GInitiallyUnowned parent_instance;
-
-  ClutterIntervalPrivate *priv;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterInterval,
+                          clutter_interval,
+                          CLUTTER,
+                          INTERVAL,
+                          GInitiallyUnowned)
 
 /**
  * ClutterIntervalClass:
@@ -71,19 +61,7 @@ struct _ClutterIntervalClass
   gboolean (* compute_value) (ClutterInterval *interval,
                               gdouble          factor,
                               GValue          *value);
-
-  /*< private >*/
-  /* padding for future expansion */
-  void (*_clutter_reserved1) (void);
-  void (*_clutter_reserved2) (void);
-  void (*_clutter_reserved3) (void);
-  void (*_clutter_reserved4) (void);
-  void (*_clutter_reserved5) (void);
-  void (*_clutter_reserved6) (void);
 };
-
-CLUTTER_EXPORT
-GType            clutter_interval_get_type           (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterInterval *clutter_interval_new                (GType            gtype,
@@ -145,5 +123,3 @@ CLUTTER_EXPORT
 gboolean         clutter_interval_is_valid           (ClutterInterval *interval);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_INTERVAL_H__ */

@@ -33,28 +33,25 @@
  *  Robert Bragg   <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-debug.h"
-#include "cogl-util.h"
-#include "cogl-texture-pixmap-x11.h"
-#include "cogl-texture-pixmap-x11-private.h"
-#include "cogl-bitmap-private.h"
-#include "cogl-texture-private.h"
-#include "cogl-texture-driver.h"
-#include "cogl-texture-2d-private.h"
-#include "cogl-texture-2d-sliced.h"
-#include "cogl-context-private.h"
-#include "cogl-display-private.h"
-#include "cogl-renderer-private.h"
-#include "cogl-object-private.h"
-#include "cogl-xlib.h"
-#include "cogl-xlib-renderer-private.h"
-#include "cogl-x11-renderer-private.h"
-#include "cogl-private.h"
-#include "cogl-gtype-private.h"
-#include "driver/gl/cogl-texture-gl-private.h"
-#include "winsys/cogl-winsys-private.h"
+#include "cogl/cogl-debug.h"
+#include "cogl/cogl-util.h"
+#include "cogl/winsys/cogl-texture-pixmap-x11.h"
+#include "cogl/winsys/cogl-texture-pixmap-x11-private.h"
+#include "cogl/cogl-bitmap-private.h"
+#include "cogl/cogl-texture-private.h"
+#include "cogl/cogl-texture-driver.h"
+#include "cogl/cogl-texture-2d-private.h"
+#include "cogl/cogl-texture-2d-sliced.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-display-private.h"
+#include "cogl/cogl-renderer-private.h"
+#include "cogl/cogl-xlib-renderer.h"
+#include "cogl/cogl-xlib-renderer-private.h"
+#include "cogl/cogl-private.h"
+#include "cogl/driver/gl/cogl-texture-gl-private.h"
+#include "cogl/winsys/cogl-winsys-private.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -66,66 +63,24 @@
 #include <string.h>
 #include <math.h>
 
-static void _cogl_texture_pixmap_x11_free (CoglTexturePixmapX11 *tex_pixmap);
-
-COGL_TEXTURE_DEFINE (TexturePixmapX11, texture_pixmap_x11);
-COGL_GTYPE_DEFINE_CLASS (TexturePixmapX11, texture_pixmap_x11);
-
-static const CoglTextureVtable cogl_texture_pixmap_x11_vtable;
-
-uint32_t
-cogl_texture_pixmap_x11_error_quark (void)
-{
-  return g_quark_from_static_string ("cogl-texture-pixmap-error-quark");
-}
-
-static void
-cogl_damage_rectangle_union (CoglDamageRectangle *damage_rect,
-                             int x,
-                             int y,
-                             int width,
-                             int height)
-{
-  /* If the damage region is empty then we'll just copy the new
-     rectangle directly */
-  if (damage_rect->x1 == damage_rect->x2 ||
-      damage_rect->y1 == damage_rect->y2)
-    {
-      damage_rect->x1 = x;
-      damage_rect->y1 = y;
-      damage_rect->x2 = x + width;
-      damage_rect->y2 = y + height;
-    }
-  else
-    {
-      if (damage_rect->x1 > x)
-        damage_rect->x1 = x;
-      if (damage_rect->y1 > y)
-        damage_rect->y1 = y;
-      if (damage_rect->x2 < x + width)
-        damage_rect->x2 = x + width;
-      if (damage_rect->y2 < y + height)
-        damage_rect->y2 = y + height;
-    }
-}
-
-static gboolean
-cogl_damage_rectangle_is_whole (const CoglDamageRectangle *damage_rect,
-                                unsigned int width,
-                                unsigned int height)
-{
-  return (damage_rect->x1 == 0 && damage_rect->y1 == 0
-          && damage_rect->x2 == width && damage_rect->y2 == height);
-}
+G_DEFINE_FINAL_TYPE (CoglTexturePixmapX11, cogl_texture_pixmap_x11, COGL_TYPE_TEXTURE)
 
 static const CoglWinsysVtable *
 _cogl_texture_pixmap_x11_get_winsys (CoglTexturePixmapX11 *tex_pixmap)
 {
-  /* FIXME: A CoglContext should be reachable from a CoglTexture
-   * pointer */
-  _COGL_GET_CONTEXT (ctx, NULL);
+  CoglContext *ctx;
 
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
   return ctx->display->renderer->winsys_vtable;
+}
+
+static int
+_cogl_xlib_get_damage_base (CoglContext *ctx)
+{
+  CoglXlibRenderer *xlib_renderer =
+    _cogl_xlib_renderer_get_data (ctx->display->renderer);
+
+  return xlib_renderer->damage_base;
 }
 
 static void
@@ -137,10 +92,11 @@ process_damage_event (CoglTexturePixmapX11 *tex_pixmap,
   enum
 { DO_NOTHING, NEEDS_SUBTRACT, NEED_BOUNDING_BOX } handle_mode;
   const CoglWinsysVtable *winsys;
+  CoglContext *ctx;
+  MtkRectangle damage_rect;
 
-  _COGL_GET_CONTEXT (ctxt, NO_RETVAL);
-
-  display = cogl_xlib_renderer_get_display (ctxt->display->renderer);
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
+  display = cogl_xlib_renderer_get_display (ctx->display->renderer);
 
   COGL_NOTE (TEXTURE_PIXMAP, "Damage event received for %p", tex_pixmap);
 
@@ -175,9 +131,10 @@ process_damage_event (CoglTexturePixmapX11 *tex_pixmap,
   /* If the damage already covers the whole rectangle then we don't
      need to request the bounding box of the region because we're
      going to update the whole texture anyway. */
-  if (cogl_damage_rectangle_is_whole (&tex_pixmap->damage_rect,
-                                      tex->width,
-                                      tex->height))
+  damage_rect = MTK_RECTANGLE_INIT (0, 0,
+                                    cogl_texture_get_width (tex),
+                                    cogl_texture_get_height (tex));
+  if (mtk_rectangle_equal (&tex_pixmap->damage_rect, &damage_rect))
     {
       if (handle_mode != DO_NOTHING)
         XDamageSubtract (display, tex_pixmap->damage, None, None);
@@ -198,11 +155,11 @@ process_damage_event (CoglTexturePixmapX11 *tex_pixmap,
                                              parts,
                                              &r_count,
                                              &r_bounds);
-      cogl_damage_rectangle_union (&tex_pixmap->damage_rect,
-                                   r_bounds.x,
-                                   r_bounds.y,
-                                   r_bounds.width,
-                                   r_bounds.height);
+      damage_rect = MTK_RECTANGLE_INIT (r_bounds.x, r_bounds.y,
+                                        r_bounds.width, r_bounds.height);
+      mtk_rectangle_union (&tex_pixmap->damage_rect,
+                           &damage_rect,
+                           &tex_pixmap->damage_rect);
       if (r_damage)
         XFree (r_damage);
 
@@ -215,11 +172,13 @@ process_damage_event (CoglTexturePixmapX11 *tex_pixmap,
            don't care what the region actually was */
         XDamageSubtract (display, tex_pixmap->damage, None, None);
 
-      cogl_damage_rectangle_union (&tex_pixmap->damage_rect,
-                                   damage_event->area.x,
-                                   damage_event->area.y,
-                                   damage_event->area.width,
-                                   damage_event->area.height);
+      damage_rect = MTK_RECTANGLE_INIT (damage_event->area.x,
+                                        damage_event->area.y,
+                                        damage_event->area.width,
+                                        damage_event->area.height);
+      mtk_rectangle_union (&tex_pixmap->damage_rect,
+                           &damage_rect,
+                           &tex_pixmap->damage_rect);
     }
 
   if (tex_pixmap->winsys)
@@ -232,26 +191,15 @@ process_damage_event (CoglTexturePixmapX11 *tex_pixmap,
     }
 }
 
-static int
-_cogl_xlib_get_damage_base (void)
-{
-  CoglX11Renderer *x11_renderer;
-  _COGL_GET_CONTEXT (ctxt, -1);
-
-  x11_renderer =
-    (CoglX11Renderer *) _cogl_xlib_renderer_get_data (ctxt->display->renderer);
-  return x11_renderer->damage_base;
-}
-
 static CoglFilterReturn
 _cogl_texture_pixmap_x11_filter (XEvent *event, void *data)
 {
   CoglTexturePixmapX11 *tex_pixmap = data;
   int damage_base;
+  CoglContext *ctx;
 
-  _COGL_GET_CONTEXT (ctxt, COGL_FILTER_CONTINUE);
-
-  damage_base = _cogl_xlib_get_damage_base ();
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
+  damage_base = _cogl_xlib_get_damage_base (ctx);
   if (event->type == damage_base + XDamageNotify)
     {
       XDamageNotifyEvent *damage_event = (XDamageNotifyEvent *) event;
@@ -273,9 +221,9 @@ set_damage_object_internal (CoglContext *ctx,
 
   if (tex_pixmap->damage)
     {
-      cogl_xlib_renderer_remove_filter (ctx->display->renderer,
-                                        _cogl_texture_pixmap_x11_filter,
-                                        tex_pixmap);
+      _cogl_renderer_remove_native_filter (ctx->display->renderer,
+                                           (CoglNativeFilterFunc)_cogl_texture_pixmap_x11_filter,
+                                           tex_pixmap);
 
       if (tex_pixmap->damage_owned)
         {
@@ -288,176 +236,107 @@ set_damage_object_internal (CoglContext *ctx,
   tex_pixmap->damage_report_level = report_level;
 
   if (damage)
-    cogl_xlib_renderer_add_filter (ctx->display->renderer,
-                                   _cogl_texture_pixmap_x11_filter,
-                                   tex_pixmap);
+    _cogl_renderer_add_native_filter (ctx->display->renderer,
+                                      (CoglNativeFilterFunc)_cogl_texture_pixmap_x11_filter,
+                                      tex_pixmap);
 }
 
-static CoglTexturePixmapX11 *
-_cogl_texture_pixmap_x11_new (CoglContext *ctxt,
-                              uint32_t pixmap,
-                              gboolean automatic_updates,
-                              CoglTexturePixmapStereoMode stereo_mode,
-                              GError **error)
+static void
+cogl_texture_pixmap_x11_dispose (GObject *object)
 {
-  CoglTexturePixmapX11 *tex_pixmap = g_new (CoglTexturePixmapX11, 1);
-  Display *display = cogl_xlib_renderer_get_display (ctxt->display->renderer);
-  Window pixmap_root_window;
-  int pixmap_x, pixmap_y;
-  unsigned int pixmap_width, pixmap_height;
-  unsigned int pixmap_border_width;
-  CoglPixelFormat internal_format;
-  CoglTexture *tex = COGL_TEXTURE (tex_pixmap);
-  XWindowAttributes window_attributes;
-  int damage_base;
-  const CoglWinsysVtable *winsys;
+  CoglTexturePixmapX11 *tex_pixmap = COGL_TEXTURE_PIXMAP_X11 (object);
+  CoglContext *ctx;
+  Display *display;
 
-  if (!XGetGeometry (display, pixmap, &pixmap_root_window,
-                     &pixmap_x, &pixmap_y,
-                     &pixmap_width, &pixmap_height,
-                     &pixmap_border_width, &tex_pixmap->depth))
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
+
+  if (tex_pixmap->stereo_mode == COGL_TEXTURE_PIXMAP_RIGHT)
     {
-      g_free (tex_pixmap);
-      g_set_error_literal (error,
-                           COGL_TEXTURE_PIXMAP_X11_ERROR,
-                           COGL_TEXTURE_PIXMAP_X11_ERROR_X11,
-                           "Unable to query pixmap size");
-      return NULL;
+      g_object_unref (tex_pixmap->left);
+      G_OBJECT_CLASS (cogl_texture_pixmap_x11_parent_class)->dispose (object);
+      return;
     }
 
-  /* Note: the detailed pixel layout doesn't matter here, we are just
-   * interested in RGB vs RGBA... */
-  internal_format = (tex_pixmap->depth >= 32
-                     ? COGL_PIXEL_FORMAT_RGBA_8888_PRE
-                     : COGL_PIXEL_FORMAT_RGB_888);
+  display = cogl_xlib_renderer_get_display (ctx->display->renderer);
 
-  _cogl_texture_init (tex, ctxt, pixmap_width, pixmap_height,
-                      internal_format,
-                      NULL, /* no loader */
-                      &cogl_texture_pixmap_x11_vtable);
+  set_damage_object_internal (ctx, tex_pixmap, 0, 0);
 
-  tex_pixmap->pixmap = pixmap;
-  tex_pixmap->stereo_mode = stereo_mode;
-  tex_pixmap->left = NULL;
-  tex_pixmap->image = NULL;
-  tex_pixmap->shm_info.shmid = -1;
-  tex_pixmap->tex = NULL;
-  tex_pixmap->damage_owned = FALSE;
-  tex_pixmap->damage = 0;
+  if (tex_pixmap->image)
+    XDestroyImage (tex_pixmap->image);
 
-  /* We need a visual to use for shared memory images so we'll query
-     it from the pixmap's root window */
-  if (!XGetWindowAttributes (display, pixmap_root_window, &window_attributes))
+  if (tex_pixmap->shm_info.shmid != -1)
     {
-      g_free (tex_pixmap);
-      g_set_error_literal (error,
-                           COGL_TEXTURE_PIXMAP_X11_ERROR,
-                           COGL_TEXTURE_PIXMAP_X11_ERROR_X11,
-                           "Unable to query root window attributes");
-      return NULL;
+      XShmDetach (display, &tex_pixmap->shm_info);
+      shmdt (tex_pixmap->shm_info.shmaddr);
+      shmctl (tex_pixmap->shm_info.shmid, IPC_RMID, 0);
     }
 
-  tex_pixmap->visual = window_attributes.visual;
+  if (tex_pixmap->tex)
+    g_object_unref (tex_pixmap->tex);
 
-  /* If automatic updates are requested and the Xlib connection
-     supports damage events then we'll register a damage object on the
-     pixmap */
-  damage_base = _cogl_xlib_get_damage_base ();
-  if (automatic_updates && damage_base >= 0)
+  if (tex_pixmap->winsys)
     {
-      Damage damage = XDamageCreate (display,
-                                     pixmap,
-                                     XDamageReportBoundingBox);
-      set_damage_object_internal (ctxt,
-                                  tex_pixmap,
-                                  damage,
-                                  COGL_TEXTURE_PIXMAP_X11_DAMAGE_BOUNDING_BOX);
-      tex_pixmap->damage_owned = TRUE;
+      const CoglWinsysVtable *winsys =
+        _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
+      winsys->texture_pixmap_x11_free (tex_pixmap);
     }
 
-  /* Assume the entire pixmap is damaged to begin with */
-  tex_pixmap->damage_rect.x1 = 0;
-  tex_pixmap->damage_rect.x2 = pixmap_width;
-  tex_pixmap->damage_rect.y1 = 0;
-  tex_pixmap->damage_rect.y2 = pixmap_height;
+  G_OBJECT_CLASS (cogl_texture_pixmap_x11_parent_class)->dispose (object);
+}
 
-  winsys = _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
-  if (winsys->texture_pixmap_x11_create)
+static void
+_cogl_texture_pixmap_x11_set_use_winsys_texture (CoglTexturePixmapX11 *tex_pixmap,
+                                                 gboolean new_value)
+{
+  if (tex_pixmap->use_winsys_texture != new_value)
     {
-      tex_pixmap->use_winsys_texture =
-        winsys->texture_pixmap_x11_create (tex_pixmap);
+      /* Notify cogl-pipeline.c that the texture's underlying GL texture
+       * storage is changing so it knows it may need to bind a new texture
+       * if the CoglTexture is reused with the same texture unit. */
+      _cogl_pipeline_texture_storage_change_notify (COGL_TEXTURE (tex_pixmap));
+
+      tex_pixmap->use_winsys_texture = new_value;
     }
-  else
-    tex_pixmap->use_winsys_texture = FALSE;
-
-  if (!tex_pixmap->use_winsys_texture)
-    tex_pixmap->winsys = NULL;
-
-  _cogl_texture_set_allocated (tex, internal_format,
-                               pixmap_width, pixmap_height);
-
-  return _cogl_texture_pixmap_x11_object_new (tex_pixmap);
 }
 
-CoglTexturePixmapX11 *
-cogl_texture_pixmap_x11_new (CoglContext *ctxt,
-                             uint32_t pixmap,
-                             gboolean automatic_updates,
-                             GError **error)
-
+static CoglTexture *
+create_fallback_texture (CoglContext *ctx,
+                         int width,
+                         int height,
+                         CoglPixelFormat internal_format)
 {
-  return _cogl_texture_pixmap_x11_new (ctxt, pixmap,
-                                       automatic_updates, COGL_TEXTURE_PIXMAP_MONO,
-                                       error);
+  CoglTexture *tex;
+  GError *skip_error = NULL;
+
+  /* First try creating a fast-path non-sliced texture */
+  tex = cogl_texture_2d_new_with_size (ctx, width, height);
+
+  _cogl_texture_set_internal_format (tex, internal_format);
+
+  /* TODO: instead of allocating storage here it would be better
+   * if we had some api that let us just check that the size is
+   * supported by the hardware so storage could be allocated
+   * lazily when uploading data. */
+  if (!cogl_texture_allocate (tex, &skip_error))
+    {
+      g_error_free (skip_error);
+      g_object_unref (tex);
+      tex = NULL;
+    }
+
+  if (!tex)
+    {
+      tex =
+        cogl_texture_2d_sliced_new_with_size (ctx,
+                                              width,
+                                              height,
+                                              COGL_TEXTURE_MAX_WASTE);
+      _cogl_texture_set_internal_format (tex, internal_format);
+    }
+
+  return tex;
 }
 
-CoglTexturePixmapX11 *
-cogl_texture_pixmap_x11_new_left (CoglContext *ctxt,
-                                  uint32_t pixmap,
-                                  gboolean automatic_updates,
-                                  GError **error)
-{
-  return _cogl_texture_pixmap_x11_new (ctxt, pixmap,
-                                       automatic_updates, COGL_TEXTURE_PIXMAP_LEFT,
-                                       error);
-}
-
-CoglTexturePixmapX11 *
-cogl_texture_pixmap_x11_new_right (CoglTexturePixmapX11 *tfp_left)
-{
-  CoglTexture *texture_left = COGL_TEXTURE (tfp_left);
-  CoglTexturePixmapX11 *tfp_right;
-  CoglPixelFormat internal_format;
-
-  g_return_val_if_fail (tfp_left->stereo_mode == COGL_TEXTURE_PIXMAP_LEFT, NULL);
-
-  tfp_right = g_new0 (CoglTexturePixmapX11, 1);
-  tfp_right->stereo_mode = COGL_TEXTURE_PIXMAP_RIGHT;
-  tfp_right->left = cogl_object_ref (tfp_left);
-
-  internal_format = (tfp_left->depth >= 32
-		     ? COGL_PIXEL_FORMAT_RGBA_8888_PRE
-		     : COGL_PIXEL_FORMAT_RGB_888);
-  _cogl_texture_init (COGL_TEXTURE (tfp_right),
-		      texture_left->context,
-		      texture_left->width,
-		      texture_left->height,
-		      internal_format,
-		      NULL, /* no loader */
-		      &cogl_texture_pixmap_x11_vtable);
-
-  _cogl_texture_set_allocated (COGL_TEXTURE (tfp_right), internal_format,
-                               texture_left->width, texture_left->height);
-
-  return _cogl_texture_pixmap_x11_object_new (tfp_right);
-}
-
-static gboolean
-_cogl_texture_pixmap_x11_allocate (CoglTexture *tex,
-                                   GError **error)
-{
-  return TRUE;
-}
 
 /* Tries to allocate enough shared mem to handle a full size
  * update size of the X Pixmap. */
@@ -466,10 +345,10 @@ try_alloc_shm (CoglTexturePixmapX11 *tex_pixmap)
 {
   CoglTexture *tex = COGL_TEXTURE (tex_pixmap);
   XImage *dummy_image;
+  CoglContext *ctx;
   Display *display;
 
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
-
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
   display = cogl_xlib_renderer_get_display (ctx->display->renderer);
 
   if (!XShmQueryExtension (display))
@@ -491,8 +370,8 @@ try_alloc_shm (CoglTexturePixmapX11 *tex_pixmap)
                      ZPixmap,
                      NULL,
                      NULL, /* shminfo, */
-                     tex->width,
-                     tex->height);
+                     cogl_texture_get_width (tex),
+                     cogl_texture_get_height (tex));
   if (!dummy_image)
     goto failed_image_create;
 
@@ -532,78 +411,133 @@ try_alloc_shm (CoglTexturePixmapX11 *tex_pixmap)
   tex_pixmap->shm_info.shmid = -1;
 }
 
-void
-cogl_texture_pixmap_x11_update_area (CoglTexturePixmapX11 *tex_pixmap,
-                                     int x,
-                                     int y,
-                                     int width,
-                                     int height)
+/* Given a set of red, green and blue component masks, a depth and
+ * bits per pixel this function tries to determine a corresponding
+ * CoglPixelFormat.
+ *
+ * The depth is measured in bits not including padding for un-used
+ * alpha. The bits per pixel (bpp) does include padding for un-used
+ * alpha.
+ *
+ * This function firstly aims to match formats with RGB ordered
+ * components and only considers alpha coming first, in the most
+ * significant bits. If the function fails to match then it recurses
+ * by either switching the r and b masks around to check for BGR
+ * ordered formats or it recurses with the masks shifted to check for
+ * formats where the alpha component is the least significant bits.
+ */
+static CoglPixelFormat
+_cogl_util_pixel_format_from_masks_real (unsigned long r_mask,
+                                         unsigned long g_mask,
+                                         unsigned long b_mask,
+                                         int depth, int bpp,
+                                         gboolean check_bgr,
+                                         gboolean check_afirst,
+                                         int recursion_depth)
 {
-  /* We'll queue the update for both the GLX texture and the regular
-     texture because we can't determine which will be needed until we
-     actually render something */
+  CoglPixelFormat image_format;
 
-  if (tex_pixmap->stereo_mode == COGL_TEXTURE_PIXMAP_RIGHT)
-    tex_pixmap = tex_pixmap->left;
-
-  if (tex_pixmap->winsys)
+  if (depth == 24 && bpp == 24 &&
+      r_mask == 0xff0000 && g_mask == 0xff00 && b_mask == 0xff)
     {
-      const CoglWinsysVtable *winsys;
-      winsys = _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
-      winsys->texture_pixmap_x11_damage_notify (tex_pixmap);
+      return COGL_PIXEL_FORMAT_RGB_888;
+    }
+  else if ((depth == 24 || depth == 32) && bpp == 32 &&
+           r_mask == 0xff0000 && g_mask == 0xff00 && b_mask == 0xff)
+    {
+      return COGL_PIXEL_FORMAT_ARGB_8888_PRE;
+    }
+  else if ((depth == 30 || depth == 32) &&
+           r_mask == 0x3ff00000 && g_mask == 0xffc00 && b_mask == 0x3ff)
+    {
+      return COGL_PIXEL_FORMAT_ARGB_2101010_PRE;
+    }
+  else if (depth == 16 && bpp == 16 &&
+           r_mask == 0xf800 && g_mask == 0x7e0 && b_mask == 0x1f)
+    {
+      return COGL_PIXEL_FORMAT_RGB_565;
     }
 
-  cogl_damage_rectangle_union (&tex_pixmap->damage_rect,
-                               x, y, width, height);
+  if (recursion_depth == 2)
+    return 0;
+
+  /* Check for BGR ordering if we didn't find a match */
+  if (check_bgr)
+    {
+      image_format =
+        _cogl_util_pixel_format_from_masks_real (b_mask, g_mask, r_mask,
+                                                 depth, bpp,
+                                                 FALSE,
+                                                 TRUE,
+                                                 recursion_depth + 1);
+      if (image_format)
+        return image_format ^ COGL_BGR_BIT;
+    }
+
+  /* Check for alpha in the least significant bits if we still
+   * haven't found a match... */
+  if (check_afirst && depth != bpp)
+    {
+      int shift = bpp - depth;
+
+      image_format =
+        _cogl_util_pixel_format_from_masks_real (r_mask >> shift,
+                                                 g_mask >> shift,
+                                                 b_mask >> shift,
+                                                 depth, bpp,
+                                                 TRUE,
+                                                 FALSE,
+                                                 recursion_depth + 1);
+      if (image_format)
+        return image_format ^ COGL_AFIRST_BIT;
+    }
+
+  return 0;
 }
 
-gboolean
-cogl_texture_pixmap_x11_is_using_tfp_extension (CoglTexturePixmapX11 *tex_pixmap)
+
+/* Match a CoglPixelFormat according to channel masks, color depth,
+ * bits per pixel and byte order. These information are provided by
+ * the Visual and XImage structures.
+ *
+ * If no specific pixel format could be found, COGL_PIXEL_FORMAT_ANY
+ * is returned.
+ */
+static CoglPixelFormat
+_cogl_util_pixel_format_from_masks (unsigned long r_mask,
+                                    unsigned long g_mask,
+                                    unsigned long b_mask,
+                                    int depth, int bpp,
+                                    gboolean byte_order_is_lsb_first)
 {
-  if (tex_pixmap->stereo_mode == COGL_TEXTURE_PIXMAP_RIGHT)
-    tex_pixmap = tex_pixmap->left;
+  CoglPixelFormat image_format =
+    _cogl_util_pixel_format_from_masks_real (r_mask, g_mask, b_mask,
+                                             depth, bpp,
+                                             TRUE,
+                                             TRUE,
+                                             0);
 
-  return !!tex_pixmap->winsys;
-}
-
-static CoglTexture *
-create_fallback_texture (CoglContext *ctx,
-                         int width,
-                         int height,
-                         CoglPixelFormat internal_format)
-{
-  CoglTexture *tex;
-  GError *skip_error = NULL;
-
-  /* First try creating a fast-path non-sliced texture */
-  tex = COGL_TEXTURE (cogl_texture_2d_new_with_size (ctx, width, height));
-
-  _cogl_texture_set_internal_format (tex, internal_format);
-
-  /* TODO: instead of allocating storage here it would be better
-   * if we had some api that let us just check that the size is
-   * supported by the hardware so storage could be allocated
-   * lazily when uploading data. */
-  if (!cogl_texture_allocate (tex, &skip_error))
+  if (!image_format)
     {
-      g_error_free (skip_error);
-      cogl_object_unref (tex);
-      tex = NULL;
+      const char *byte_order[] = { "MSB first", "LSB first" };
+      g_warning ("Could not find a matching pixel format for red mask=0x%lx,"
+                 "green mask=0x%lx, blue mask=0x%lx at depth=%d, bpp=%d "
+                 "and byte order=%s\n", r_mask, g_mask, b_mask, depth, bpp,
+                 byte_order[!!byte_order_is_lsb_first]);
+      return 0;
     }
 
-  if (!tex)
+  /* If the image is in little-endian then the order in memory is
+     reversed */
+  if (byte_order_is_lsb_first &&
+      _cogl_pixel_format_is_endian_dependant (image_format))
     {
-      CoglTexture2DSliced *tex_2ds =
-        cogl_texture_2d_sliced_new_with_size (ctx,
-                                              width,
-                                              height,
-                                              COGL_TEXTURE_MAX_WASTE);
-      tex = COGL_TEXTURE (tex_2ds);
-
-      _cogl_texture_set_internal_format (tex, internal_format);
+      image_format ^= COGL_BGR_BIT;
+      if (image_format & COGL_A_BIT)
+        image_format ^= COGL_AFIRST_BIT;
     }
 
-  return tex;
+  return image_format;
 }
 
 static void
@@ -612,6 +546,7 @@ _cogl_texture_pixmap_x11_update_image_texture (CoglTexturePixmapX11 *tex_pixmap)
   CoglTexture *tex = COGL_TEXTURE (tex_pixmap);
   Display *display;
   Visual *visual;
+  CoglContext *ctx;
   CoglPixelFormat image_format;
   XImage *image;
   int src_x, src_y;
@@ -620,19 +555,18 @@ _cogl_texture_pixmap_x11_update_image_texture (CoglTexturePixmapX11 *tex_pixmap)
   int offset;
   GError *ignore = NULL;
 
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
-
+  ctx = cogl_texture_get_context (COGL_TEXTURE (tex_pixmap));
   display = cogl_xlib_renderer_get_display (ctx->display->renderer);
   visual = tex_pixmap->visual;
 
   /* If the damage region is empty then there's nothing to do */
-  if (tex_pixmap->damage_rect.x2 == tex_pixmap->damage_rect.x1)
+  if (tex_pixmap->damage_rect.x == tex_pixmap->damage_rect.width)
     return;
 
-  x = tex_pixmap->damage_rect.x1;
-  y = tex_pixmap->damage_rect.y1;
-  width = tex_pixmap->damage_rect.x2 - x;
-  height = tex_pixmap->damage_rect.y2 - y;
+  x = tex_pixmap->damage_rect.x;
+  y = tex_pixmap->damage_rect.y;
+  width = tex_pixmap->damage_rect.width;
+  height = tex_pixmap->damage_rect.height;
 
   /* We lazily create the texture the first time it is needed in case
      this texture can be entirely handled using the GLX texture
@@ -646,8 +580,8 @@ _cogl_texture_pixmap_x11_update_image_texture (CoglTexturePixmapX11 *tex_pixmap)
                         : COGL_PIXEL_FORMAT_RGB_888);
 
       tex_pixmap->tex = create_fallback_texture (ctx,
-                                                 tex->width,
-                                                 tex->height,
+                                                 cogl_texture_get_width (tex),
+                                                 cogl_texture_get_height (tex),
                                                  texture_format);
     }
 
@@ -671,7 +605,8 @@ _cogl_texture_pixmap_x11_update_image_texture (CoglTexturePixmapX11 *tex_pixmap)
           tex_pixmap->image = XGetImage (display,
                                          tex_pixmap->pixmap,
                                          0, 0,
-                                         tex->width, tex->height,
+                                         cogl_texture_get_width (tex),
+                                         cogl_texture_get_height (tex),
                                          AllPlanes, ZPixmap);
           image = tex_pixmap->image;
           src_x = x;
@@ -744,22 +679,7 @@ _cogl_texture_pixmap_x11_update_image_texture (CoglTexturePixmapX11 *tex_pixmap)
   if (tex_pixmap->shm_info.shmid != -1)
     XFree (image);
 
-  memset (&tex_pixmap->damage_rect, 0, sizeof (CoglDamageRectangle));
-}
-
-static void
-_cogl_texture_pixmap_x11_set_use_winsys_texture (CoglTexturePixmapX11 *tex_pixmap,
-                                                 gboolean new_value)
-{
-  if (tex_pixmap->use_winsys_texture != new_value)
-    {
-      /* Notify cogl-pipeline.c that the texture's underlying GL texture
-       * storage is changing so it knows it may need to bind a new texture
-       * if the CoglTexture is reused with the same texture unit. */
-      _cogl_pipeline_texture_storage_change_notify (COGL_TEXTURE (tex_pixmap));
-
-      tex_pixmap->use_winsys_texture = new_value;
-    }
+  memset (&tex_pixmap->damage_rect, 0, sizeof (MtkRectangle));
 }
 
 static void
@@ -832,6 +752,13 @@ _cogl_texture_pixmap_x11_get_texture (CoglTexturePixmapX11 *tex_pixmap)
 }
 
 static gboolean
+_cogl_texture_pixmap_x11_allocate (CoglTexture *tex,
+                                   GError **error)
+{
+  return TRUE;
+}
+
+static gboolean
 _cogl_texture_pixmap_x11_set_region (CoglTexture *tex,
                                      int src_x,
                                      int src_y,
@@ -868,36 +795,27 @@ _cogl_texture_pixmap_x11_get_data (CoglTexture *tex,
 
 static void
 _cogl_texture_pixmap_x11_foreach_sub_texture_in_region
-                                  (CoglTexture              *tex,
-                                   float                     virtual_tx_1,
-                                   float                     virtual_ty_1,
-                                   float                     virtual_tx_2,
-                                   float                     virtual_ty_2,
-                                   CoglMetaTextureCallback   callback,
-                                   void                     *user_data)
+                                  (CoglTexture                *tex,
+                                   float                       virtual_tx_1,
+                                   float                       virtual_ty_1,
+                                   float                       virtual_tx_2,
+                                   float                       virtual_ty_2,
+                                   CoglTextureForeachCallback  callback,
+                                   void                       *user_data)
 {
   CoglTexturePixmapX11 *tex_pixmap = COGL_TEXTURE_PIXMAP_X11 (tex);
   CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
 
   /* Forward on to the child texture */
-  cogl_meta_texture_foreach_in_region (COGL_META_TEXTURE (child_tex),
-                                       virtual_tx_1,
-                                       virtual_ty_1,
-                                       virtual_tx_2,
-                                       virtual_ty_2,
-                                       COGL_PIPELINE_WRAP_MODE_REPEAT,
-                                       COGL_PIPELINE_WRAP_MODE_REPEAT,
-                                       callback,
-                                       user_data);
-}
-
-static int
-_cogl_texture_pixmap_x11_get_max_waste (CoglTexture *tex)
-{
-  CoglTexturePixmapX11 *tex_pixmap = COGL_TEXTURE_PIXMAP_X11 (tex);
-  CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
-
-  return cogl_texture_get_max_waste (child_tex);
+  cogl_texture_foreach_in_region (child_tex,
+                                  virtual_tx_1,
+                                  virtual_ty_1,
+                                  virtual_tx_2,
+                                  virtual_ty_2,
+                                  COGL_PIPELINE_WRAP_MODE_REPEAT,
+                                  COGL_PIPELINE_WRAP_MODE_REPEAT,
+                                  callback,
+                                  user_data);
 }
 
 static gboolean
@@ -927,7 +845,7 @@ _cogl_texture_pixmap_x11_transform_coords_to_gl (CoglTexture *tex,
   CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
 
   /* Forward on to the child texture */
-  _cogl_texture_transform_coords_to_gl (child_tex, s, t);
+  COGL_TEXTURE_GET_CLASS (child_tex)->transform_coords_to_gl (child_tex, s, t);
 }
 
 static CoglTransformResult
@@ -938,7 +856,8 @@ _cogl_texture_pixmap_x11_transform_quad_coords_to_gl (CoglTexture *tex,
   CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
 
   /* Forward on to the child texture */
-  return _cogl_texture_transform_quad_coords_to_gl (child_tex, coords);
+  return COGL_TEXTURE_GET_CLASS (child_tex)->transform_quad_coords_to_gl (child_tex,
+                                                                          coords);
 }
 
 static gboolean
@@ -990,7 +909,7 @@ _cogl_texture_pixmap_x11_ensure_non_quad_rendering (CoglTexture *tex)
   CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
 
   /* Forward on to the child texture */
-  _cogl_texture_ensure_non_quad_rendering (child_tex);
+    COGL_TEXTURE_GET_CLASS (child_tex)->ensure_non_quad_rendering (child_tex);
 }
 
 static void
@@ -1014,7 +933,7 @@ _cogl_texture_pixmap_x11_get_format (CoglTexture *tex)
   CoglTexture *child_tex = _cogl_texture_pixmap_x11_get_texture (tex_pixmap);
 
   /* Forward on to the child texture */
-  return _cogl_texture_get_format (child_tex);
+  return cogl_texture_get_format (child_tex);
 }
 
 static GLenum
@@ -1027,70 +946,228 @@ _cogl_texture_pixmap_x11_get_gl_format (CoglTexture *tex)
 }
 
 static void
-_cogl_texture_pixmap_x11_free (CoglTexturePixmapX11 *tex_pixmap)
+cogl_texture_pixmap_x11_class_init (CoglTexturePixmapX11Class *klass)
 {
-  Display *display;
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  CoglTextureClass *texture_class = COGL_TEXTURE_CLASS (klass);
 
-  _COGL_GET_CONTEXT (ctxt, NO_RETVAL);
+  gobject_class->dispose = cogl_texture_pixmap_x11_dispose;
+
+  texture_class->allocate = _cogl_texture_pixmap_x11_allocate;
+  texture_class->set_region = _cogl_texture_pixmap_x11_set_region;
+  texture_class->get_data = _cogl_texture_pixmap_x11_get_data;
+  texture_class->foreach_sub_texture_in_region = _cogl_texture_pixmap_x11_foreach_sub_texture_in_region;
+  texture_class->is_sliced = _cogl_texture_pixmap_x11_is_sliced;
+  texture_class->can_hardware_repeat = _cogl_texture_pixmap_x11_can_hardware_repeat;
+  texture_class->transform_coords_to_gl = _cogl_texture_pixmap_x11_transform_coords_to_gl;
+  texture_class->transform_quad_coords_to_gl = _cogl_texture_pixmap_x11_transform_quad_coords_to_gl;
+  texture_class->get_gl_texture = _cogl_texture_pixmap_x11_get_gl_texture;
+  texture_class->gl_flush_legacy_texobj_filters = _cogl_texture_pixmap_x11_gl_flush_legacy_texobj_filters;
+  texture_class->pre_paint = _cogl_texture_pixmap_x11_pre_paint;
+  texture_class->ensure_non_quad_rendering = _cogl_texture_pixmap_x11_ensure_non_quad_rendering;
+  texture_class->gl_flush_legacy_texobj_wrap_modes = _cogl_texture_pixmap_x11_gl_flush_legacy_texobj_wrap_modes;
+  texture_class->get_format = _cogl_texture_pixmap_x11_get_format;
+  texture_class->get_gl_format = _cogl_texture_pixmap_x11_get_gl_format;
+}
+
+static void
+cogl_texture_pixmap_x11_init (CoglTexturePixmapX11 *self)
+{
+}
+
+uint32_t
+cogl_texture_pixmap_x11_error_quark (void)
+{
+  return g_quark_from_static_string ("cogl-texture-pixmap-error-quark");
+}
+
+static CoglTexture *
+_cogl_texture_pixmap_x11_new (CoglContext *ctx,
+                              uint32_t pixmap,
+                              gboolean automatic_updates,
+                              CoglTexturePixmapStereoMode stereo_mode,
+                              GError **error)
+{
+  CoglTexturePixmapX11 *tex_pixmap;
+  Display *display = cogl_xlib_renderer_get_display (ctx->display->renderer);
+  Window pixmap_root_window;
+  int pixmap_x, pixmap_y;
+  unsigned int pixmap_width, pixmap_height;
+  unsigned int pixmap_border_width;
+  unsigned int pixmap_depth;
+  CoglPixelFormat internal_format;
+  XWindowAttributes window_attributes;
+  int damage_base;
+  const CoglWinsysVtable *winsys;
+
+  if (!XGetGeometry (display, pixmap, &pixmap_root_window,
+                     &pixmap_x, &pixmap_y,
+                     &pixmap_width, &pixmap_height,
+                     &pixmap_border_width, &pixmap_depth))
+    {
+      g_set_error_literal (error,
+                           COGL_TEXTURE_PIXMAP_X11_ERROR,
+                           COGL_TEXTURE_PIXMAP_X11_ERROR_X11,
+                           "Unable to query pixmap size");
+      return NULL;
+    }
+
+  /* Note: the detailed pixel layout doesn't matter here, we are just
+   * interested in RGB vs RGBA... */
+  internal_format = (pixmap_depth >= 32
+                     ? COGL_PIXEL_FORMAT_RGBA_8888_PRE
+                     : COGL_PIXEL_FORMAT_RGB_888);
+
+  tex_pixmap = g_object_new (COGL_TYPE_TEXTURE_PIXMAP_X11,
+                             "context", ctx,
+                             "width", pixmap_width,
+                             "height", pixmap_height,
+                             "format", internal_format,
+                             NULL);
+
+  tex_pixmap->depth = pixmap_depth;
+  tex_pixmap->pixmap = pixmap;
+  tex_pixmap->stereo_mode = stereo_mode;
+  tex_pixmap->left = NULL;
+  tex_pixmap->image = NULL;
+  tex_pixmap->shm_info.shmid = -1;
+  tex_pixmap->tex = NULL;
+  tex_pixmap->damage_owned = FALSE;
+  tex_pixmap->damage = 0;
+
+  /* We need a visual to use for shared memory images so we'll query
+     it from the pixmap's root window */
+  if (!XGetWindowAttributes (display, pixmap_root_window, &window_attributes))
+    {
+      g_free (tex_pixmap);
+      g_set_error_literal (error,
+                           COGL_TEXTURE_PIXMAP_X11_ERROR,
+                           COGL_TEXTURE_PIXMAP_X11_ERROR_X11,
+                           "Unable to query root window attributes");
+      return NULL;
+    }
+
+  tex_pixmap->visual = window_attributes.visual;
+
+  /* If automatic updates are requested and the Xlib connection
+     supports damage events then we'll register a damage object on the
+     pixmap */
+  damage_base = _cogl_xlib_get_damage_base (ctx);
+  if (automatic_updates && damage_base >= 0)
+    {
+      Damage damage = XDamageCreate (display,
+                                     pixmap,
+                                     XDamageReportBoundingBox);
+      set_damage_object_internal (ctx,
+                                  tex_pixmap,
+                                  damage,
+                                  COGL_TEXTURE_PIXMAP_X11_DAMAGE_BOUNDING_BOX);
+      tex_pixmap->damage_owned = TRUE;
+    }
+
+  /* Assume the entire pixmap is damaged to begin with */
+  tex_pixmap->damage_rect.x = 0;
+  tex_pixmap->damage_rect.width = pixmap_width;
+  tex_pixmap->damage_rect.y = 0;
+  tex_pixmap->damage_rect.height = pixmap_height;
+
+  winsys = _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
+  if (winsys->texture_pixmap_x11_create)
+    {
+      tex_pixmap->use_winsys_texture =
+        winsys->texture_pixmap_x11_create (tex_pixmap);
+    }
+  else
+    tex_pixmap->use_winsys_texture = FALSE;
+
+  if (!tex_pixmap->use_winsys_texture)
+    tex_pixmap->winsys = NULL;
+
+  _cogl_texture_set_allocated (COGL_TEXTURE (tex_pixmap), internal_format,
+                               pixmap_width, pixmap_height);
+
+  return COGL_TEXTURE (tex_pixmap);
+}
+
+CoglTexture *
+cogl_texture_pixmap_x11_new (CoglContext *ctxt,
+                             uint32_t pixmap,
+                             gboolean automatic_updates,
+                             GError **error)
+
+{
+  return _cogl_texture_pixmap_x11_new (ctxt, pixmap,
+                                       automatic_updates, COGL_TEXTURE_PIXMAP_MONO,
+                                       error);
+}
+
+CoglTexture *
+cogl_texture_pixmap_x11_new_left (CoglContext *ctxt,
+                                  uint32_t pixmap,
+                                  gboolean automatic_updates,
+                                  GError **error)
+{
+  return _cogl_texture_pixmap_x11_new (ctxt, pixmap,
+                                       automatic_updates, COGL_TEXTURE_PIXMAP_LEFT,
+                                       error);
+}
+
+CoglTexture *
+cogl_texture_pixmap_x11_new_right (CoglTexturePixmapX11 *tfp_left)
+{
+  CoglTexture *texture_left = COGL_TEXTURE (tfp_left);
+  CoglTexturePixmapX11 *tfp_right;
+  CoglPixelFormat internal_format;
+
+  g_return_val_if_fail (tfp_left->stereo_mode == COGL_TEXTURE_PIXMAP_LEFT, NULL);
+
+  internal_format = (tfp_left->depth >= 32
+                     ? COGL_PIXEL_FORMAT_RGBA_8888_PRE
+                     : COGL_PIXEL_FORMAT_RGB_888);
+
+  tfp_right = g_object_new (COGL_TYPE_TEXTURE_PIXMAP_X11,
+                            "context", cogl_texture_get_context (texture_left),
+                            "width", cogl_texture_get_width (texture_left),
+                            "height", cogl_texture_get_height (texture_left),
+                            "format", internal_format,
+                            NULL);
+  tfp_right->stereo_mode = COGL_TEXTURE_PIXMAP_RIGHT;
+  tfp_right->left = g_object_ref (tfp_left);
+
+  _cogl_texture_set_allocated (COGL_TEXTURE (tfp_right), internal_format,
+                               cogl_texture_get_width (texture_left),
+                               cogl_texture_get_height (texture_left));
+
+  return COGL_TEXTURE (tfp_right);
+}
+
+void
+cogl_texture_pixmap_x11_update_area (CoglTexturePixmapX11 *tex_pixmap,
+                                     const MtkRectangle   *area)
+{
+  /* We'll queue the update for both the GLX texture and the regular
+     texture because we can't determine which will be needed until we
+     actually render something */
 
   if (tex_pixmap->stereo_mode == COGL_TEXTURE_PIXMAP_RIGHT)
-    {
-      cogl_object_unref (tex_pixmap->left);
-
-      /* Chain up */
-      _cogl_texture_free (COGL_TEXTURE (tex_pixmap));
-
-      return;
-    }
-
-  display = cogl_xlib_renderer_get_display (ctxt->display->renderer);
-
-  set_damage_object_internal (ctxt, tex_pixmap, 0, 0);
-
-  if (tex_pixmap->image)
-    XDestroyImage (tex_pixmap->image);
-
-  if (tex_pixmap->shm_info.shmid != -1)
-    {
-      XShmDetach (display, &tex_pixmap->shm_info);
-      shmdt (tex_pixmap->shm_info.shmaddr);
-      shmctl (tex_pixmap->shm_info.shmid, IPC_RMID, 0);
-    }
-
-  if (tex_pixmap->tex)
-    cogl_object_unref (tex_pixmap->tex);
+    tex_pixmap = tex_pixmap->left;
 
   if (tex_pixmap->winsys)
     {
-      const CoglWinsysVtable *winsys =
-        _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
-      winsys->texture_pixmap_x11_free (tex_pixmap);
+      const CoglWinsysVtable *winsys;
+      winsys = _cogl_texture_pixmap_x11_get_winsys (tex_pixmap);
+      winsys->texture_pixmap_x11_damage_notify (tex_pixmap);
     }
-
-  /* Chain up */
-  _cogl_texture_free (COGL_TEXTURE (tex_pixmap));
+  mtk_rectangle_union (&tex_pixmap->damage_rect,
+                       area,
+                       &tex_pixmap->damage_rect);
 }
 
-static const CoglTextureVtable
-cogl_texture_pixmap_x11_vtable =
-  {
-    FALSE, /* not primitive */
-    _cogl_texture_pixmap_x11_allocate,
-    _cogl_texture_pixmap_x11_set_region,
-    NULL, /* is_get_data_supported */
-    _cogl_texture_pixmap_x11_get_data,
-    _cogl_texture_pixmap_x11_foreach_sub_texture_in_region,
-    _cogl_texture_pixmap_x11_get_max_waste,
-    _cogl_texture_pixmap_x11_is_sliced,
-    _cogl_texture_pixmap_x11_can_hardware_repeat,
-    _cogl_texture_pixmap_x11_transform_coords_to_gl,
-    _cogl_texture_pixmap_x11_transform_quad_coords_to_gl,
-    _cogl_texture_pixmap_x11_get_gl_texture,
-    _cogl_texture_pixmap_x11_gl_flush_legacy_texobj_filters,
-    _cogl_texture_pixmap_x11_pre_paint,
-    _cogl_texture_pixmap_x11_ensure_non_quad_rendering,
-    _cogl_texture_pixmap_x11_gl_flush_legacy_texobj_wrap_modes,
-    _cogl_texture_pixmap_x11_get_format,
-    _cogl_texture_pixmap_x11_get_gl_format,
-    NULL /* set_auto_mipmap */
-  };
+gboolean
+cogl_texture_pixmap_x11_is_using_tfp_extension (CoglTexturePixmapX11 *tex_pixmap)
+{
+  if (tex_pixmap->stereo_mode == COGL_TEXTURE_PIXMAP_RIGHT)
+    tex_pixmap = tex_pixmap->left;
+
+  return !!tex_pixmap->winsys;
+}

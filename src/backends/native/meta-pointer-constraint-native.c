@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jonas Ådahl <jadahl@gmail.com>
@@ -28,13 +26,14 @@
 #include <wayland-server.h>
 
 #include "core/meta-border.h"
-#include "meta-pointer-constraint-native.h"
+#include "backends/native/meta-pointer-constraint-native.h"
 
 struct _MetaPointerConstraintImplNative
 {
   MetaPointerConstraintImpl parent;
   MetaPointerConstraint *constraint;
-  cairo_region_t *region;
+  MtkRegion *region;
+  graphene_point_t origin;
   double min_edge_distance;
 };
 
@@ -225,8 +224,8 @@ add_band_bottom_edges (MetaBox *boxes,
 }
 
 static void
-region_to_outline (cairo_region_t *region,
-                   GArray         *borders)
+region_to_outline (MtkRegion *region,
+                   GArray    *borders)
 {
   MetaBox *boxes;
   int num_boxes;
@@ -251,12 +250,12 @@ region_to_outline (cairo_region_t *region,
    *
    */
 
-  num_boxes  = cairo_region_num_rectangles (region);
+  num_boxes = mtk_region_num_rectangles (region);
   boxes = g_new (MetaBox, num_boxes);
   for (i = 0; i < num_boxes; i++)
     {
-      cairo_rectangle_int_t rect;
-      cairo_region_get_rectangle (region, i, &rect);
+      MtkRectangle rect;
+      rect = mtk_region_get_rectangle (region, i);
       boxes[i] = (MetaBox) {
         .x1 = rect.x,
         .y1 = rect.y,
@@ -375,7 +374,7 @@ get_closest_border (GArray    *borders,
   MetaVector2 delta;
   float distance_2;
   MetaBorder *closest_border = NULL;
-  float closest_distance_2 = DBL_MAX;
+  float closest_distance_2 = FLT_MAX;
   unsigned int i;
 
   for (i = 0; i < borders->len; i++)
@@ -409,7 +408,7 @@ clamp_to_border (MetaBorder *border,
   if (meta_border_is_horizontal (border))
     {
       if (*motion_dir & META_BORDER_MOTION_DIRECTION_POSITIVE_Y)
-        motion->b.y = border->line.a.y - min_edge_distance;
+        motion->b.y = (float) (border->line.a.y - min_edge_distance);
       else
         motion->b.y = border->line.a.y;
       *motion_dir &= ~(META_BORDER_MOTION_DIRECTION_POSITIVE_Y |
@@ -418,7 +417,7 @@ clamp_to_border (MetaBorder *border,
   else
     {
       if (*motion_dir & META_BORDER_MOTION_DIRECTION_POSITIVE_X)
-        motion->b.x = border->line.a.x - min_edge_distance;
+        motion->b.x = (float) (border->line.a.x - min_edge_distance);
       else
         motion->b.x = border->line.a.x;
       *motion_dir &= ~(META_BORDER_MOTION_DIRECTION_POSITIVE_X |
@@ -444,16 +443,16 @@ get_motion_directions (MetaLine2 *motion)
 }
 
 static void
-meta_pointer_constraint_impl_native_constraint (MetaPointerConstraintImpl *constraint_impl,
-                                                ClutterInputDevice        *device,
-                                                uint32_t                   time,
-                                                float                      prev_x,
-                                                float                      prev_y,
-                                                float                     *x_inout,
-                                                float                     *y_inout)
+meta_pointer_constraint_impl_native_constrain (MetaPointerConstraintImpl *constraint_impl,
+                                               ClutterInputDevice        *device,
+                                               uint32_t                   time,
+                                               float                      prev_x,
+                                               float                      prev_y,
+                                               float                     *x_inout,
+                                               float                     *y_inout)
 {
   MetaPointerConstraintImplNative *constraint_impl_native;
-  cairo_region_t *region;
+  g_autoptr (MtkRegion) region = NULL;
   float x, y;
   g_autoptr (GArray) borders = NULL;
   MetaLine2 motion;
@@ -462,7 +461,15 @@ meta_pointer_constraint_impl_native_constraint (MetaPointerConstraintImpl *const
 
   constraint_impl_native = META_POINTER_CONSTRAINT_IMPL_NATIVE (constraint_impl);
 
-  region = cairo_region_reference (constraint_impl_native->region);
+  region = mtk_region_ref (constraint_impl_native->region);
+
+  if (mtk_region_is_empty (region))
+    {
+      *x_inout = constraint_impl_native->origin.x;
+      *y_inout = constraint_impl_native->origin.y;
+      return;
+    }
+
   x = *x_inout;
   y = *y_inout;
 
@@ -486,16 +493,15 @@ meta_pointer_constraint_impl_native_constraint (MetaPointerConstraintImpl *const
    * confined motion vectors.
    */
   region_to_outline (region, borders);
-  cairo_region_destroy (region);
 
   motion = (MetaLine2) {
     .a = (MetaVector2) {
-      .x = prev_x,
-      .y = prev_y,
+      .x = prev_x - constraint_impl_native->origin.x,
+      .y = prev_y - constraint_impl_native->origin.y,
     },
     .b = (MetaVector2) {
-      .x = x,
-      .y = y,
+      .x = x - constraint_impl_native->origin.x,
+      .y = y - constraint_impl_native->origin.y,
     },
   };
   directions = get_motion_directions (&motion);
@@ -516,8 +522,8 @@ meta_pointer_constraint_impl_native_constraint (MetaPointerConstraintImpl *const
         }
     }
 
-  *x_inout = motion.b.x;
-  *y_inout = motion.b.y;
+  *x_inout = motion.b.x + constraint_impl_native->origin.x;
+  *y_inout = motion.b.y + constraint_impl_native->origin.y;
 }
 
 static float
@@ -564,24 +570,24 @@ closest_point_behind_border (MetaBorder *border,
     case META_BORDER_MOTION_DIRECTION_POSITIVE_X:
     case META_BORDER_MOTION_DIRECTION_NEGATIVE_X:
       if (border->blocking_directions == META_BORDER_MOTION_DIRECTION_POSITIVE_X)
-        *sx = border->line.a.x - wl_fixed_to_double (1);
+        *sx = border->line.a.x - (float) wl_fixed_to_double (1);
       else
-        *sx = border->line.a.x + wl_fixed_to_double (1);
+        *sx = border->line.a.x + (float) wl_fixed_to_double (1);
       if (*sy < border->line.a.y)
-        *sy = border->line.a.y + wl_fixed_to_double (1);
+        *sy = border->line.a.y + (float) wl_fixed_to_double (1);
       else if (*sy > border->line.b.y)
-        *sy = border->line.b.y - wl_fixed_to_double (1);
+        *sy = border->line.b.y - (float) wl_fixed_to_double (1);
       break;
     case META_BORDER_MOTION_DIRECTION_POSITIVE_Y:
     case META_BORDER_MOTION_DIRECTION_NEGATIVE_Y:
       if (border->blocking_directions == META_BORDER_MOTION_DIRECTION_POSITIVE_Y)
-        *sy = border->line.a.y - wl_fixed_to_double (1);
+        *sy = border->line.a.y - (float) wl_fixed_to_double (1);
       else
-        *sy = border->line.a.y + wl_fixed_to_double (1);
+        *sy = border->line.a.y + (float) wl_fixed_to_double (1);
       if (*sx < border->line.a.x)
-        *sx = border->line.a.x + wl_fixed_to_double (1);
+        *sx = border->line.a.x + (float) wl_fixed_to_double (1);
       else if (*sx > (border->line.b.x))
-        *sx = border->line.b.x - wl_fixed_to_double (1);
+        *sx = border->line.b.x - (float) wl_fixed_to_double (1);
       break;
     }
 }
@@ -592,24 +598,38 @@ meta_pointer_constraint_impl_native_ensure_constrained (MetaPointerConstraintImp
 {
   MetaPointerConstraintImplNative *constraint_impl_native;
   graphene_point_t point;
-  cairo_region_t *region;
+  ClutterSeat *seat;
+  g_autoptr (MtkRegion) region = NULL;
   float x;
   float y;
+  float rel_x;
+  float rel_y;
 
   constraint_impl_native = META_POINTER_CONSTRAINT_IMPL_NATIVE (constraint_impl);
-  region = cairo_region_reference (constraint_impl_native->region);
+  region = mtk_region_ref (constraint_impl_native->region);
 
-  clutter_seat_query_state (clutter_input_device_get_seat (device),
-                            device, NULL, &point, NULL);
+  seat = clutter_input_device_get_seat (device);
+  clutter_seat_query_state (seat, device, NULL, &point, NULL);
   x = point.x;
   y = point.y;
+  rel_x = x - constraint_impl_native->origin.x;
+  rel_y = y - constraint_impl_native->origin.y;
 
-  if (!cairo_region_contains_point (region, (int) x, (int) y))
+  if (mtk_region_is_empty (region))
+    {
+      if (x != constraint_impl_native->origin.x ||
+          y != constraint_impl_native->origin.y)
+        {
+          clutter_seat_warp_pointer (seat,
+                                     (int) constraint_impl_native->origin.x,
+                                     (int) constraint_impl_native->origin.y);
+        }
+    }
+  else if (!mtk_region_contains_point (region, (int) rel_x, (int) rel_y))
     {
       g_autoptr (GArray) borders = NULL;
       float closest_distance_2 = FLT_MAX;
       MetaBorder *closest_border = NULL;
-      ClutterSeat *seat;
       unsigned int i;
 
       borders = g_array_new (FALSE, FALSE, sizeof (MetaBorder));
@@ -621,7 +641,7 @@ meta_pointer_constraint_impl_native_ensure_constrained (MetaPointerConstraintImp
           MetaBorder *border = &g_array_index (borders, MetaBorder, i);
           float distance_2;
 
-          distance_2 = point_to_border_distance_2 (border, x, y);
+          distance_2 = point_to_border_distance_2 (border, rel_x, rel_y);
           if (distance_2 < closest_distance_2)
             {
               closest_border = border;
@@ -629,13 +649,12 @@ meta_pointer_constraint_impl_native_ensure_constrained (MetaPointerConstraintImp
             }
         }
 
-      closest_point_behind_border (closest_border, &x, &y);
+      closest_point_behind_border (closest_border, &rel_x, &rel_y);
 
-      seat = clutter_backend_get_default_seat (clutter_get_default_backend ());
-      clutter_seat_warp_pointer (seat, x, y);
+      clutter_seat_warp_pointer (seat,
+                                 (int) (rel_x + constraint_impl_native->origin.x),
+                                 (int) (rel_y + constraint_impl_native->origin.y));
     }
-
-  cairo_region_destroy (region);
 }
 
 static void
@@ -644,7 +663,7 @@ meta_pointer_constraint_impl_native_finalize (GObject *object)
   MetaPointerConstraintImplNative *constraint_impl_native;
 
   constraint_impl_native = META_POINTER_CONSTRAINT_IMPL_NATIVE (object);
-  g_clear_pointer (&constraint_impl_native->region, cairo_region_destroy);
+  g_clear_pointer (&constraint_impl_native->region, mtk_region_unref);
 
   G_OBJECT_CLASS (meta_pointer_constraint_impl_native_parent_class)->finalize (object);
 }
@@ -663,7 +682,7 @@ meta_pointer_constraint_impl_native_class_init (MetaPointerConstraintImplNativeC
   object_class->finalize = meta_pointer_constraint_impl_native_finalize;
 
   constraint_impl_class = META_POINTER_CONSTRAINT_IMPL_CLASS (klass);
-  constraint_impl_class->constrain = meta_pointer_constraint_impl_native_constraint;
+  constraint_impl_class->constrain = meta_pointer_constraint_impl_native_constrain;
   constraint_impl_class->ensure_constrained =
     meta_pointer_constraint_impl_native_ensure_constrained;
 }
@@ -671,7 +690,8 @@ meta_pointer_constraint_impl_native_class_init (MetaPointerConstraintImplNativeC
 
 MetaPointerConstraintImpl *
 meta_pointer_constraint_impl_native_new (MetaPointerConstraint *constraint,
-                                         const cairo_region_t  *region,
+                                         const MtkRegion       *region,
+                                         graphene_point_t       origin,
                                          double                 min_edge_distance)
 {
   MetaPointerConstraintImplNative *constraint_impl;
@@ -679,8 +699,9 @@ meta_pointer_constraint_impl_native_new (MetaPointerConstraint *constraint,
   constraint_impl = g_object_new (META_TYPE_POINTER_CONSTRAINT_IMPL_NATIVE,
                                   NULL);
   constraint_impl->constraint = constraint;
-  constraint_impl->region = cairo_region_copy (region);
+  constraint_impl->region = mtk_region_copy (region);
   constraint_impl->min_edge_distance = min_edge_distance;
+  constraint_impl->origin = origin;
 
   return META_POINTER_CONSTRAINT_IMPL (constraint_impl);
 }

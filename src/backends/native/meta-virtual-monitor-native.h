@@ -12,14 +12,11 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef META_VIRTUAL_MONITOR_NATIVE_H
-#define META_VIRTUAL_MONITOR_NATIVE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -39,7 +36,6 @@ MetaCrtc * meta_virtual_monitor_native_get_crtc (MetaVirtualMonitorNative *virtu
 
 MetaOutput * meta_virtual_monitor_native_get_output (MetaVirtualMonitorNative *virtual_monitor_native);
 
-MetaVirtualMonitorNative * meta_virtual_monitor_native_new (uint64_t                      id,
+MetaVirtualMonitorNative * meta_virtual_monitor_native_new (MetaBackend                  *backend,
+                                                            uint64_t                      id,
                                                             const MetaVirtualMonitorInfo *info);
-
-#endif /* META_VIRTUAL_MONITOR_NATIVE_H */

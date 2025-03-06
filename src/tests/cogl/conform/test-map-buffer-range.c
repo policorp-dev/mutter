@@ -25,7 +25,7 @@ vertex_data[4] =
 static void
 test_map_buffer_range (void)
 {
-  CoglTexture2D *tex;
+  CoglTexture *tex;
   CoglPipeline *pipeline;
   int fb_width, fb_height;
   CoglAttributeBuffer *buffer;
@@ -34,7 +34,7 @@ test_map_buffer_range (void)
   CoglAttribute *tex_coord_attribute;
   CoglPrimitive *primitive;
 
-  if (!cogl_has_feature (test_ctx, COGL_FEATURE_ID_MAP_BUFFER_FOR_WRITE))
+  if (!cogl_context_has_feature (test_ctx, COGL_FEATURE_ID_MAP_BUFFER_FOR_WRITE))
     {
       g_test_skip ("Missing map buffer for write capability");
       return;
@@ -67,20 +67,20 @@ test_map_buffer_range (void)
 
   /* Replace the texture coordinates of the third vertex with the
    * coordinates for a green texel */
-  data = cogl_buffer_map_range (buffer,
+  data = cogl_buffer_map_range (COGL_BUFFER (buffer),
                                 sizeof (vertex_data[0]) * 2,
                                 sizeof (vertex_data[0]),
                                 COGL_BUFFER_ACCESS_WRITE,
                                 COGL_BUFFER_MAP_HINT_DISCARD_RANGE,
                                 NULL); /* don't catch errors */
-  g_assert (data != NULL);
+  g_assert_nonnull (data);
 
   data->x = vertex_data[2].x;
   data->y = vertex_data[2].y;
   data->s = 1.0f;
   data->t = 0.0f;
 
-  cogl_buffer_unmap (buffer);
+  cogl_buffer_unmap (COGL_BUFFER (buffer));
 
   pos_attribute =
     cogl_attribute_new (buffer,
@@ -108,7 +108,7 @@ test_map_buffer_range (void)
                         tex_coord_attribute,
                         NULL);
   cogl_primitive_draw (primitive, test_fb, pipeline);
-  cogl_object_unref (primitive);
+  g_object_unref (primitive);
 
   /* Top left pixel should be the one that is replaced to be green */
   test_utils_check_pixel (test_fb, 1, 1, 0x00ff00ff);
@@ -117,12 +117,12 @@ test_map_buffer_range (void)
   test_utils_check_pixel (test_fb, 1, fb_height - 2, 0xff0000ff);
   test_utils_check_pixel (test_fb, fb_width - 2, fb_height - 2, 0xff0000ff);
 
-  cogl_object_unref (buffer);
-  cogl_object_unref (pos_attribute);
-  cogl_object_unref (tex_coord_attribute);
+  g_object_unref (buffer);
+  g_object_unref (pos_attribute);
+  g_object_unref (tex_coord_attribute);
 
-  cogl_object_unref (pipeline);
-  cogl_object_unref (tex);
+  g_object_unref (pipeline);
+  g_object_unref (tex);
 
   if (cogl_test_verbose ())
     g_print ("OK\n");

@@ -31,14 +31,11 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#ifndef __COGL_ATTRIBUTE_PRIVATE_H
-#define __COGL_ATTRIBUTE_PRIVATE_H
+#pragma once
 
-#include "cogl-object-private.h"
-#include "cogl-attribute.h"
-#include "cogl-framebuffer.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-boxed-value.h"
+#include "cogl/cogl-attribute.h"
+#include "cogl/cogl-framebuffer.h"
+#include "cogl/cogl-pipeline-private.h"
 
 typedef enum
 {
@@ -61,28 +58,16 @@ typedef struct _CoglAttributeNameState
 
 struct _CoglAttribute
 {
-  CoglObject _parent;
+  GObject parent_instance;
 
   const CoglAttributeNameState *name_state;
   gboolean normalized;
 
-  gboolean is_buffered;
-
-  union {
-    struct {
-      CoglAttributeBuffer *attribute_buffer;
-      size_t stride;
-      size_t offset;
-      int n_components;
-      CoglAttributeType type;
-    } buffered;
-    struct {
-      CoglContext *context;
-      CoglBoxedValue boxed;
-    } constant;
-  } d;
-
-  int immutable_ref;
+  CoglAttributeBuffer *attribute_buffer;
+  size_t stride;
+  size_t offset;
+  int n_components;
+  CoglAttributeType type;
 };
 
 typedef enum
@@ -112,12 +97,6 @@ CoglAttributeNameState *
 _cogl_attribute_register_attribute_name (CoglContext *context,
                                          const char *name);
 
-CoglAttribute *
-_cogl_attribute_immutable_ref (CoglAttribute *attribute);
-
-void
-_cogl_attribute_immutable_unref (CoglAttribute *attribute);
-
 typedef struct
 {
   int unit;
@@ -134,6 +113,3 @@ _cogl_flush_attributes_state (CoglFramebuffer *framebuffer,
 
 int
 _cogl_attribute_get_n_components (CoglAttribute *attribute);
-
-#endif /* __COGL_ATTRIBUTE_PRIVATE_H */
-

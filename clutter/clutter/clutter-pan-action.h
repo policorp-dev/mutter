@@ -30,35 +30,24 @@
  *   Chris Lord <chris@linux.intel.com>
  */
 
-#ifndef __CLUTTER_PAN_ACTION_H__
-#define __CLUTTER_PAN_ACTION_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-gesture-action.h>
+#include "clutter/clutter-gesture-action.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_PAN_ACTION               (clutter_pan_action_get_type ())
-#define CLUTTER_PAN_ACTION(obj)               (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_PAN_ACTION, ClutterPanAction))
-#define CLUTTER_IS_PAN_ACTION(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_PAN_ACTION))
-#define CLUTTER_PAN_ACTION_CLASS(klass)       (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_PAN_ACTION, ClutterPanActionClass))
-#define CLUTTER_IS_PAN_ACTION_CLASS(klass)    (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_PAN_ACTION))
-#define CLUTTER_PAN_ACTION_GET_CLASS(obj)     (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_PAN_ACTION, ClutterPanActionClass))
 
-typedef struct _ClutterPanAction              ClutterPanAction;
-typedef struct _ClutterPanActionPrivate       ClutterPanActionPrivate;
-typedef struct _ClutterPanActionClass         ClutterPanActionClass;
-
-struct _ClutterPanAction
-{
-  /*< private >*/
-  ClutterGestureAction parent_instance;
-
-  ClutterPanActionPrivate *priv;
-};
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterPanAction,
+                          clutter_pan_action,
+                          CLUTTER,
+                          PAN_ACTION,
+                          ClutterGestureAction)
 
 /**
  * ClutterPanActionClass:
@@ -76,18 +65,7 @@ struct _ClutterPanActionClass
   /*< public >*/
   void     (* pan_stopped)       (ClutterPanAction    *action,
                                   ClutterActor        *actor);
-
-  /*< private >*/
-  void (* _clutter_pan_action1) (void);
-  void (* _clutter_pan_action2) (void);
-  void (* _clutter_pan_action3) (void);
-  void (* _clutter_pan_action4) (void);
-  void (* _clutter_pan_action5) (void);
-  void (* _clutter_pan_action6) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_pan_action_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterAction * clutter_pan_action_new                      (void);
@@ -135,5 +113,3 @@ gfloat          clutter_pan_action_get_constrained_motion_delta (ClutterPanActio
                                                                  gfloat           *delta_x,
                                                                  gfloat           *delta_y);
 G_END_DECLS
-
-#endif /* __CLUTTER_PAN_ACTION_H__ */

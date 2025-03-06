@@ -19,16 +19,13 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "config.h"
-
-#ifndef __CLUTTER_TEST_UTILS_H__
-#define __CLUTTER_TEST_UTILS_H__
+#pragma once
 
 #define __CLUTTER_H_INSIDE__
 
 #include "clutter/clutter-types.h"
 #include "clutter/clutter-actor.h"
-#include "clutter/clutter-color.h"
+#include "clutter/clutter-event-private.h"
 #include "clutter/clutter-private.h"
 #include "meta/common.h"
 #include "meta-test/meta-context-test.h"
@@ -41,8 +38,6 @@ G_BEGIN_DECLS
  * @func: the GTestFunc function
  *
  * Adds @func at the given @path in the test suite.
- *
- * Since: 1.18
  */
 #define CLUTTER_TEST_UNIT(path,func) \
   clutter_test_add (path, func);
@@ -53,16 +48,16 @@ G_BEGIN_DECLS
  *
  * Defines the entry point and initializes a Clutter test unit, e.g.:
  *
- * |[
+ * ```
  * CLUTTER_TEST_SUITE (
  *   CLUTTER_TEST_UNIT ("/foobarize", foobarize)
  *   CLUTTER_TEST_UNIT ("/bar-enabled", bar_enabled)
  * )
- * ]|
+ * ```
  *
  * Expands to:
  *
- * |[
+ * ```c
  * int
  * main (int   argc,
  *       char *argv[])
@@ -74,9 +69,7 @@ G_BEGIN_DECLS
  *
  *   return clutter_test_run ();
  * }
- * ]|
- *
- * Since: 1.18
+ * ```
  */
 #define CLUTTER_TEST_SUITE(units) \
 int \
@@ -90,6 +83,11 @@ main (int argc, char *argv[]) \
 \
   return clutter_test_run (); \
 }
+
+#define CLUTTER_TYPE_TEST_ACTOR (clutter_test_actor_get_type ())
+CLUTTER_EXPORT
+G_DECLARE_FINAL_TYPE (ClutterTestActor, clutter_test_actor,
+                      CLUTTER, TEST_ACTOR, ClutterActor)
 
 CLUTTER_EXPORT
 void            clutter_test_init               (int            *argc,
@@ -118,7 +116,19 @@ void            clutter_test_add_data_full      (const char     *test_path,
                                                  GDestroyNotify  test_notify);
 
 CLUTTER_EXPORT
+void            clutter_test_flush_input        (void);
+
+CLUTTER_EXPORT
 ClutterActor *  clutter_test_get_stage          (void);
+
+CLUTTER_EXPORT
+ClutterContext * clutter_test_get_context       (void);
+
+CLUTTER_EXPORT
+ClutterBackend * clutter_test_get_backend       (void);
+
+CLUTTER_EXPORT
+ClutterSeat    * clutter_test_get_default_seat  (void);
 
 #define clutter_test_assert_actor_at_point(stage,point,actor) \
 G_STMT_START { \
@@ -140,35 +150,10 @@ G_STMT_START { \
   } \
 } G_STMT_END
 
-#define clutter_test_assert_color_at_point(stage,point,color) \
-G_STMT_START { \
-  const graphene_point_t *__p = (point); \
-  const ClutterColor *__c = (color); \
-  ClutterActor *__stage = (stage); \
-  ClutterColor __res; \
-  if (clutter_test_check_color_at_point (__stage, __p, __c, &__res)) ; else { \
-    char *__str1 = clutter_color_to_string (__c); \
-    char *__str2 = clutter_color_to_string (&__res); \
-    char *__msg = g_strdup_printf ("assertion failed (color %s at %.2f,%.2f): found color %s", \
-                                   __str1, __p->x, __p->y, __str2); \
-    g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, __msg); \
-    g_free (__msg); \
-    g_free (__str1); \
-    g_free (__str2); \
-  } \
-} G_STMT_END
-
 CLUTTER_EXPORT
 gboolean        clutter_test_check_actor_at_point       (ClutterActor            *stage,
                                                          const graphene_point_t  *point,
                                                          ClutterActor            *actor,
                                                          ClutterActor           **result);
-CLUTTER_EXPORT
-gboolean        clutter_test_check_color_at_point       (ClutterActor           *stage,
-                                                         const graphene_point_t *point,
-                                                         const ClutterColor     *color,
-                                                         ClutterColor           *result);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_TEST_UTILS_H__ */

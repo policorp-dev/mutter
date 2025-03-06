@@ -28,30 +28,24 @@
  *
  */
 
-#ifndef __COGL_MUTTER_H___
-#define __COGL_MUTTER_H___
+#pragma once
 
-#include "cogl-config.h"
-#include "cogl-defines.h"
-
-#include <cogl/cogl-texture.h>
-#include <cogl/cogl-meta-texture.h>
-#include <cogl/cogl-frame-info-private.h>
-#include <cogl/cogl-renderer-private.h>
-#if defined (COGL_HAS_EGL_SUPPORT)
-#include <cogl/winsys/cogl-onscreen-egl.h>
-#include <cogl/winsys/cogl-winsys-egl-private.h>
+#include "cogl/cogl-texture.h"
+#include "cogl/cogl-meta-texture.h"
+#include "cogl/cogl-frame-info-private.h"
+#include "cogl/cogl-renderer-private.h"
+#ifdef HAVE_EGL
+#include "cogl/winsys/cogl-onscreen-egl.h"
+#include "cogl/winsys/cogl-winsys-egl-private.h"
 #endif
-#if defined (COGL_HAS_GLX_SUPPORT)
-#include <cogl/winsys/cogl-onscreen-glx.h>
+#ifdef HAVE_GLX
+#include "cogl/winsys/cogl-onscreen-glx.h"
 #endif
-#if defined (COGL_HAS_XLIB)
-#include <cogl/winsys/cogl-onscreen-xlib.h>
+#ifdef HAVE_X11
+#include "cogl/winsys/cogl-onscreen-xlib.h"
+#include "cogl/cogl-x11-onscreen.h"
 #endif
-#ifdef COGL_HAS_X11
-#include <cogl/cogl-x11-onscreen.h>
-#endif
-#include <cogl/winsys/cogl-winsys-private.h>
+#include "cogl/winsys/cogl-winsys-private.h"
 
 COGL_EXPORT
 void cogl_renderer_set_custom_winsys (CoglRenderer                *renderer,
@@ -62,4 +56,5 @@ COGL_EXPORT
 gboolean cogl_context_format_supports_upload (CoglContext     *ctx,
                                               CoglPixelFormat  format);
 
-#endif /* __COGL_MUTTER_H___ */
+COGL_EXPORT
+void cogl_init (void);

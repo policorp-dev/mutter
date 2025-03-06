@@ -13,13 +13,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_DRM_BUFFER_PRIVATE_H
-#define META_DRM_BUFFER_PRIVATE_H
+#pragma once
 
 #include "backends/native/meta-backend-native-types.h"
 #include "backends/native/meta-drm-buffer.h"
@@ -43,21 +40,27 @@ struct _MetaDrmBufferClass
   int (* export_fd) (MetaDrmBuffer  *buffer,
                      GError        **error);
 
+  int (* export_fd_for_plane) (MetaDrmBuffer  *buffer,
+                               int             plane,
+                               GError        **error);
+
   gboolean (* ensure_fb_id) (MetaDrmBuffer  *buffer,
                              GError        **error);
 
   int (* get_width) (MetaDrmBuffer *buffer);
   int (* get_height) (MetaDrmBuffer *buffer);
+
+  int (* get_n_planes) (MetaDrmBuffer *buffer);
+
   int (* get_stride) (MetaDrmBuffer *buffer);
+  int (* get_stride_for_plane) (MetaDrmBuffer *buffer,
+                                int            plane);
+
   int (* get_bpp) (MetaDrmBuffer *buffer);
   uint32_t (* get_format) (MetaDrmBuffer *buffer);
-  int (* get_offset) (MetaDrmBuffer *buffer,
-                      int            plane);
+  int (* get_offset_for_plane) (MetaDrmBuffer *buffer,
+                                int            plane);
   uint64_t (* get_modifier) (MetaDrmBuffer *buffer);
-
-  gboolean (* fill_timings) (MetaDrmBuffer  *buffer,
-                             CoglFrameInfo  *info,
-                             GError        **error);
 };
 
 MetaDeviceFile * meta_drm_buffer_get_device_file (MetaDrmBuffer *buffer);
@@ -65,5 +68,3 @@ MetaDeviceFile * meta_drm_buffer_get_device_file (MetaDrmBuffer *buffer);
 gboolean meta_drm_buffer_do_ensure_fb_id (MetaDrmBuffer        *buffer,
                                           const MetaDrmFbArgs  *fb_args,
                                           GError              **error);
-
-#endif /* META_DRM_BUFFER_PRIVATE_H */

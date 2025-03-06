@@ -1,4 +1,4 @@
-all_variants = ['gl', 'gl3', 'gles2']
+all_variants = ['gl3', 'gles2']
 any_variant = ['any']
 
 cogl_unit_tests = [
@@ -14,6 +14,7 @@ test_env = environment()
 test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 test_env.set('G_ENABLE_DIAGNOSTIC', '0')
+test_env.set('GSETTINGS_SCHEMA_DIR', locally_compiled_schemas_dir)
 
 foreach unit_test: cogl_unit_tests
   test_name = 'cogl-' + unit_test[0]
@@ -28,9 +29,6 @@ foreach unit_test: cogl_unit_tests
     c_args: [
       '-D__COGL_H_INSIDE__',
       '-DCOGL_ENABLE_MUTTER_API',
-      '-DCOGL_ENABLE_EXPERIMENTAL_API',
-      '-DCOGL_DISABLE_DEPRECATED',
-      '-DCOGL_DISABLE_DEPRECATION_WARNINGS',
     ],
     include_directories: [
       cogl_includepath,
@@ -47,6 +45,7 @@ foreach unit_test: cogl_unit_tests
       variant_test_env = test_env
       variant_test_env.set('COGL_DRIVER', variant)
     endif
+    variant_test_env.set('COGL_DEBUG', 'winsys')
 
     test('@0@-@1@'.format(test_name, variant), test_executable,
       suite: ['cogl', 'cogl/unit'],

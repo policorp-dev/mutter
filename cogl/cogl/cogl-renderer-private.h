@@ -28,48 +28,35 @@
  *
  */
 
-#ifndef __COGL_RENDERER_PRIVATE_H
-#define __COGL_RENDERER_PRIVATE_H
+#pragma once
 
 #include <gmodule.h>
 
-#include "cogl-object-private.h"
-#include "cogl-driver.h"
-#include "cogl-texture-driver.h"
-#include "cogl-context.h"
-#include "cogl-closure-list-private.h"
-#include "winsys/cogl-winsys-private.h"
+#include "cogl/cogl-driver-private.h"
+#include "cogl/cogl-texture-driver.h"
+#include "cogl/cogl-context.h"
+#include "cogl/cogl-closure-list-private.h"
+#include "cogl/winsys/cogl-winsys-private.h"
 
 typedef const CoglWinsysVtable *(*CoglCustomWinsysVtableGetter) (CoglRenderer *renderer);
 
 struct _CoglRenderer
 {
-  CoglObject _parent;
+  GObject parent_instance;
+
+  CoglDisplay *display;
+
   gboolean connected;
-  CoglDriver driver_override;
-  const CoglDriverVtable *driver_vtable;
-  const CoglTextureDriver *texture_driver;
+  CoglDriverId driver_override;
+  CoglDriver *driver;
+  CoglTextureDriver *texture_driver;
   const CoglWinsysVtable *winsys_vtable;
   void *custom_winsys_user_data;
   CoglCustomWinsysVtableGetter custom_winsys_vtable_getter;
-  CoglWinsysID winsys_id_override;
-  GList *constraints;
-
-  GArray *poll_fds;
-  int poll_fds_age;
-  GList *poll_sources;
 
   CoglList idle_closures;
 
-  GList *outputs;
-
-#ifdef COGL_HAS_XLIB
-  Display *foreign_xdpy;
-  gboolean xlib_enable_event_retrieval;
-  gboolean xlib_want_reset_on_video_memory_purge;
-#endif
-
-  CoglDriver driver;
+  CoglDriverId driver_id;
   unsigned long private_features
     [COGL_FLAGS_N_LONGS_FOR_SIZE (COGL_N_PRIVATE_FEATURES)];
   GModule *libgl_module;
@@ -82,10 +69,6 @@ struct _CoglRenderer
 typedef CoglFilterReturn (* CoglNativeFilterFunc) (void *native_event,
                                                    void *data);
 
-CoglFilterReturn
-_cogl_renderer_handle_native_event (CoglRenderer *renderer,
-                                    void *event);
-
 void
 _cogl_renderer_add_native_filter (CoglRenderer *renderer,
                                   CoglNativeFilterFunc func,
@@ -95,10 +78,3 @@ void
 _cogl_renderer_remove_native_filter (CoglRenderer *renderer,
                                      CoglNativeFilterFunc func,
                                      void *data);
-
-void *
-_cogl_renderer_get_proc_address (CoglRenderer *renderer,
-                                 const char *name,
-                                 gboolean in_core);
-
-#endif /* __COGL_RENDERER_PRIVATE_H */

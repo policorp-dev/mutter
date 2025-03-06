@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_CRTC_MODE_H
-#define META_CRTC_MODE_H
+#pragma once
 
 #include <glib-object.h>
 #include <stdint.h>
@@ -47,6 +44,12 @@ typedef enum _MetaCrtcModeFlag
   META_CRTC_MODE_FLAG_MASK = 0x3fff
 } MetaCrtcModeFlag;
 
+typedef enum _MetaCrtcRefreshRateMode
+{
+  META_CRTC_REFRESH_RATE_MODE_FIXED,
+  META_CRTC_REFRESH_RATE_MODE_VARIABLE,
+} MetaCrtcRefreshRateMode;
+
 typedef struct _MetaCrtcModeInfo
 {
   grefcount ref_count;
@@ -54,6 +57,7 @@ typedef struct _MetaCrtcModeInfo
   int width;
   int height;
   float refresh_rate;
+  MetaCrtcRefreshRateMode refresh_rate_mode;
   int64_t vblank_duration_us;
   uint32_t pixel_clock_khz;
   MetaCrtcModeFlag flags;
@@ -90,5 +94,3 @@ const char * meta_crtc_mode_get_name (MetaCrtcMode *crtc_mode);
 
 META_EXPORT_TEST
 const MetaCrtcModeInfo * meta_crtc_mode_get_info (MetaCrtcMode *crtc_mode);
-
-#endif /* META_CRTC_MODE_H */

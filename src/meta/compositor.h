@@ -17,15 +17,14 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_COMPOSITOR_H
-#define META_COMPOSITOR_H
+#pragma once
 
 #include <glib.h>
 
-#include <meta/types.h>
-#include <meta/boxes.h>
-#include <meta/window.h>
-#include <meta/workspace.h>
+#include "meta/types.h"
+#include "meta/boxes.h"
+#include "meta/window.h"
+#include "meta/workspace.h"
 
 #define META_TYPE_COMPOSITOR (meta_compositor_get_type ())
 META_EXPORT
@@ -68,102 +67,28 @@ typedef enum
 } MetaSizeChange;
 
 META_EXPORT
-void            meta_compositor_destroy (MetaCompositor *compositor);
-
-META_EXPORT
-void meta_compositor_manage   (MetaCompositor *compositor);
-
-META_EXPORT
-void meta_compositor_unmanage (MetaCompositor *compositor);
-
-META_EXPORT
-void meta_compositor_window_shape_changed (MetaCompositor *compositor,
-                                           MetaWindow     *window);
-
-META_EXPORT
-void meta_compositor_window_opacity_changed (MetaCompositor *compositor,
-                                             MetaWindow     *window);
-
-META_EXPORT
-gboolean meta_compositor_filter_keybinding (MetaCompositor *compositor,
-                                            MetaKeyBinding *binding);
-
-META_EXPORT
-void meta_compositor_add_window        (MetaCompositor      *compositor,
-                                        MetaWindow          *window);
-
-META_EXPORT
-void meta_compositor_remove_window     (MetaCompositor      *compositor,
-                                        MetaWindow          *window);
-
-META_EXPORT
-void meta_compositor_show_window       (MetaCompositor      *compositor,
-                                        MetaWindow          *window,
-                                        MetaCompEffect       effect);
-
-META_EXPORT
-void meta_compositor_hide_window       (MetaCompositor      *compositor,
-                                        MetaWindow          *window,
-                                        MetaCompEffect       effect);
-
-META_EXPORT
-void meta_compositor_switch_workspace  (MetaCompositor      *compositor,
-                                        MetaWorkspace       *from,
-                                        MetaWorkspace       *to,
-                                        MetaMotionDirection  direction);
-
-META_EXPORT
-void meta_compositor_size_change_window (MetaCompositor      *compositor,
-                                         MetaWindow          *window,
-                                         MetaSizeChange       which_change,
-                                         MetaRectangle       *old_frame_rect,
-                                         MetaRectangle       *old_buffer_rect);
-
-META_EXPORT
-void meta_compositor_sync_window_geometry (MetaCompositor *compositor,
-                                           MetaWindow     *window,
-                                           gboolean        did_placement);
-
-META_EXPORT
-void meta_compositor_sync_updates_frozen  (MetaCompositor *compositor,
-                                           MetaWindow     *window);
-
-META_EXPORT
-void meta_compositor_queue_frame_drawn    (MetaCompositor *compositor,
-                                           MetaWindow     *window,
-                                           gboolean        no_delay_frame);
-
-META_EXPORT
-void meta_compositor_sync_stack                (MetaCompositor *compositor,
-                                                GList          *stack);
-
-META_EXPORT
-void meta_compositor_flash_display             (MetaCompositor *compositor,
-                                                MetaDisplay    *display);
-
-META_EXPORT
-void meta_compositor_show_tile_preview (MetaCompositor *compositor,
-                                        MetaWindow     *window,
-                                        MetaRectangle  *tile_rect,
-                                        int             tile_monitor_number);
-
-META_EXPORT
-void meta_compositor_hide_tile_preview (MetaCompositor *compositor);
-
-META_EXPORT
-void meta_compositor_show_window_menu (MetaCompositor     *compositor,
-                                       MetaWindow         *window,
-				       MetaWindowMenuType  menu,
-                                       int                 x,
-                                       int                 y);
-
-META_EXPORT
-void meta_compositor_show_window_menu_for_rect (MetaCompositor     *compositor,
-                                                MetaWindow         *window,
-				                MetaWindowMenuType  menu,
-                                                MetaRectangle      *rect);
-
-META_EXPORT
 MetaLaters * meta_compositor_get_laters (MetaCompositor *compositor);
 
-#endif /* META_COMPOSITOR_H */
+META_EXPORT
+ClutterActor * meta_compositor_get_feedback_group (MetaCompositor *compositor);
+
+META_EXPORT
+MetaBackend * meta_compositor_get_backend (MetaCompositor *compositor);
+
+META_EXPORT
+ClutterStage * meta_compositor_get_stage (MetaCompositor *compositor);
+
+META_EXPORT
+ClutterActor * meta_compositor_get_window_group (MetaCompositor *compositor);
+
+META_EXPORT
+GList * meta_compositor_get_window_actors (MetaCompositor *compositor);
+
+META_EXPORT
+ClutterActor * meta_compositor_get_top_window_group (MetaCompositor *compositor);
+
+META_EXPORT
+void meta_compositor_disable_unredirect (MetaCompositor *compositor);
+
+META_EXPORT
+void meta_compositor_enable_unredirect (MetaCompositor *compositor);

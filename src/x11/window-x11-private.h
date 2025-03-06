@@ -20,11 +20,10 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WINDOW_X11_PRIVATE_H
-#define META_WINDOW_X11_PRIVATE_H
+#pragma once
 
 #include "core/window-private.h"
-#include "x11/iconcache.h"
+#include "x11/meta-sync-counter.h"
 #include "x11/window-x11.h"
 
 G_BEGIN_DECLS
@@ -59,6 +58,8 @@ struct _MetaWindowX11Private
 
   Atom type_atom;
 
+  XWindowAttributes attributes;
+
   /* Requested geometry */
   int border_width;
 
@@ -66,30 +67,85 @@ struct _MetaWindowX11Private
 
   /* These are in server coordinates. If we have a frame, it's
    * relative to the frame. */
-  MetaRectangle client_rect;
+  MtkRectangle client_rect;
 
-  MetaIconCache icon_cache;
+  /* if non-NULL, the opaque region _NET_WM_OPAQUE_REGION */
+  MtkRegion *opaque_region;
+
+  /* the input shape region for picking */
+  MtkRegion *input_region;
+
+  /* if non-NULL, the bounding shape region of the window. Relative to
+   * the server-side client window. */
+  MtkRegion *shape_region;
+
   Pixmap wm_hints_pixmap;
   Pixmap wm_hints_mask;
-
-  cairo_surface_t *icon;
-  cairo_surface_t *mini_icon;
-  guint update_icon_handle_id;
 
   /* Freeze/thaw on resize (for Xwayland) */
   gboolean thaw_after_paint;
 
+  Visual *xvisual;
+
+  Window xwindow;
+  Window xclient_leader;
+  Window xgroup_leader;
+
+  /* window that gets updated net_wm_user_time values */
+  Window user_time_window;
+
   /* Bypass compositor hints */
   MetaBypassCompositorHint bypass_compositor;
+
+  /* maintained by group.c */
+  MetaGroup *group;
+  /* may be NULL! not all windows get decorated */
+  MetaFrame *frame;
+
+  gboolean has_custom_frame_extents;
+  MetaSyncCounter sync_counter;
+
+  /* Used by keybindings.c */
+  gboolean keys_grabbed;     /* normal keybindings grabbed */
+  gboolean grab_on_frame;    /* grabs are on the frame */
+
+  char *wm_client_machine;
+  char *sm_client_id;
 };
 
 MetaWindowX11Private * meta_window_x11_get_private (MetaWindowX11 *window_x11);
 
-void meta_window_x11_set_bypass_compositor_hint (MetaWindowX11            *window_x11,
-                                                 MetaBypassCompositorHint  requested_value);
+void meta_window_x11_initialize_state (MetaWindow *window);
 
-void meta_window_x11_queue_update_icon (MetaWindowX11 *window_x11);
+Window meta_window_x11_get_xgroup_leader (MetaWindow *window);
+
+Window meta_window_x11_get_user_time_window (MetaWindow *window);
+
+Window meta_window_x11_get_xtransient_for (MetaWindow *window);
+
+gboolean meta_window_x11_has_pointer (MetaWindow *window);
+
+gboolean meta_window_x11_same_application (MetaWindow *window,
+                                           MetaWindow *other_window);
+
+void meta_window_x11_shutdown_group (MetaWindow *window);
+
+META_EXPORT
+void meta_window_x11_group_leader_changed (MetaWindow *window);
+
+void meta_window_x11_set_frame_xwindow (MetaWindow *window,
+                                        Window      xframe);
+
+gboolean meta_window_x11_is_ssd (MetaWindow *window);
+
+void meta_window_x11_get_session_geometry (MetaWindow  *window,
+                                           int         *x,
+                                           int         *y,
+                                           int         *width,
+                                           int         *height);
+
+gboolean
+meta_window_x11_get_frame_borders (MetaWindow       *window,
+                                   MetaFrameBorders *borders);
 
 G_END_DECLS
-
-#endif

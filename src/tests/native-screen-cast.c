@@ -12,75 +12,52 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "config.h"
 
-#include "tests/native-screen-cast.h"
-
 #include <errno.h>
 #include <gio/gio.h>
 #include <unistd.h>
 
-static void
-test_client_exited (GObject      *source_object,
-                    GAsyncResult *result,
-                    gpointer      user_data)
-{
-  GError *error = NULL;
-
-  if (!g_subprocess_wait_finish (G_SUBPROCESS (source_object),
-                                 result,
-                                 &error))
-    g_error ("Screen cast test client exited with an error: %s", error->message);
-
-  g_main_loop_quit (user_data);
-}
+#include "meta/util.h"
+#include "tests/meta-test-utils.h"
+#include "tests/meta-test/meta-context-test.h"
 
 static void
 meta_test_screen_cast_record_virtual (void)
 {
-  GSubprocessLauncher *launcher;
-  g_autofree char *test_client_path = NULL;
-  GError *error = NULL;
-  GSubprocess *subprocess;
-  GMainLoop *loop;
+  g_autoptr (GSubprocess) subprocess = NULL;
 
-  launcher =  g_subprocess_launcher_new ((G_SUBPROCESS_FLAGS_STDIN_PIPE |
-                                          G_SUBPROCESS_FLAGS_STDOUT_PIPE));
-
-  test_client_path = g_test_build_filename (G_TEST_BUILT,
-                                            "src",
-                                            "tests",
+  meta_add_verbose_topic (META_DEBUG_SCREEN_CAST);
+  subprocess = meta_launch_test_executable (G_SUBPROCESS_FLAGS_NONE,
                                             "mutter-screen-cast-client",
                                             NULL);
-  g_subprocess_launcher_setenv (launcher,
-                                "XDG_RUNTIME_DIR", getenv ("XDG_RUNTIME_DIR"),
-                                TRUE);
-  subprocess = g_subprocess_launcher_spawn (launcher,
-                                            &error,
-                                            test_client_path,
-                                            NULL);
-  if (!subprocess)
-    g_error ("Failed to launch screen cast test client: %s", error->message);
-
-  loop = g_main_loop_new (NULL, FALSE);
-  g_subprocess_wait_check_async (subprocess,
-                                 NULL,
-                                 test_client_exited,
-                                 loop);
-  g_main_loop_run (loop);
-  g_assert_true (g_subprocess_get_successful (subprocess));
-  g_object_unref (subprocess);
+  meta_wait_test_process (subprocess);
+  meta_remove_verbose_topic (META_DEBUG_SCREEN_CAST);
 }
 
-void
-init_screen_cast_tests (void)
+static void
+init_tests (void)
 {
   g_test_add_func ("/backends/native/screen-cast/record-virtual",
                    meta_test_screen_cast_record_virtual);
+}
+
+int
+main (int    argc,
+      char **argv)
+{
+  g_autoptr (MetaContext) context = NULL;
+
+  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
+                                      META_CONTEXT_TEST_FLAG_NO_X11);
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
+
+  init_tests ();
+
+  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
+                                      META_TEST_RUN_FLAG_NONE);
 }

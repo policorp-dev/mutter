@@ -1,8 +1,7 @@
-#ifndef __CLUTTER_STAGE_WINDOW_H__
-#define __CLUTTER_STAGE_WINDOW_H__
+#pragma once
 
-#include <cogl/cogl.h>
-#include <clutter/clutter-types.h>
+#include "cogl/cogl.h"
+#include "clutter/clutter-types.h"
 #include "clutter/clutter-stage-view.h"
 
 G_BEGIN_DECLS
@@ -10,24 +9,18 @@ G_BEGIN_DECLS
 #define CLUTTER_TYPE_STAGE_WINDOW (clutter_stage_window_get_type ())
 
 CLUTTER_EXPORT
-G_DECLARE_INTERFACE (ClutterStageWindow, clutter_stage_window,
-                     CLUTTER, STAGE_WINDOW,
-                     GObject)
+G_DECLARE_DERIVABLE_TYPE (ClutterStageWindow, clutter_stage_window,
+                          CLUTTER, STAGE_WINDOW,
+                          GObject)
 
 /*
- * ClutterStageWindowInterface: (skip)
+ * ClutterStageWindowClass: (skip)
  *
- * The interface implemented by backends for stage windows
+ * The parent class for for stage windows
  */
-struct _ClutterStageWindowInterface
+struct _ClutterStageWindowClass
 {
-  /*< private >*/
-  GTypeInterface parent_iface;
-
-  ClutterActor     *(* get_wrapper)             (ClutterStageWindow *stage_window);
-
-  void              (* set_title)               (ClutterStageWindow *stage_window,
-                                                 const gchar        *title);
+  GObjectClass parent_class;
 
   gboolean          (* realize)                 (ClutterStageWindow *stage_window);
   void              (* unrealize)               (ClutterStageWindow *stage_window);
@@ -40,7 +33,7 @@ struct _ClutterStageWindowInterface
                                                  gint                width,
                                                  gint                height);
   void              (* get_geometry)            (ClutterStageWindow *stage_window,
-                                                 cairo_rectangle_int_t *geometry);
+                                                 MtkRectangle       *geometry);
 
   void              (* redraw_view)             (ClutterStageWindow *stage_window,
                                                  ClutterStageView   *view,
@@ -58,13 +51,6 @@ struct _ClutterStageWindowInterface
                                                  ClutterFrame       *frame);
 };
 
-ClutterActor *    _clutter_stage_window_get_wrapper        (ClutterStageWindow *window);
-
-void              _clutter_stage_window_set_title          (ClutterStageWindow *window,
-                                                            const gchar        *title);
-void              _clutter_stage_window_set_cursor_visible (ClutterStageWindow *window,
-                                                            gboolean            is_visible);
-
 gboolean          _clutter_stage_window_realize                 (ClutterStageWindow *window);
 void              _clutter_stage_window_unrealize               (ClutterStageWindow *window);
 
@@ -77,10 +63,7 @@ void              _clutter_stage_window_resize                  (ClutterStageWin
                                                                  gint                height);
 CLUTTER_EXPORT
 void              _clutter_stage_window_get_geometry            (ClutterStageWindow *window,
-                                                                 cairo_rectangle_int_t *geometry);
-
-void              _clutter_stage_window_set_accept_focus        (ClutterStageWindow *window,
-                                                                 gboolean            accept_focus);
+                                                                 MtkRectangle       *geometry);
 
 void               _clutter_stage_window_redraw_view            (ClutterStageWindow *window,
                                                                  ClutterStageView   *view,
@@ -102,5 +85,3 @@ void              _clutter_stage_window_finish_frame            (ClutterStageWin
 int64_t           _clutter_stage_window_get_frame_counter       (ClutterStageWindow *window);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_STAGE_WINDOW_H__ */

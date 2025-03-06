@@ -14,16 +14,13 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Written by:
  *     Jasper St. Pierre <jstpierre@mecheye.net>
  */
 
-#ifndef META_BACKEND_H
-#define META_BACKEND_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -31,6 +28,7 @@
 #include "meta/meta-dnd.h"
 #include "meta/meta-idle-monitor.h"
 #include "meta/meta-monitor-manager.h"
+#include "meta/meta-orientation-manager.h"
 #include "meta/meta-remote-access-controller.h"
 
 typedef enum _MetaBackendCapabilities
@@ -44,13 +42,11 @@ META_EXPORT
 G_DECLARE_DERIVABLE_TYPE (MetaBackend, meta_backend, META, BACKEND, GObject)
 
 META_EXPORT
-MetaBackend * meta_get_backend (void);
-
-META_EXPORT
 void meta_backend_set_keymap (MetaBackend *backend,
                               const char  *layouts,
                               const char  *variants,
-                              const char  *options);
+                              const char  *options,
+                              const char  *model);
 
 META_EXPORT
 void meta_backend_lock_layout_group (MetaBackend *backend,
@@ -75,6 +71,9 @@ META_EXPORT
 MetaMonitorManager * meta_backend_get_monitor_manager (MetaBackend *backend);
 
 META_EXPORT
+MetaOrientationManager * meta_backend_get_orientation_manager (MetaBackend *backend);
+
+META_EXPORT
 MetaRemoteAccessController * meta_backend_get_remote_access_controller (MetaBackend *backend);
 
 META_EXPORT
@@ -84,9 +83,22 @@ META_EXPORT
 gboolean meta_backend_is_headless (MetaBackend *backend);
 
 META_EXPORT
+void meta_backend_freeze_keyboard (MetaBackend *backend,
+                                   uint32_t     timestamp);
+
+META_EXPORT
+void meta_backend_ungrab_keyboard (MetaBackend *backend,
+                                   uint32_t     timestamp);
+
+META_EXPORT
+void meta_backend_unfreeze_keyboard (MetaBackend *backend,
+                                     uint32_t     timestamp);
+
+META_EXPORT
 MetaBackendCapabilities meta_backend_get_capabilities (MetaBackend *backend);
 
 META_EXPORT
-void meta_clutter_init (void);
+void meta_backend_renderdoc_capture (MetaBackend *backend);
 
-#endif /* META_BACKEND_H */
+META_EXPORT
+MetaCursorTracker * meta_backend_get_cursor_tracker (MetaBackend *backend);

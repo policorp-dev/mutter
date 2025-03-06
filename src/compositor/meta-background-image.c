@@ -16,18 +16,16 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * SECTION:meta-background-image
- * @title: MetaBackgroundImage
- * @short_description: objects holding images loaded from files, used for backgrounds
- */
-
 #include "config.h"
 
 #include "meta/meta-background-image.h"
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gio/gio.h>
+
+#ifdef HAVE_MALLOC_TRIM
+#include <malloc.h>
+#endif
 
 #include "clutter/clutter.h"
 #include "compositor/cogl-utils.h"
@@ -43,9 +41,10 @@ static guint signals[LAST_SIGNAL] = { 0 };
 /**
  * MetaBackgroundImageCache:
  *
- * #MetaBackgroundImageCache caches loading of textures for backgrounds; there's actually
- * nothing background specific about it, other than it is tuned to work well for
- * large images as typically are used for backgrounds.
+ * Caches loading of textures for backgrounds.
+ *
+ * There's actually nothing background specific about it, other than it is tuned
+ * to work well for large images as typically are used for backgrounds.
  */
 struct _MetaBackgroundImageCache
 {
@@ -57,7 +56,7 @@ struct _MetaBackgroundImageCache
 /**
  * MetaBackgroundImage:
  *
- * #MetaBackgroundImage is an object that represents a loaded or loading background image.
+ * Represents a loaded or loading background image.
  */
 struct _MetaBackgroundImage
 {
@@ -140,6 +139,10 @@ load_file (GTask               *task,
   pixbuf = gdk_pixbuf_new_from_stream (G_INPUT_STREAM (stream), NULL, &error);
   g_object_unref (stream);
 
+#ifdef HAVE_MALLOC_TRIM
+  malloc_trim (0);
+#endif
+
   if (pixbuf == NULL)
     {
       g_task_return_error (task, error);
@@ -154,6 +157,8 @@ file_loaded (GObject      *source_object,
              GAsyncResult *result,
              gpointer      user_data)
 {
+  ClutterBackend *backend = clutter_get_default_backend ();
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   MetaBackgroundImage *image = META_BACKGROUND_IMAGE (source_object);
   g_autoptr (GError) error = NULL;
   g_autoptr (GError) local_error = NULL;
@@ -189,7 +194,7 @@ file_loaded (GObject      *source_object,
   pixels = gdk_pixbuf_get_pixels (pixbuf);
   has_alpha = gdk_pixbuf_get_has_alpha (pixbuf);
 
-  texture = meta_create_texture (width, height,
+  texture = meta_create_texture (width, height, ctx,
                                  has_alpha ? COGL_TEXTURE_COMPONENTS_RGBA : COGL_TEXTURE_COMPONENTS_RGB,
                                  META_TEXTURE_ALLOW_SLICING);
 
@@ -201,7 +206,7 @@ file_loaded (GObject      *source_object,
     {
       g_warning ("Failed to create texture for background: %s",
                  local_error->message);
-      cogl_clear_object (&texture);
+      g_clear_object (&texture);
     }
 
   image->texture = texture;
@@ -220,10 +225,11 @@ out:
  * @file: #GFile to load
  *
  * Loads an image to use as a background, or returns a reference to an
- * image that is already in the process of loading or loaded. In either
- * case, what is returned is a #MetaBackgroundImage which can be dereferenced
- * to get a #CoglTexture. If meta_background_image_is_loaded() returns %TRUE,
- * the background is loaded, otherwise the MetaBackgroundImage::loaded
+ * image that is already in the process of loading or loaded.
+ *
+ * In either case, what is returned is a [class@Meta.BackgroundImage] which can be dereferenced
+ * to get a [class@Cogl.Texture]. If [method@Meta.BackgroundImage.is_loaded] returns %TRUE,
+ * the background is loaded, otherwise the [signal@Meta.BackgroundImage::loaded]
  * signal will be emitted exactly once. The 'loaded' state means that the
  * loading process finished, whether it succeeded or failed.
  *
@@ -298,7 +304,7 @@ meta_background_image_finalize (GObject *object)
     g_hash_table_remove (image->cache->images, image->file);
 
   if (image->texture)
-    cogl_object_unref (image->texture);
+    g_object_unref (image->texture);
   if (image->file)
     g_object_unref (image->file);
 

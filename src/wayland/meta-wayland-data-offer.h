@@ -21,14 +21,15 @@
  * OF THIS SOFTWARE.
  */
 
-#ifndef META_WAYLAND_DATA_OFFER_H
-#define META_WAYLAND_DATA_OFFER_H
+#pragma once
 
 #include "meta/meta-selection.h"
 #include "wayland/meta-wayland-data-source.h"
 
 struct _MetaWaylandDataOffer
 {
+  MetaWaylandCompositor *compositor;
+
   struct wl_resource *resource;
   MetaWaylandDataSource *source;
   struct wl_listener source_destroy_listener;
@@ -39,7 +40,8 @@ struct _MetaWaylandDataOffer
   MetaSelectionType selection_type;
 };
 
-MetaWaylandDataOffer * meta_wayland_data_offer_new (MetaSelectionType      selection_type,
+MetaWaylandDataOffer * meta_wayland_data_offer_new (MetaWaylandCompositor *compositor,
+                                                    MetaSelectionType      selection_type,
                                                     MetaWaylandDataSource *source,
                                                     struct wl_resource    *resource);
 
@@ -47,5 +49,3 @@ void meta_wayland_data_offer_update_action (MetaWaylandDataOffer *offer);
 
 struct wl_resource *    meta_wayland_data_offer_get_resource (MetaWaylandDataOffer *offer);
 MetaWaylandDataSource * meta_wayland_data_offer_get_source   (MetaWaylandDataOffer *offer);
-
-#endif /* META_WAYLAND_DATA_OFFER_H */

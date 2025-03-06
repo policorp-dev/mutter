@@ -19,12 +19,13 @@
  * Author: Giovanni Campagna <gcampagn@redhat.com>
  */
 
-#ifndef META_CURSOR_H
-#define META_CURSOR_H
+#pragma once
 
 #include "backends/meta-backend-types.h"
+#include "core/util-private.h"
 #include "meta/common.h"
 #include "meta/boxes.h"
+#include "mtk/mtk.h"
 
 #define META_TYPE_CURSOR_SPRITE (meta_cursor_sprite_get_type ())
 G_DECLARE_DERIVABLE_TYPE (MetaCursorSprite,
@@ -71,8 +72,19 @@ void meta_cursor_sprite_set_texture (MetaCursorSprite *sprite,
 void meta_cursor_sprite_set_texture_scale (MetaCursorSprite *sprite,
                                            float             scale);
 
-void meta_cursor_sprite_set_texture_transform (MetaCursorSprite     *sprite,
-                                               MetaMonitorTransform  transform);
+void meta_cursor_sprite_set_texture_transform (MetaCursorSprite    *sprite,
+                                               MtkMonitorTransform  transform);
+
+void meta_cursor_sprite_set_viewport_src_rect (MetaCursorSprite      *sprite,
+                                               const graphene_rect_t *src_rect);
+
+void meta_cursor_sprite_reset_viewport_src_rect (MetaCursorSprite *sprite);
+
+void meta_cursor_sprite_set_viewport_dst_size (MetaCursorSprite *sprite,
+                                               int               dst_width,
+                                               int               dst_height);
+
+void meta_cursor_sprite_reset_viewport_dst_size (MetaCursorSprite *sprite);
 
 CoglTexture *meta_cursor_sprite_get_cogl_texture (MetaCursorSprite *sprite);
 
@@ -86,7 +98,13 @@ int meta_cursor_sprite_get_height (MetaCursorSprite *sprite);
 
 float meta_cursor_sprite_get_texture_scale (MetaCursorSprite *sprite);
 
-MetaMonitorTransform meta_cursor_sprite_get_texture_transform (MetaCursorSprite *sprite);
+MtkMonitorTransform meta_cursor_sprite_get_texture_transform (MetaCursorSprite *sprite);
+
+const graphene_rect_t * meta_cursor_sprite_get_viewport_src_rect (MetaCursorSprite *sprite);
+
+gboolean meta_cursor_sprite_get_viewport_dst_size (MetaCursorSprite *sprite,
+                                                   int              *dst_width,
+                                                   int              *dst_height);
 
 gboolean meta_cursor_sprite_is_animated (MetaCursorSprite *sprite);
 
@@ -94,4 +112,6 @@ void meta_cursor_sprite_tick_frame (MetaCursorSprite *sprite);
 
 unsigned int meta_cursor_sprite_get_current_frame_time (MetaCursorSprite *sprite);
 
-#endif /* META_CURSOR_H */
+ClutterColorState * meta_cursor_sprite_get_color_state (MetaCursorSprite *sprite);
+
+MetaCursorTracker * meta_cursor_sprite_get_cursor_tracker (MetaCursorSprite *sprite);

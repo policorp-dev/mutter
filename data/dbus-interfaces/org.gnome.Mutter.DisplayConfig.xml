@@ -210,11 +210,82 @@
         Returns the new value after rounding.
     -->
     <method name="ChangeBacklight">
+      <annotation name="org.freedesktop.DBus.Deprecated" value="true"/>
       <arg name="serial" direction="in" type="u" />
       <arg name="output" direction="in" type="u" />
       <arg name="value" direction="in" type="i" />
       <arg name="new_value" direction="out" type="i" />
     </method>
+
+    <!--
+	SetBacklight:
+	@serial: configuration serial
+	@connector: the connector name
+	@value: the new backlight value
+
+	Changes the backlight of @output to @value.
+    -->
+    <method name="SetBacklight">
+      <arg name="serial" direction="in" type="u" />
+      <arg name="connector" direction="in" type="s" />
+      <arg name="value" direction="in" type="i" />
+    </method>
+
+    <!--
+	Backlight:
+
+	A set of backlights. Each backlight is a dictionary with the following
+	entries. If an entry is only a connector, it means there is no way to
+	control it via this D-Bus interface.
+
+	  * 'connector' (s) - An associated monitor connector
+	  * 'active' (s) - True if the monitor is active
+	  * 'value' (i) - Current value (optional)
+
+	The initial 'u' is a serial number used when setting the backlight.
+    -->
+    <property name="Backlight" type="(uaa{sv})" access="read" />
+
+    <!--
+        SetOutputLuminance:
+
+        Sets the luminance of a monitor when in the specified color mode (see
+        GetCurrentState() for available color modes). The luminance is a
+        floating point value representing the luminance in percent (%).
+    -->
+    <method name="SetLuminance">
+      <arg name="connector" direction="in" type="s" />
+      <arg name="color_mode" direction="in" type="u" />
+      <arg name="luminance" direction="in" type="d" />
+    </method>
+
+    <!--
+        ResetOutputLuminance:
+
+        Resets the luminance of a monitor to its default when in the specified
+        color mode (see GetCurrentState() for available color modes).
+    -->
+    <method name="ResetLuminance">
+      <arg name="connector" direction="in" type="s" />
+      <arg name="color_mode" direction="in" type="u" />
+    </method>
+
+    <!--
+        Luminance:
+
+        Luminance settings. The property is a list of dictionaries of luminance
+        settings entries.
+
+        The luminance setting is per color mode and monitor.
+
+        Each dictionary consists of the following entries:
+	  * 'connector' (s) - The associated connector.
+	  * 'color-mode' (u) - The associated color mode.
+	  * 'luminance' (d) - The current luminance.
+	  * 'is-unset' (b) - True if the luminance is not explicitly set.
+	  * 'default' (d) - The default luminance.
+    -->
+    <property name="Luminance" type="aa{sv}" access="read" />
 
     <!--
         GetCrtcGamma:
@@ -337,6 +408,9 @@
 	       - "is-current" (b): the mode is currently active mode
 	       - "is-preferred" (b): the mode is the preferred mode
 	       - "is-interlaced" (b): the mode is an interlaced mode
+	       - "refresh-rate-mode" (s): the refresh rate mode, either
+					  "variable" or "fixed" (absence
+					  of this means "fixed")
 	* a{sv} properties: optional properties, including:
 	    - "width-mm" (i): physical width of monitor in millimeters
 	    - "height-mm" (i): physical height of monitor in millimeters
@@ -356,10 +430,20 @@
 				     it's enabled and second value whether it's
 				     hardware locked (and so can't be changed
 				     via gsettings)
+	    - "min-refresh-rate" (i): minimum refresh rate of monitor when
+	                              Variable Refresh Rate is active (absence
+	                              of this means unknown)
+	    - "is-for-lease" (b): whether the monitor is for lease or not
+	    - "color-mode" (u): current color mode
+	    - "supported-color-modes" (au): list of supported color modes
 
         Possible mode flags:
 	  1 : preferred mode
 	  2 : current mode
+
+        Available color modes:
+          0 : default
+          1 : BT.2100
 
 
 	@logical_monitors represent current logical monitor configuration
@@ -369,7 +453,7 @@
 	* d scale: scale
 	* u transform: transform (see below)
 	* b primary: true if this is the primary logical monitor
-	* a(sss) monitors: monitors displaying this logical monitor
+	* a(ssss) monitors: monitors displaying this logical monitor
 	    * connector: name of the connector (e.g. DP-1, eDP-1 etc)
 	    * vendor: vendor name
 	    * product: product name
@@ -390,8 +474,8 @@
 	@layout_mode current layout mode represents the way logical monitors
 	are laid out on the screen. Possible modes include:
 
-	  1 : physical
-	  2 : logical
+	  1 : logical
+	  2 : physical
 
 	With physical layout mode, each logical monitor has the same dimensions
 	as the monitor modes of the associated monitors assigned to it, no
@@ -420,10 +504,6 @@
 				       always use the same scale. Absence of
 				       this means logical monitor scales can
 				       differ.
-	* "legacy-ui-scaling-factor" (i): The legacy scaling factor traditionally
-				          used to scale X11 clients (commonly
-					  communicated via the
-					  Gdk/WindowScalingFactor XSetting entry).
     -->
     <method name="GetCurrentState">
       <arg name="serial" direction="out" type="u" />
@@ -458,9 +538,11 @@
 	    * s: connector
 	    * s: monitor mode ID
 	    * a{sv}: monitor properties, including:
-	        - "enable_underscanning" (b): enable monitor underscanning;
+	        - "underscanning" (b): enable monitor underscanning;
 					      may only be set when underscanning
 					      is supported (see GetCurrentState).
+		- "color-mode" (u): selected color mode. Defaults to
+				    "default". See GetCurrentState().
 
 	@properties may effect the global monitor configuration state. Possible
 	properties are:
@@ -468,6 +550,12 @@
 	* "layout-mode" (u): layout mode the passed configuration is in; may
 			     only be set when changing the layout mode is
 			     supported (see GetCurrentState).
+	* "monitors-for-lease" (a(ssss)): a list of monitors to be made available for
+	    lease. Monitors listed here must not be listed in @logical_monitors:
+	    * s connector: connector name (e.g. HDMI-1, DP-1, etc)
+	    * s vendor: vendor name
+	    * s product: product name
+	    * s serial: product serial
     -->
     <method name="ApplyMonitorsConfig">
       <arg name="serial" direction="in" type="u" />
@@ -489,5 +577,12 @@
       <arg name="output" direction="in" type="u" />
       <arg name="ctm" direction="in" type="(ttttttttt)" />
     </method>
+
+    <!--
+	HasExternalmonitor:
+
+        True if there is an external monitor connected and activated.
+    -->
+    <property name="HasExternalMonitor" type="b" access="read" />
   </interface>
 </node>

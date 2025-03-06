@@ -26,46 +26,45 @@
  *   Matthias Clasen
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
 #include <string.h>
 #include <math.h>
 
-#include "clutter-grid-layout.h"
+#include "clutter/clutter-grid-layout.h"
 
-#include "clutter-actor-private.h"
-#include "clutter-container.h"
-#include "clutter-debug.h"
-#include "clutter-enum-types.h"
-#include "clutter-layout-meta.h"
-#include "clutter-private.h"
+#include "clutter/clutter-actor-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-enum-types.h"
+#include "clutter/clutter-layout-meta.h"
+#include "clutter/clutter-private.h"
 
 /**
  * ClutterGridLayout:
- * 
+ *
  * A layout manager for a grid of actors
  *
  * #ClutterGridLayout is a layout manager which arranges its child widgets in
- * rows and columns. It is a very similar to #ClutterBoxLayout, but it
- * consistently uses #ClutterActor's alignment and expansion flags instead of
+ * rows and columns. It is a very similar to [class@Clutter.BoxLayout], but it
+ * consistently uses [class@Clutter.Actor]'s alignment and expansion flags instead of
  * custom child properties.
  *
- * Children are added using clutter_grid_layout_attach(). They can span
+ * Children are added using [method@Clutter.GridLayout.attach]. They can span
  * multiple rows or columns. It is also possible to add a child next to an
- * existing child, using clutter_grid_layout_attach_next_to(). The behaviour of
+ * existing child, using [method@Clutter.GridLayout.attach_next_to]. The behaviour of
  * #ClutterGridLayout when several children occupy the same grid cell is undefined.
  *
  * #ClutterGridLayout can be used like a #ClutterBoxLayout by just using
- * clutter_actor_add_child(), which will place children next to each other in
- * the direction determined by the #ClutterGridLayout:orientation property.
+ * [method@Clutter.Actor.add_child], which will place children next to each other in
+ * the direction determined by the [property@Clutter.GridLayout:orientation] property.
  */
 
 #define CLUTTER_TYPE_GRID_CHILD          (clutter_grid_child_get_type ())
-#define CLUTTER_GRID_CHILD(obj)          (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_GRID_CHILD, ClutterGridChild))
-#define CLUTTER_IS_GRID_CHILD(obj)       (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_GRID_CHILD))
 
-typedef struct _ClutterGridChild        ClutterGridChild;
-typedef struct _ClutterLayoutMetaClass  ClutterGridChildClass;
+G_DECLARE_FINAL_TYPE (ClutterGridChild,
+                      clutter_grid_child,
+                      CLUTTER, GRID_CHILD,
+                      ClutterLayoutMeta)
 
 typedef struct _ClutterGridAttach       ClutterGridAttach;
 typedef struct _ClutterGridLine         ClutterGridLine;
@@ -101,9 +100,11 @@ struct _ClutterGridLineData
   guint homogeneous : 1;
 };
 
-struct _ClutterGridLayoutPrivate
+struct _ClutterGridLayout
 {
-  ClutterContainer *container;
+  ClutterLayoutManager parent_instance;
+
+  ClutterActor *container;
   ClutterOrientation orientation;
 
   ClutterGridLineData linedata[2];
@@ -166,20 +167,17 @@ enum
 };
 static GParamSpec *child_props[PROP_CHILD_LAST];
 
-GType clutter_grid_child_get_type (void);
+G_DEFINE_FINAL_TYPE (ClutterGridChild, clutter_grid_child,
+                     CLUTTER_TYPE_LAYOUT_META)
 
-G_DEFINE_TYPE (ClutterGridChild, clutter_grid_child,
-               CLUTTER_TYPE_LAYOUT_META)
-
-G_DEFINE_TYPE_WITH_PRIVATE (ClutterGridLayout,
-                            clutter_grid_layout,
-                            CLUTTER_TYPE_LAYOUT_MANAGER)
+G_DEFINE_FINAL_TYPE (ClutterGridLayout, clutter_grid_layout,
+                     CLUTTER_TYPE_LAYOUT_MANAGER)
 
 
 #define GET_GRID_CHILD(grid, child) \
   (CLUTTER_GRID_CHILD(clutter_layout_manager_get_child_meta \
    (CLUTTER_LAYOUT_MANAGER((grid)),\
-    CLUTTER_GRID_LAYOUT((grid))->priv->container,(child))))
+    CLUTTER_GRID_LAYOUT((grid))->container,(child))))
 
 static void
 grid_attach (ClutterGridLayout *self,
@@ -213,7 +211,6 @@ find_attach_position (ClutterGridLayout  *self,
                       gint                op_span,
                       gboolean            max)
 {
-  ClutterGridLayoutPrivate *priv = self->priv;
   ClutterGridChild *grid_child;
   ClutterGridAttach *attach;
   ClutterGridAttach *opposite;
@@ -229,10 +226,10 @@ find_attach_position (ClutterGridLayout  *self,
 
   hit = FALSE;
 
-  if (!priv->container)
+  if (!self->container)
     return -1;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (self->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (self, child);
@@ -250,7 +247,7 @@ find_attach_position (ClutterGridLayout  *self,
           else
             pos = MIN (pos, attach->pos);
         }
-     }
+    }
 
   if (!hit)
     pos = 0;
@@ -340,21 +337,21 @@ static void
 clutter_grid_request_update_child_attach (ClutterGridRequest *request,
                                           ClutterActor       *actor)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
 
-  grid_child = GET_GRID_CHILD (request->grid, actor);
+  grid_child = GET_GRID_CHILD (grid, actor);
 
   if (CHILD_LEFT (grid_child) == -1 || CHILD_TOP (grid_child) == -1)
     {
       ClutterGridPosition side;
       ClutterActor *sibling;
 
-      if (priv->orientation == CLUTTER_ORIENTATION_HORIZONTAL)
+      if (grid->orientation == CLUTTER_ORIENTATION_HORIZONTAL)
         {
           ClutterTextDirection td;
           gboolean rtl;
-          ClutterActor *container = CLUTTER_ACTOR (priv->container);
+          ClutterActor *container = CLUTTER_ACTOR (grid->container);
 
           td = clutter_actor_get_text_direction (container);
           rtl = (td == CLUTTER_TEXT_DIRECTION_RTL) ? TRUE : FALSE;
@@ -369,8 +366,8 @@ clutter_grid_request_update_child_attach (ClutterGridRequest *request,
 
       sibling = clutter_actor_get_previous_sibling (actor);
       if (sibling)
-        clutter_grid_layout_insert_next_to (request->grid, sibling, side);
-      grid_attach_next_to (request->grid, actor, sibling, side,
+        clutter_grid_layout_insert_next_to (grid, sibling, side);
+      grid_attach_next_to (grid, actor, sibling, side,
                            CHILD_WIDTH (grid_child),
                            CHILD_HEIGHT (grid_child));
     }
@@ -379,11 +376,11 @@ clutter_grid_request_update_child_attach (ClutterGridRequest *request,
 static void
 clutter_grid_request_update_attach (ClutterGridRequest *request)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterActorIter iter;
   ClutterActor *child;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     clutter_grid_request_update_child_attach (request, child);
 }
@@ -393,7 +390,7 @@ clutter_grid_request_update_attach (ClutterGridRequest *request)
 static void
 clutter_grid_request_count_lines (ClutterGridRequest *request)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterGridAttach *attach;
   ClutterActorIter iter;
@@ -404,7 +401,7 @@ clutter_grid_request_count_lines (ClutterGridRequest *request)
   min[0] = min[1] = G_MAXINT;
   max[0] = max[1] = G_MININT;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (request->grid, child);
@@ -429,7 +426,7 @@ static void
 clutter_grid_request_init (ClutterGridRequest *request,
                            ClutterOrientation  orientation)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterGridAttach *attach;
   ClutterGridLines *lines;
@@ -446,7 +443,7 @@ clutter_grid_request_init (ClutterGridRequest *request,
       lines->lines[i].expand = FALSE;
     }
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (request->grid, child);
@@ -463,7 +460,7 @@ compute_allocation_for_child (ClutterGridRequest *request,
                               ClutterActor       *child,
                               ClutterOrientation  orientation)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
@@ -473,7 +470,7 @@ compute_allocation_for_child (ClutterGridRequest *request,
   gint i;
 
   grid_child = GET_GRID_CHILD (request->grid, child);
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
   attach = &grid_child->attach[orientation];
 
@@ -523,7 +520,7 @@ clutter_grid_request_non_spanning (ClutterGridRequest *request,
                                    ClutterOrientation  orientation,
                                    gboolean            contextual)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterGridAttach *attach;
   ClutterGridLines *lines;
@@ -535,7 +532,7 @@ clutter_grid_request_non_spanning (ClutterGridRequest *request,
 
   lines = &request->lines[orientation];
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       if (!clutter_actor_is_visible (child))
@@ -561,13 +558,13 @@ static void
 clutter_grid_request_homogeneous (ClutterGridRequest *request,
                                   ClutterOrientation  orientation)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
   gfloat minimum, natural;
   gint i;
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
 
   if (!linedata->homogeneous)
@@ -598,7 +595,7 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
                                ClutterOrientation  orientation,
                                gboolean            contextual)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterActor *child;
   ClutterActorIter iter;
@@ -617,10 +614,10 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
   gint line_extra;
   gint i;
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       if (!clutter_actor_is_visible (child))
@@ -635,15 +632,15 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
       compute_request_for_child (request, child, orientation, contextual,
                                  &minimum, &natural);
 
-      span_minimum = (attach->span - 1) * linedata->spacing;
-      span_natural = (attach->span - 1) * linedata->spacing;
+      span_minimum = (int) ((attach->span - 1) * linedata->spacing);
+      span_natural = (int) ((attach->span - 1) * linedata->spacing);
       span_expand = 0;
       force_expand = FALSE;
       for (i = 0; i < attach->span; i++)
         {
           line = &lines->lines[attach->pos - lines->min + i];
-          span_minimum += line->minimum;
-          span_natural += line->natural;
+          span_minimum += (int) line->minimum;
+          span_natural += (int) line->natural;
           if (line->expand)
             span_expand += 1;
         }
@@ -668,7 +665,7 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
             {
               gint total, m;
 
-              total = minimum - (attach->span - 1) * linedata->spacing;
+              total = (int) (minimum - (attach->span - 1) * linedata->spacing);
               m = total / attach->span + (total % attach->span ? 1 : 0);
               for (i = 0; i < attach->span; i++)
                 {
@@ -678,7 +675,7 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
             }
           else
             {
-              extra = minimum - span_minimum;
+              extra = (int) (minimum - span_minimum);
               expand = span_expand;
               for (i = 0; i < attach->span; i++)
                 {
@@ -700,7 +697,7 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
             {
               gint total, n;
 
-              total = natural - (attach->span - 1) * linedata->spacing;
+              total = (int) (natural - (attach->span - 1) * linedata->spacing);
               n = total / attach->span + (total % attach->span ? 1 : 0);
               for (i = 0; i < attach->span; i++)
                 {
@@ -710,7 +707,7 @@ clutter_grid_request_spanning (ClutterGridRequest *request,
             }
           else
             {
-              extra = natural - span_natural;
+              extra = (int) (natural - span_natural);
               expand = span_expand;
               for (i = 0; i < attach->span; i++)
                 {
@@ -736,7 +733,7 @@ clutter_grid_request_compute_expand (ClutterGridRequest *request,
                                      gint               *nonempty_lines,
                                      gint               *expand_lines)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridChild *grid_child;
   ClutterGridAttach *attach;
   ClutterActorIter iter;
@@ -757,7 +754,7 @@ clutter_grid_request_compute_expand (ClutterGridRequest *request,
       lines->lines[i].empty = TRUE;
     }
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       if (!clutter_actor_is_visible (child))
@@ -776,7 +773,7 @@ clutter_grid_request_compute_expand (ClutterGridRequest *request,
     }
 
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (grid->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       if (!clutter_actor_is_visible (child))
@@ -838,7 +835,7 @@ clutter_grid_request_sum (ClutterGridRequest *request,
                           gfloat             *minimum,
                           gfloat             *natural)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
   gint i;
@@ -847,7 +844,7 @@ clutter_grid_request_sum (ClutterGridRequest *request,
 
   clutter_grid_request_compute_expand (request, orientation, &nonempty, NULL);
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
 
   min = 0;
@@ -906,12 +903,12 @@ compare_gap (gconstpointer p1,
   const guint *c1 = p1;
   const guint *c2 = p2;
 
-  const gint d1 = MAX (sizes[*c1].natural_size -
-                       sizes[*c1].minimum_size,
-                       0);
-  const gint d2 = MAX (sizes[*c2].natural_size -
-                       sizes[*c2].minimum_size,
-                       0);
+  const int d1 = (int) MAX (sizes[*c1].natural_size -
+                            sizes[*c1].minimum_size,
+                            0);
+  const int d2 = (int) MAX (sizes[*c2].natural_size -
+                            sizes[*c2].minimum_size,
+                            0);
 
   gint delta = (d2 - d1);
 
@@ -974,9 +971,9 @@ distribute_natural_allocation (gint           extra_space,
    */
 
   /* Sort descending by gap and position. */
-  g_qsort_with_data (spreading,
-                     n_requested_sizes, sizeof (guint),
-                     compare_gap, sizes);
+  g_sort_array (spreading,
+                n_requested_sizes, sizeof (guint),
+                compare_gap, sizes);
 
   /* Distribute available space.
    * This master piece of a loop was conceived by Behdad Esfahbod.
@@ -988,8 +985,8 @@ distribute_natural_allocation (gint           extra_space,
        * ensures that space is distributed equally.
        */
       gint glue = (extra_space + i) / (i + 1);
-      gint gap = sizes[(spreading[i])].natural_size
-               - sizes[(spreading[i])].minimum_size;
+      gint gap = (int) (sizes[(spreading[i])].natural_size -
+                        sizes[(spreading[i])].minimum_size);
 
       gint extra = MIN (glue, gap);
 
@@ -1010,7 +1007,7 @@ clutter_grid_request_allocate (ClutterGridRequest *request,
                                ClutterOrientation  orientation,
                                gfloat              total_size)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
   ClutterGridLine *line;
@@ -1027,10 +1024,10 @@ clutter_grid_request_allocate (ClutterGridRequest *request,
   if (nonempty == 0)
     return;
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
 
-  size = total_size - (nonempty - 1) * linedata->spacing;
+  size = (int) (total_size - (nonempty - 1) * linedata->spacing);
 
   if (linedata->homogeneous)
     {
@@ -1062,7 +1059,7 @@ clutter_grid_request_allocate (ClutterGridRequest *request,
           if (line->empty)
             continue;
 
-          size -= line->minimum;
+          size -= (int) line->minimum;
 
           sizes[j].minimum_size = line->minimum;
           sizes[j].natural_size = line->natural;
@@ -1114,14 +1111,14 @@ static void
 clutter_grid_request_position (ClutterGridRequest *request,
                                ClutterOrientation  orientation)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
   ClutterGridLine *line;
   gfloat position;
   gint i;
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
 
   position = 0.f;
@@ -1216,32 +1213,22 @@ clutter_grid_child_class_init (ClutterGridChildClass *klass)
   gobject_class->get_property = clutter_grid_child_get_property;
 
   child_props[PROP_CHILD_LEFT_ATTACH] =
-    g_param_spec_int ("left-attach",
-                      P_("Left attachment"),
-                      P_("The column number to attach the left side of the "
-                         "child to"),
+    g_param_spec_int ("left-attach", NULL, NULL,
                       -G_MAXINT, G_MAXINT, 0,
                       G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
   child_props[PROP_CHILD_TOP_ATTACH] =
-    g_param_spec_int ("top-attach",
-                      P_("Top attachment"),
-                      P_("The row number to attach the top side of a child "
-                         "widget to"),
+    g_param_spec_int ("top-attach", NULL, NULL,
                       -G_MAXINT, G_MAXINT, 0,
                       G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
   child_props[PROP_CHILD_WIDTH] =
-    g_param_spec_int ("width",
-                      P_("Width"),
-                      P_("The number of columns that a child spans"),
+    g_param_spec_int ("width", NULL, NULL,
                       -G_MAXINT, G_MAXINT, 1,
                       G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
   child_props[PROP_CHILD_HEIGHT] =
-    g_param_spec_int ("height",
-                      P_("Height"),
-                      P_("The number of rows that a child spans"),
+    g_param_spec_int ("height", NULL, NULL,
                       -G_MAXINT, G_MAXINT, 1,
                       G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
@@ -1260,24 +1247,24 @@ clutter_grid_child_init (ClutterGridChild *self)
 
 static void
 clutter_grid_layout_set_container (ClutterLayoutManager *self,
-                                   ClutterContainer     *container)
+                                   ClutterActor         *container)
 {
-  ClutterGridLayoutPrivate *priv = CLUTTER_GRID_LAYOUT (self)->priv;
+  ClutterGridLayout *grid = CLUTTER_GRID_LAYOUT (self);
   ClutterLayoutManagerClass *parent_class;
 
-  priv->container = container;
+  grid->container = container;
 
-  if (priv->container != NULL)
+  if (grid->container != NULL)
     {
       ClutterRequestMode request_mode;
 
       /* we need to change the :request-mode of the container
        * to match the orientation
        */
-      request_mode = priv->orientation == CLUTTER_ORIENTATION_VERTICAL
+      request_mode = grid->orientation == CLUTTER_ORIENTATION_VERTICAL
                    ? CLUTTER_REQUEST_HEIGHT_FOR_WIDTH
                    : CLUTTER_REQUEST_WIDTH_FOR_HEIGHT;
-      clutter_actor_set_request_mode (CLUTTER_ACTOR (priv->container),
+      clutter_actor_set_request_mode (CLUTTER_ACTOR (grid->container),
                                       request_mode);
     }
 
@@ -1318,7 +1305,7 @@ clutter_grid_layout_get_size_for_size (ClutterGridLayout  *self,
 
 static void
 clutter_grid_layout_get_preferred_width (ClutterLayoutManager *manager,
-                                         ClutterContainer     *container,
+                                         ClutterActor         *container,
                                          gfloat                for_height,
                                          gfloat               *min_width_p,
                                          gfloat               *nat_width_p)
@@ -1337,7 +1324,7 @@ clutter_grid_layout_get_preferred_width (ClutterLayoutManager *manager,
 
 static void
 clutter_grid_layout_get_preferred_height (ClutterLayoutManager *manager,
-                                          ClutterContainer     *container,
+                                          ClutterActor         *container,
                                           gfloat                for_width,
                                           gfloat               *min_height_p,
                                           gfloat               *nat_height_p)
@@ -1361,14 +1348,14 @@ allocate_child (ClutterGridRequest *request,
                 gfloat             *position,
                 gfloat             *size)
 {
-  ClutterGridLayoutPrivate *priv = request->grid->priv;
+  ClutterGridLayout *grid = request->grid;
   ClutterGridLineData *linedata;
   ClutterGridLines *lines;
   ClutterGridLine *line;
   ClutterGridAttach *attach;
   gint i;
 
-  linedata = &priv->linedata[orientation];
+  linedata = &grid->linedata[orientation];
   lines = &request->lines[orientation];
   attach = &child->attach[orientation];
 
@@ -1389,7 +1376,7 @@ allocate_child (ClutterGridRequest *request,
 
 static void
 clutter_grid_layout_allocate (ClutterLayoutManager   *layout,
-                              ClutterContainer       *container,
+                              ClutterActor           *container,
                               const ClutterActorBox  *allocation)
 {
   ClutterGridLayout *self = CLUTTER_GRID_LAYOUT (layout);
@@ -1505,28 +1492,28 @@ clutter_grid_layout_get_property (GObject    *gobject,
                                   GValue     *value,
                                   GParamSpec *pspec)
 {
-  ClutterGridLayoutPrivate *priv = CLUTTER_GRID_LAYOUT (gobject)->priv;
+  ClutterGridLayout *self = CLUTTER_GRID_LAYOUT (gobject);
 
   switch (prop_id)
     {
     case PROP_ORIENTATION:
-      g_value_set_enum (value, priv->orientation);
+      g_value_set_enum (value, self->orientation);
       break;
 
     case PROP_ROW_SPACING:
-      g_value_set_uint (value, COLUMNS (priv)->spacing);
+      g_value_set_uint (value, (int) COLUMNS (self)->spacing);
       break;
 
     case PROP_COLUMN_SPACING:
-      g_value_set_uint (value, ROWS (priv)->spacing);
+      g_value_set_uint (value, (int) ROWS (self)->spacing);
       break;
 
     case PROP_ROW_HOMOGENEOUS:
-      g_value_set_boolean (value, COLUMNS (priv)->homogeneous);
+      g_value_set_boolean (value, COLUMNS (self)->homogeneous);
       break;
 
     case PROP_COLUMN_HOMOGENEOUS:
-      g_value_set_boolean (value, ROWS (priv)->homogeneous);
+      g_value_set_boolean (value, ROWS (self)->homogeneous);
       break;
 
     default:
@@ -1558,9 +1545,7 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
    * The orientation of the layout, either horizontal or vertical
    */
   obj_props[PROP_ORIENTATION] =
-    g_param_spec_enum ("orientation",
-                       P_("Orientation"),
-                       P_("The orientation of the layout"),
+    g_param_spec_enum ("orientation", NULL, NULL,
                        CLUTTER_TYPE_ORIENTATION,
                        CLUTTER_ORIENTATION_HORIZONTAL,
                        G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
@@ -1571,9 +1556,7 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
    * The amount of space in pixels between two consecutive rows
    */
   obj_props[PROP_ROW_SPACING] =
-    g_param_spec_uint ("row-spacing",
-                       P_("Row spacing"),
-                       P_("The amount of space between two consecutive rows"),
+    g_param_spec_uint ("row-spacing", NULL, NULL,
                        0, G_MAXUINT, 0,
                        G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
@@ -1583,10 +1566,7 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
    * The amount of space in pixels between two consecutive columns
    */
   obj_props[PROP_COLUMN_SPACING] =
-    g_param_spec_uint ("column-spacing",
-                       P_("Column spacing"),
-                       P_("The amount of space between two consecutive "
-                          "columns"),
+    g_param_spec_uint ("column-spacing", NULL, NULL,
                        0, G_MAXUINT, 0,
                        G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
@@ -1596,9 +1576,7 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
    * Whether all rows of the layout should have the same height
    */
   obj_props[PROP_ROW_HOMOGENEOUS] =
-    g_param_spec_boolean ("row-homogeneous",
-                          P_("Row Homogeneous"),
-                          P_("If TRUE, the rows are all the same height"),
+    g_param_spec_boolean ("row-homogeneous", NULL, NULL,
                           FALSE,
                           G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
@@ -1608,9 +1586,7 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
    * Whether all columns of the layout should have the same width
    */
   obj_props[PROP_COLUMN_HOMOGENEOUS] =
-    g_param_spec_boolean ("column-homogeneous",
-                          P_("Column Homogeneous"),
-                          P_("If TRUE, the columns are all the same width"),
+    g_param_spec_boolean ("column-homogeneous", NULL, NULL,
                           FALSE,
                           G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE);
 
@@ -1620,15 +1596,13 @@ clutter_grid_layout_class_init (ClutterGridLayoutClass *klass)
 static void
 clutter_grid_layout_init (ClutterGridLayout *self)
 {
-  self->priv = clutter_grid_layout_get_instance_private (self);
+  self->orientation = CLUTTER_ORIENTATION_HORIZONTAL;
 
-  self->priv->orientation = CLUTTER_ORIENTATION_HORIZONTAL;
+  self->linedata[0].spacing = 0;
+  self->linedata[1].spacing = 0;
 
-  self->priv->linedata[0].spacing = 0;
-  self->priv->linedata[1].spacing = 0;
-
-  self->priv->linedata[0].homogeneous = FALSE;
-  self->priv->linedata[1].homogeneous = FALSE;
+  self->linedata[0].homogeneous = FALSE;
+  self->linedata[1].homogeneous = FALSE;
 }
 
 /**
@@ -1667,17 +1641,13 @@ clutter_grid_layout_attach (ClutterGridLayout *layout,
                             gint               width,
                             gint               height)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (!priv->container)
+  if (!layout->container)
     return;
 
   grid_attach (layout, child, left, top, width, height);
-  clutter_actor_add_child (CLUTTER_ACTOR (priv->container), child);
+  clutter_actor_add_child (CLUTTER_ACTOR (layout->container), child);
 }
 
 /**
@@ -1708,8 +1678,6 @@ clutter_grid_layout_attach_next_to (ClutterGridLayout   *layout,
                                     gint                 width,
                                     gint                 height)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
   g_return_if_fail (CLUTTER_IS_ACTOR (child));
   g_return_if_fail (clutter_actor_get_parent (child) == NULL);
@@ -1717,13 +1685,11 @@ clutter_grid_layout_attach_next_to (ClutterGridLayout   *layout,
   g_return_if_fail (width > 0);
   g_return_if_fail (height > 0);
 
-  priv = layout->priv;
-
-  if (!priv->container)
+  if (!layout->container)
     return;
 
   grid_attach_next_to (layout, child, sibling, side, width, height);
-  clutter_actor_add_child (CLUTTER_ACTOR (priv->container), child);
+  clutter_actor_add_child (CLUTTER_ACTOR (layout->container), child);
 }
 
 /**
@@ -1735,22 +1701,18 @@ clutter_grid_layout_attach_next_to (ClutterGridLayout   *layout,
  *
  * #ClutterGridLayout uses the orientation as a hint when adding
  * children to the #ClutterActor using it as a layout manager via
- * clutter_actor_add_child(); changing this value will not have
+ * [method@Clutter.Actor.add_child]; changing this value will not have
  * any effect on children that are already part of the layout.
  */
 void
 clutter_grid_layout_set_orientation (ClutterGridLayout *layout,
                                      ClutterOrientation orientation)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (priv->orientation != orientation)
+  if (layout->orientation != orientation)
     {
-      priv->orientation = orientation;
+      layout->orientation = orientation;
 
       clutter_layout_manager_layout_changed (CLUTTER_LAYOUT_MANAGER (layout));
       g_object_notify_by_pspec (G_OBJECT (layout), obj_props[PROP_ORIENTATION]);
@@ -1773,19 +1735,16 @@ clutter_grid_layout_get_child_at (ClutterGridLayout *layout,
                                   gint               left,
                                   gint               top)
 {
-  ClutterGridLayoutPrivate *priv;
   ClutterGridChild *grid_child;
   ClutterActorIter iter;
   ClutterActor *child;
 
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout), NULL);
 
-  priv = layout->priv;
-
-  if (!priv->container)
+  if (!layout->container)
     return NULL;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (layout->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (layout, child);
@@ -1815,7 +1774,6 @@ void
 clutter_grid_layout_insert_row (ClutterGridLayout *layout,
                                 gint               position)
 {
-  ClutterGridLayoutPrivate *priv;
   ClutterGridChild *grid_child;
   ClutterActorIter iter;
   ClutterActor *child;
@@ -1823,12 +1781,10 @@ clutter_grid_layout_insert_row (ClutterGridLayout *layout,
 
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (!priv->container)
+  if (!layout->container)
     return;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (layout->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (layout, child);
@@ -1867,7 +1823,6 @@ void
 clutter_grid_layout_insert_column (ClutterGridLayout *layout,
                                    gint               position)
 {
-  ClutterGridLayoutPrivate *priv;
   ClutterGridChild *grid_child;
   ClutterActorIter iter;
   ClutterActor *child;
@@ -1875,12 +1830,10 @@ clutter_grid_layout_insert_column (ClutterGridLayout *layout,
 
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (!priv->container)
+  if (!layout->container)
     return;
 
-  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (priv->container));
+  clutter_actor_iter_init (&iter, CLUTTER_ACTOR (layout->container));
   while (clutter_actor_iter_next (&iter, &child))
     {
       grid_child = GET_GRID_CHILD (layout, child);
@@ -1970,7 +1923,7 @@ clutter_grid_layout_get_orientation (ClutterGridLayout *layout)
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout),
                         CLUTTER_ORIENTATION_HORIZONTAL);
 
-  return layout->priv->orientation;
+  return layout->orientation;
 }
 
 /**
@@ -1984,15 +1937,11 @@ void
 clutter_grid_layout_set_row_spacing (ClutterGridLayout *layout,
                                      guint              spacing)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (COLUMNS (priv)->spacing != spacing)
+  if (COLUMNS (layout)->spacing != spacing)
     {
-      COLUMNS (priv)->spacing = spacing;
+      COLUMNS (layout)->spacing = spacing;
 
       clutter_layout_manager_layout_changed (CLUTTER_LAYOUT_MANAGER (layout));
       g_object_notify_by_pspec (G_OBJECT (layout),
@@ -2004,20 +1953,16 @@ clutter_grid_layout_set_row_spacing (ClutterGridLayout *layout,
  * clutter_grid_layout_get_row_spacing:
  * @layout: a #ClutterGridLayout
  *
- * Retrieves the spacing set using clutter_grid_layout_set_row_spacing()
+ * Retrieves the spacing set using [method@Clutter.GridLayout.set_row_spacing]
  *
  * Return value: the spacing between rows of @layout
  */
 guint
 clutter_grid_layout_get_row_spacing (ClutterGridLayout *layout)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout), 0);
 
-  priv = layout->priv;
-
-  return COLUMNS (priv)->spacing;
+  return (unsigned int) COLUMNS (layout)->spacing;
 }
 
 /**
@@ -2031,15 +1976,11 @@ void
 clutter_grid_layout_set_column_spacing (ClutterGridLayout *layout,
                                         guint spacing)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (ROWS (priv)->spacing != spacing)
+  if (ROWS (layout)->spacing != spacing)
     {
-      ROWS (priv)->spacing = spacing;
+      ROWS (layout)->spacing = spacing;
 
       clutter_layout_manager_layout_changed (CLUTTER_LAYOUT_MANAGER (layout));
       g_object_notify_by_pspec (G_OBJECT (layout),
@@ -2051,20 +1992,16 @@ clutter_grid_layout_set_column_spacing (ClutterGridLayout *layout,
  * clutter_grid_layout_get_column_spacing:
  * @layout: a #ClutterGridLayout
  *
- * Retrieves the spacing set using clutter_grid_layout_set_column_spacing()
+ * Retrieves the spacing set using [method@Clutter.GridLayout.set_column_spacing]
  *
  * Return value: the spacing between coluns of @layout
  */
 guint
 clutter_grid_layout_get_column_spacing (ClutterGridLayout *layout)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout), 0);
 
-  priv = layout->priv;
-
-  return ROWS (priv)->spacing;
+  return (unsigned int) ROWS (layout)->spacing;
 }
 
 /**
@@ -2078,15 +2015,11 @@ void
 clutter_grid_layout_set_column_homogeneous (ClutterGridLayout *layout,
                                             gboolean           homogeneous)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (ROWS (priv)->homogeneous != homogeneous)
+  if (ROWS (layout)->homogeneous != homogeneous)
     {
-      ROWS (priv)->homogeneous = homogeneous;
+      ROWS (layout)->homogeneous = homogeneous;
 
       clutter_layout_manager_layout_changed (CLUTTER_LAYOUT_MANAGER (layout));
       g_object_notify_by_pspec (G_OBJECT (layout),
@@ -2105,13 +2038,9 @@ clutter_grid_layout_set_column_homogeneous (ClutterGridLayout *layout,
 gboolean
 clutter_grid_layout_get_column_homogeneous (ClutterGridLayout *layout)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout), FALSE);
 
-  priv = layout->priv;
-
-  return ROWS (priv)->homogeneous;
+  return ROWS (layout)->homogeneous;
 }
 
 /**
@@ -2125,15 +2054,11 @@ void
 clutter_grid_layout_set_row_homogeneous (ClutterGridLayout *layout,
                                          gboolean           homogeneous)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_if_fail (CLUTTER_IS_GRID_LAYOUT (layout));
 
-  priv = layout->priv;
-
-  if (COLUMNS (priv)->homogeneous != homogeneous)
+  if (COLUMNS (layout)->homogeneous != homogeneous)
     {
-      COLUMNS (priv)->homogeneous = homogeneous;
+      COLUMNS (layout)->homogeneous = homogeneous;
 
       clutter_layout_manager_layout_changed (CLUTTER_LAYOUT_MANAGER (layout));
       g_object_notify_by_pspec (G_OBJECT (layout),
@@ -2152,11 +2077,7 @@ clutter_grid_layout_set_row_homogeneous (ClutterGridLayout *layout,
 gboolean
 clutter_grid_layout_get_row_homogeneous (ClutterGridLayout *layout)
 {
-  ClutterGridLayoutPrivate *priv;
-
   g_return_val_if_fail (CLUTTER_IS_GRID_LAYOUT (layout), FALSE);
 
-  priv = layout->priv;
-
-  return COLUMNS (priv)->homogeneous;
+  return COLUMNS (layout)->homogeneous;
 }

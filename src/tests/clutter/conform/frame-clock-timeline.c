@@ -2,21 +2,25 @@
 #include "tests/clutter-test-utils.h"
 
 static const float refresh_rate = 60.0;
-static const int64_t refresh_interval_us = G_USEC_PER_SEC / refresh_rate;
+static const int64_t refresh_interval_us = (int64_t) (G_USEC_PER_SEC / refresh_rate);
 
 static ClutterFrameResult
 timeline_frame_clock_frame (ClutterFrameClock *frame_clock,
-                            int64_t            frame_count,
+                            ClutterFrame      *frame,
                             gpointer           user_data)
 {
   ClutterFrameInfo frame_info;
 
   frame_info = (ClutterFrameInfo) {
-    .presentation_time = g_get_monotonic_time (),
     .refresh_rate = refresh_rate,
     .flags = CLUTTER_FRAME_INFO_FLAG_NONE,
     .sequence = 0,
   };
+
+  if (!clutter_frame_get_target_presentation_time (frame,
+                                                   &frame_info.presentation_time))
+    frame_info.presentation_time = g_get_monotonic_time ();
+
   clutter_frame_clock_notify_presented (frame_clock, &frame_info);
   clutter_frame_clock_schedule_update (frame_clock);
 
@@ -67,6 +71,7 @@ frame_clock_timeline_basic (void)
   main_loop = g_main_loop_new (NULL, FALSE);
   frame_clock = clutter_frame_clock_new (refresh_rate,
                                          0,
+                                         NULL,
                                          &timeline_frame_listener_iface,
                                          NULL);
   g_object_add_weak_pointer (G_OBJECT (frame_clock), (gpointer *) &frame_clock);
@@ -149,11 +154,13 @@ frame_clock_timeline_switch (void)
 
   frame_clock1 = clutter_frame_clock_new (refresh_rate,
                                           0,
+                                          NULL,
                                           &timeline_frame_listener_iface,
                                           NULL);
   g_object_add_weak_pointer (G_OBJECT (frame_clock1), (gpointer *) &frame_clock1);
   frame_clock2 = clutter_frame_clock_new (refresh_rate,
                                           0,
+                                          NULL,
                                           &timeline_frame_listener_iface,
                                           NULL);
   g_object_add_weak_pointer (G_OBJECT (frame_clock2), (gpointer *) &frame_clock2);
@@ -195,7 +202,7 @@ frame_clock_timeline_switch (void)
    */
   g_assert_cmpint (lateness_us, >, -2 * refresh_interval_us);
 
-  g_assert (clutter_timeline_get_frame_clock (timeline) == frame_clock2);
+  g_assert_true (clutter_timeline_get_frame_clock (timeline) == frame_clock2);
 
   /* The duration is 1s, with a 60hz clock, and we switch after 0.5s. To verify
    * we continued to get frames, check that we have a bit more than half of the

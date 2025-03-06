@@ -32,23 +32,22 @@
  *   Neil Roberts <neil@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
 #include <string.h>
 
-#include "cogl-context-private.h"
-#include "cogl-pipeline-private.h"
-#include "cogl-pipeline-layer-private.h"
-#include "cogl-blend-string.h"
-#include "cogl-snippet-private.h"
-#include "cogl-list.h"
-#include "driver/gl/cogl-util-gl-private.h"
-#include "driver/gl/cogl-pipeline-opengl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-pipeline-private.h"
+#include "cogl/cogl-pipeline-layer-private.h"
+#include "cogl/cogl-blend-string.h"
+#include "cogl/cogl-snippet-private.h"
+#include "cogl/cogl-list.h"
+#include "cogl/driver/gl/cogl-util-gl-private.h"
+#include "cogl/driver/gl/cogl-pipeline-gl-private.h"
 
-#include "cogl-context-private.h"
-#include "cogl-object-private.h"
-#include "cogl-pipeline-cache.h"
-#include "driver/gl/cogl-pipeline-fragend-glsl-private.h"
+#include "cogl/cogl-context-private.h"
+#include "cogl/cogl-pipeline-cache.h"
+#include "cogl/driver/gl/cogl-pipeline-fragend-glsl-private.h"
 #include "deprecated/cogl-shader-private.h"
 #include "deprecated/cogl-program-private.h"
 
@@ -101,7 +100,7 @@ typedef struct
   CoglPipelineCacheEntry *cache_entry;
 } CoglPipelineFragendShaderState;
 
-static CoglUserDataKey shader_state_key;
+static GQuark shader_state_key = 0;
 
 static void
 ensure_layer_generated (CoglPipeline *pipeline,
@@ -120,23 +119,40 @@ shader_state_new (int n_layers,
 
   return shader_state;
 }
+typedef struct
+{
+  CoglPipelineFragendShaderState *shader_state;
+  CoglPipeline *instance;
+} CoglPipelineFragendShaderStateCache;
+
+static GQuark
+get_cache_key (void)
+{
+  if (G_UNLIKELY (shader_state_key == 0))
+    shader_state_key = g_quark_from_static_string ("shader-state-key");
+
+  return shader_state_key;
+}
 
 static CoglPipelineFragendShaderState *
 get_shader_state (CoglPipeline *pipeline)
 {
-  return cogl_object_get_user_data (COGL_OBJECT (pipeline), &shader_state_key);
+  CoglPipelineFragendShaderStateCache *cache;
+  cache = g_object_get_qdata (G_OBJECT (pipeline), get_cache_key ());
+  if (cache)
+    return cache->shader_state;
+  return NULL;
 }
 
 static void
-destroy_shader_state (void *user_data,
-                      void *instance)
+destroy_shader_state (void *user_data)
 {
-  CoglPipelineFragendShaderState *shader_state = user_data;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglPipelineFragendShaderStateCache *cache = user_data;
+  CoglPipelineFragendShaderState *shader_state = cache->shader_state;
+  CoglContext *ctx = cache->instance->context;
 
   if (shader_state->cache_entry &&
-      shader_state->cache_entry->pipeline != instance)
+      shader_state->cache_entry->pipeline != cache->instance)
     shader_state->cache_entry->usage_count--;
 
   if (--shader_state->ref_count == 0)
@@ -148,6 +164,8 @@ destroy_shader_state (void *user_data,
 
       g_free (shader_state);
     }
+
+  g_free (cache);
 }
 
 static void
@@ -163,20 +181,23 @@ set_shader_state (CoglPipeline *pipeline, CoglPipelineFragendShaderState *shader
           shader_state->cache_entry->pipeline != pipeline)
         shader_state->cache_entry->usage_count++;
     }
+  CoglPipelineFragendShaderStateCache *cache = g_new0 (CoglPipelineFragendShaderStateCache, 1);
+  cache->instance = pipeline;
+  cache->shader_state = shader_state;
 
-  _cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                              &shader_state_key,
-                              shader_state,
-                              destroy_shader_state);
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           cache,
+                           destroy_shader_state);
 }
 
 static void
 dirty_shader_state (CoglPipeline *pipeline)
 {
-  cogl_object_set_user_data (COGL_OBJECT (pipeline),
-                             &shader_state_key,
-                             NULL,
-                             NULL);
+  g_object_set_qdata_full (G_OBJECT (pipeline),
+                           get_cache_key (),
+                           NULL,
+                           NULL);
 }
 
 GLuint
@@ -275,9 +296,8 @@ _cogl_pipeline_fragend_glsl_start (CoglPipeline *pipeline,
   CoglPipeline *authority;
   CoglPipelineCacheEntry *cache_entry = NULL;
   CoglProgram *user_program = cogl_pipeline_get_user_program (pipeline);
+  CoglContext *ctx = pipeline->context;
   int i;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
 
   /* Now lookup our glsl backend private state */
   shader_state = get_shader_state (pipeline);
@@ -403,8 +423,6 @@ ensure_texture_lookup_generated (CoglPipelineFragendShaderState *shader_state,
 {
   int unit_index = _cogl_pipeline_layer_get_unit_index (layer);
   CoglPipelineSnippetData snippet_data;
-
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
 
   if (shader_state->unit_state[unit_index].sampled)
     return;
@@ -903,11 +921,6 @@ _cogl_pipeline_fragend_glsl_add_layer (CoglPipeline *pipeline,
   return TRUE;
 }
 
-/* GLES2 and GL3 don't have alpha testing so we need to implement it
-   in the shader */
-
-#if defined(HAVE_COGL_GLES2) || defined(HAVE_COGL_GL)
-
 static void
 add_alpha_test_snippet (CoglPipeline *pipeline,
                         CoglPipelineFragendShaderState *shader_state)
@@ -968,15 +981,12 @@ add_alpha_test_snippet (CoglPipeline *pipeline,
                    " _cogl_alpha_test_ref)\n    discard;\n");
 }
 
-#endif /*  HAVE_COGL_GLES2 */
-
 static gboolean
 _cogl_pipeline_fragend_glsl_end (CoglPipeline *pipeline,
                                  unsigned long pipelines_difference)
 {
   CoglPipelineFragendShaderState *shader_state = get_shader_state (pipeline);
-
-  _COGL_GET_CONTEXT (ctx, FALSE);
+  CoglContext *ctx = pipeline->context;
 
   if (shader_state->source)
     {
@@ -1077,7 +1087,7 @@ _cogl_pipeline_fragend_glsl_pre_change_notify (CoglPipeline *pipeline,
                                                CoglPipelineState change,
                                                const CoglColor *new_color)
 {
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = pipeline->context;
 
   if ((change & _cogl_pipeline_get_state_for_fragment_codegen (ctx)))
     dirty_shader_state (pipeline);
@@ -1097,7 +1107,7 @@ _cogl_pipeline_fragend_glsl_layer_pre_change_notify (
                                                 CoglPipelineLayer *layer,
                                                 CoglPipelineLayerState change)
 {
-  _COGL_GET_CONTEXT (ctx, NO_RETVAL);
+  CoglContext *ctx = owner->context;
 
   if ((change & _cogl_pipeline_get_layer_state_for_fragment_codegen (ctx)))
     {

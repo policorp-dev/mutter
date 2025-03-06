@@ -1,14 +1,14 @@
-clutter_clutter_includesubdir = join_paths(clutter_includesubdir, 'clutter')
-clutter_clutter_includedir = join_paths(clutter_includedir, 'clutter')
+clutter_clutter_includesubdir = clutter_includesubdir / 'clutter'
+clutter_clutter_includedir = clutter_includedir / 'clutter'
 
 clutter_headers = [
   'clutter.h',
   'clutter-action.h',
+  'clutter-actor-accessible.h',
   'clutter-actor-meta.h',
   'clutter-actor.h',
   'clutter-align-constraint.h',
   'clutter-animatable.h',
-  'clutter-autocleanups.h',
   'clutter-backend.h',
   'clutter-bind-constraint.h',
   'clutter-binding-pool.h',
@@ -16,20 +16,16 @@ clutter_headers = [
   'clutter-blur-effect.h',
   'clutter-box-layout.h',
   'clutter-brightness-contrast-effect.h',
-  'clutter-cairo.h',
-  'clutter-canvas.h',
-  'clutter-child-meta.h',
   'clutter-click-action.h',
   'clutter-clone.h',
+  'clutter-color-manager.h',
   'clutter-color-state.h',
-  'clutter-color-static.h',
-  'clutter-color.h',
+  'clutter-color-state-params.h',
   'clutter-colorize-effect.h',
   'clutter-constraint.h',
-  'clutter-container.h',
   'clutter-content.h',
+  'clutter-context.h',
   'clutter-deform-effect.h',
-  'clutter-deprecated.h',
   'clutter-desaturate-effect.h',
   'clutter-effect.h',
   'clutter-enums.h',
@@ -39,9 +35,9 @@ clutter_headers = [
   'clutter-frame-clock.h',
   'clutter-frame.h',
   'clutter-gesture-action.h',
+  'clutter-gesture.h',
   'clutter-grab.h',
   'clutter-grid-layout.h',
-  'clutter-image.h',
   'clutter-input-device.h',
   'clutter-input-device-tool.h',
   'clutter-input-focus.h',
@@ -50,25 +46,21 @@ clutter_headers = [
   'clutter-keyframe-transition.h',
   'clutter-keymap.h',
   'clutter-keysyms.h',
+  'clutter-keyval.h',
   'clutter-layout-manager.h',
   'clutter-layout-meta.h',
   'clutter-macros.h',
   'clutter-main.h',
-  'clutter-mutter.h',
   'clutter-offscreen-effect.h',
   'clutter-page-turn-effect.h',
   'clutter-paint-context.h',
   'clutter-paint-nodes.h',
   'clutter-paint-node.h',
   'clutter-pan-action.h',
-  'clutter-path-constraint.h',
-  'clutter-path.h',
   'clutter-pick-context.h',
+  'clutter-pipeline-cache.h',
   'clutter-property-transition.h',
   'clutter-rotate-action.h',
-  'clutter-script.h',
-  'clutter-scriptable.h',
-  'clutter-scroll-actor.h',
   'clutter-seat.h',
   'clutter-settings.h',
   'clutter-shader-effect.h',
@@ -76,31 +68,28 @@ clutter_headers = [
   'clutter-swipe-action.h',
   'clutter-snap-constraint.h',
   'clutter-stage.h',
-  'clutter-stage-manager.h',
   'clutter-stage-view.h',
   'clutter-tap-action.h',
-  'clutter-text.h',
-  'clutter-text-buffer.h',
   'clutter-texture-content.h',
   'clutter-timeline.h',
   'clutter-transition-group.h',
   'clutter-transition.h',
   'clutter-types.h',
-  'clutter-units.h',
   'clutter-virtual-input-device.h',
   'clutter-zoom-action.h',
 ]
 
 clutter_sources = [
+  'clutter-accessibility.c',
   'clutter-action.c',
   'clutter-actor-box.c',
+  'clutter-actor-accessible.c',
   'clutter-actor-meta.c',
   'clutter-actor.c',
   'clutter-align-constraint.c',
   'clutter-animatable.c',
   'clutter-backend.c',
   'clutter-base-types.c',
-  'clutter-bezier.c',
   'clutter-bind-constraint.c',
   'clutter-binding-pool.c',
   'clutter-bin-layout.c',
@@ -108,17 +97,15 @@ clutter_sources = [
   'clutter-blur-effect.c',
   'clutter-box-layout.c',
   'clutter-brightness-contrast-effect.c',
-  'clutter-cairo.c',
-  'clutter-canvas.c',
-  'clutter-child-meta.c',
   'clutter-click-action.c',
   'clutter-clone.c',
-  'clutter-color.c',
+  'clutter-color-manager.c',
   'clutter-color-state.c',
+  'clutter-color-state-params.c',
   'clutter-colorize-effect.c',
   'clutter-constraint.c',
-  'clutter-container.c',
   'clutter-content.c',
+  'clutter-context.c',
   'clutter-damage-history.c',
   'clutter-deform-effect.c',
   'clutter-desaturate-effect.c',
@@ -130,19 +117,23 @@ clutter_sources = [
   'clutter-frame-clock.c',
   'clutter-frame.c',
   'clutter-gesture-action.c',
-  'clutter-graphene.c',
+  'clutter-gesture.c',
+  'clutter-grab.c',
   'clutter-grid-layout.c',
-  'clutter-image.c',
   'clutter-input-device.c',
   'clutter-input-device-tool.c',
   'clutter-input-focus.c',
   'clutter-input-method.c',
   'clutter-input-pointer-a11y.c',
+  'clutter-input-only-action.c',
+  'clutter-input-only-actor.c',
   'clutter-virtual-input-device.c',
   'clutter-interval.c',
+  'clutter-interval-progress.c',
   'clutter-keyframe-transition.c',
   'clutter-keymap.c',
   'clutter-keysyms-table.c',
+  'clutter-keyval.c',
   'clutter-layout-manager.c',
   'clutter-layout-meta.c',
   'clutter-main.c',
@@ -152,47 +143,42 @@ clutter_sources = [
   'clutter-paint-nodes.c',
   'clutter-paint-node.c',
   'clutter-pan-action.c',
-  'clutter-path-constraint.c',
-  'clutter-path.c',
   'clutter-pick-context.c',
   'clutter-pick-stack.c',
+  'clutter-pipeline-cache.c',
   'clutter-property-transition.c',
   'clutter-rotate-action.c',
-  'clutter-script.c',
-  'clutter-script-parser.c',
-  'clutter-scriptable.c',
-  'clutter-scroll-actor.c',
   'clutter-seat.c',
   'clutter-settings.c',
   'clutter-shader-effect.c',
   'clutter-shader-types.c',
   'clutter-swipe-action.c',
   'clutter-snap-constraint.c',
+  'clutter-stage-accessible.c',
   'clutter-stage.c',
+  'clutter-stage-manager-accessible.c',
   'clutter-stage-manager.c',
   'clutter-stage-view.c',
   'clutter-stage-window.c',
   'clutter-tap-action.c',
-  'clutter-text.c',
-  'clutter-text-buffer.c',
   'clutter-texture-content.c',
   'clutter-transition-group.c',
   'clutter-transition.c',
   'clutter-timeline.c',
-  'clutter-units.c',
   'clutter-util.c',
   'clutter-paint-volume.c',
   'clutter-zoom-action.c',
 ]
 
 clutter_private_headers = [
+  'clutter-accessibility-private.h',
   'clutter-actor-meta-private.h',
   'clutter-actor-private.h',
   'clutter-backend-private.h',
-  'clutter-bezier.h',
   'clutter-blur-private.h',
   'clutter-constraint-private.h',
   'clutter-content-private.h',
+  'clutter-context-private.h',
   'clutter-damage-history.h',
   'clutter-debug.h',
   'clutter-easing.h',
@@ -200,21 +186,21 @@ clutter_private_headers = [
   'clutter-event-private.h',
   'clutter-flatten-effect.h',
   'clutter-frame-private.h',
-  'clutter-graphene.h',
-  'clutter-gesture-action-private.h',
-  'clutter-id-pool.h',
   'clutter-input-device-private.h',
   'clutter-input-focus-private.h',
   'clutter-input-method-private.h',
   'clutter-input-pointer-a11y-private.h',
+  'clutter-input-only-action.h',
+  'clutter-input-only-actor.h',
   'clutter-keymap-private.h',
-  'clutter-offscreen-effect-private.h',
+  'clutter-mutter.h',
   'clutter-paint-context-private.h',
   'clutter-paint-node-private.h',
   'clutter-paint-volume-private.h',
   'clutter-private.h',
-  'clutter-script-private.h',
   'clutter-settings-private.h',
+  'clutter-stage-accessible-private.h',
+  'clutter-stage-manager-accessible-private.h',
   'clutter-stage-manager-private.h',
   'clutter-stage-private.h',
   'clutter-stage-view-private.h',
@@ -222,64 +208,51 @@ clutter_private_headers = [
   'clutter-timeline-private.h',
 ]
 
-clutter_nonintrospected_sources = [
-  'clutter-easing.c',
-  'clutter-id-pool.c',
+clutter_fonts_headers = [
+  'pango/clutter-actor-pango.h',
+  'pango/clutter-text.h',
+  'pango/clutter-text-buffer.h',
+  'pango/clutter-text-node.h',
 ]
 
-clutter_deprecated_headers = [
-  'deprecated/clutter-box-layout.h',
-  'deprecated/clutter-container.h',
-  'deprecated/clutter-timeline.h',
+clutter_fonts_sources = [
+  'pango/clutter-pango-display-list.c',
+  'pango/clutter-pango-glyph-cache.c',
+  'pango/clutter-pango-pipeline-cache.c',
+  'pango/clutter-pango-render.c',
+  'pango/clutter-text.c',
+  'pango/clutter-text-accessible.c',
+  'pango/clutter-text-buffer.c',
+  'pango/clutter-text-node.c',
+]
+
+clutter_fonts_private_headers = [
+  'pango/clutter-pango-display-list.h',
+  'pango/clutter-pango-glyph-cache.h',
+  'pango/clutter-pango-pipeline-cache.h',
+  'pango/clutter-pango-private.h',
+  'pango/clutter-text-accessible-private.h',
+]
+
+if have_fonts
+  clutter_sources += clutter_fonts_sources
+  clutter_private_headers += clutter_fonts_private_headers
+  clutter_headers += [
+    'clutter-pango.h',
+  ]
+endif
+
+clutter_nonintrospected_sources = [
+  'clutter-easing.c',
 ]
 
 clutter_backend_private_headers = []
 
-cally_headers = [
-    'cally/cally-actor.h',
-    'cally/cally-clone.h',
-    'cally/cally-factory.h',
-    'cally/cally.h',
-    'cally/cally-main.h',
-    'cally/cally-root.h',
-    'cally/cally-stage.h',
-    'cally/cally-text.h',
-    'cally/cally-util.h',
-]
-
-cally_sources = [
-    'cally/cally-actor.c',
-    'cally/cally.c',
-    'cally/cally-clone.c',
-    'cally/cally-root.c',
-    'cally/cally-stage.c',
-    'cally/cally-text.c',
-    'cally/cally-util.c',
-]
-
-cally_private_headers = [
-  'cally/cally-actor-private.h',
-]
-
 clutter_built_sources = []
 clutter_built_headers = []
-clutter_built_private_headers = []
-
-cdata = configuration_data()
-cdata.set_quoted('MUTTER_VERSION', meson.project_version())
-cdata.set('CLUTTER_DRIVERS', '"*"')
-cdata.set('HAVE_PANGO_FT2', have_pango_ft2)
-
-clutter_build_config_h = configure_file(
-  input: 'clutter-build-config.h.meson',
-  output: 'clutter-build-config.h',
-  configuration: cdata,
-  install: false,
-)
-clutter_built_private_headers += clutter_build_config_h
 
 clutter_enum_types = gnome.mkenums('clutter-enum-types',
-  sources: [clutter_headers, clutter_deprecated_headers],
+  sources: clutter_headers,
   c_template: 'clutter-enum-types.c.in',
   h_template: 'clutter-enum-types.h.in',
   install_dir: clutter_clutter_includedir,
@@ -299,29 +272,31 @@ clutter_marshal = gnome.genmarshal('clutter-marshal',
 clutter_built_sources += clutter_marshal[0]
 clutter_built_headers += clutter_marshal[1]
 
+
+sources = [
+  clutter_sources,
+  clutter_headers,
+  clutter_private_headers,
+  clutter_nonintrospected_sources,
+  clutter_built_sources,
+  clutter_built_headers,
+]
+
+if have_fonts
+  sources += clutter_fonts_headers
+endif
+
 libmutter_clutter_name = 'mutter-clutter-' + libmutter_api_version
-libmutter_clutter = shared_library(libmutter_clutter_name,
-  sources: [
-    clutter_sources,
-    clutter_headers,
-    clutter_private_headers,
-    clutter_nonintrospected_sources,
-    clutter_deprecated_headers,
-    clutter_built_sources,
-    clutter_built_headers,
-    cally_sources,
-    cally_headers,
-    cally_private_headers,
-  ],
+libmutter_clutter = library(libmutter_clutter_name,
+  sources: sources,
   version: '0.0.0',
   soversion: 0,
   c_args: clutter_c_args,
-  include_directories: clutter_includes,
+  include_directories: [clutter_includes, top_includepath],
   dependencies: [clutter_deps],
   gnu_symbol_visibility: 'hidden',
   link_with: [
     libmutter_cogl,
-    libmutter_cogl_pango,
   ],
   install_rpath: pkglibdir,
   install_dir: pkglibdir,
@@ -335,75 +310,63 @@ libmutter_clutter_dep = declare_dependency(
 
 if have_introspection
   clutter_introspection_args = introspection_args + [
-    '-DCLUTTER_SYSCONFDIR="@0@"'.format(join_paths(prefix, sysconfdir)),
+    '-DCLUTTER_SYSCONFDIR="@0@"'.format(prefix / sysconfdir),
     '-DCLUTTER_COMPILATION=1',
-    '-DCOGL_DISABLE_DEPRECATION_WARNINGS',
     '-DG_LOG_DOMAIN="Clutter"'
   ]
 
+  extra_args = clutter_introspection_args + ['--c-include=clutter/clutter.h']
+  if have_fonts
+    extra_args += [
+      '--c-include=clutter/clutter-pango.h'
+    ]
+  endif
+
+  sources = [
+    clutter_built_sources,
+    clutter_built_headers,
+    clutter_sources,
+    clutter_headers,
+  ]
+  if have_fonts
+    sources += [clutter_fonts_headers]
+  endif
+
   libmutter_clutter_gir = gnome.generate_gir(libmutter_clutter,
-    sources: [
-      clutter_built_sources,
-      clutter_built_headers,
-      clutter_sources,
-      clutter_headers,
-      clutter_deprecated_headers,
-    ],
+    sources: sources,
     nsversion: libmutter_api_version,
     namespace: 'Clutter',
     export_packages: [libmutter_clutter_name],
     includes: [
+      libmutter_mtk_gir[0],
       libmutter_cogl_gir[0],
-      libmutter_cogl_pango_gir[0],
       'GL-1.0',
+      'Gio-2.0',
       'GObject-2.0',
-      'cairo-1.0',
       'Atk-1.0',
-      'Json-1.0',
+      'Pango-1.0',
     ],
     dependencies: [cogl_deps],
-    extra_args: clutter_introspection_args + ['--c-include=clutter/clutter.h'],
-    install_dir_gir: pkglibdir,
-    install_dir_typelib: pkglibdir,
-    install: true,
-  )
-
-  libmutter_cally_gir = gnome.generate_gir(libmutter_clutter,
-    sources: [
-      cally_sources,
-      cally_headers,
-    ],
-    nsversion: libmutter_api_version,
-    namespace: 'Cally',
-    includes: [
-      libmutter_cogl_gir[0],
-      libmutter_cogl_pango_gir[0],
-      libmutter_clutter_gir[0],
-    ],
-    dependencies: [cogl_deps],
-    extra_args: clutter_introspection_args,
-    install_dir_gir: pkglibdir,
-    install_dir_typelib: pkglibdir,
-    install: true
+    extra_args: extra_args,
+    kwargs: introspection_common,
   )
 endif
 
 install_headers(clutter_headers,
   subdir: clutter_clutter_includesubdir)
 
-install_headers(cally_headers,
-  subdir: join_paths(clutter_includesubdir, 'cally'))
-
-install_headers(clutter_deprecated_headers,
-  subdir: join_paths(clutter_clutter_includesubdir, 'deprecated'))
+if have_fonts
+  install_headers(clutter_fonts_headers,
+    subdir: clutter_clutter_includesubdir / 'pango')
+endif
 
 pkg.generate(libmutter_clutter,
   name: 'Mutters Clutter',
   filebase: libmutter_clutter_name,
   description: 'Mutters Clutter Private Library',
   libraries: [m_dep],
-  subdirs: join_paths(pkgname, 'clutter'),
-  requires: [clutter_pkg_deps, libmutter_cogl_name],
+  subdirs: pkgname / 'clutter',
+  requires: [clutter_pkg_deps, libmutter_cogl_name, libmutter_mtk_name],
   version: meson.project_version(),
   variables: [
     'apiversion=' + libmutter_api_version,

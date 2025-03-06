@@ -26,18 +26,18 @@
 
 /**
  * ClutterFixedLayout:
- * 
+ *
  * A fixed layout manager
  *
  * #ClutterFixedLayout is a layout manager implementing the same
  * layout policies as #ClutterGroup.
  */
 
-#include "clutter-build-config.h"
+#include "config.h"
 
-#include "clutter-debug.h"
-#include "clutter-fixed-layout.h"
-#include "clutter-private.h"
+#include "clutter/clutter-debug.h"
+#include "clutter/clutter-fixed-layout.h"
+#include "clutter/clutter-private.h"
 
 G_DEFINE_TYPE (ClutterFixedLayout,
                clutter_fixed_layout,
@@ -45,7 +45,7 @@ G_DEFINE_TYPE (ClutterFixedLayout,
 
 static void
 clutter_fixed_layout_get_preferred_width (ClutterLayoutManager *manager,
-                                          ClutterContainer     *container,
+                                          ClutterActor         *container,
                                           gfloat                for_height,
                                           gfloat               *min_width_p,
                                           gfloat               *nat_width_p)
@@ -82,15 +82,15 @@ clutter_fixed_layout_get_preferred_width (ClutterLayoutManager *manager,
     }
 
   if (min_width_p)
-    *min_width_p = min_right;
+    *min_width_p = (float) min_right;
 
   if (nat_width_p)
-    *nat_width_p = natural_right;
+    *nat_width_p = (float) natural_right;
 }
 
 static void
 clutter_fixed_layout_get_preferred_height (ClutterLayoutManager *manager,
-                                           ClutterContainer     *container,
+                                           ClutterActor         *container,
                                            gfloat                for_width,
                                            gfloat               *min_height_p,
                                            gfloat               *nat_height_p)
@@ -127,15 +127,15 @@ clutter_fixed_layout_get_preferred_height (ClutterLayoutManager *manager,
     }
 
   if (min_height_p)
-    *min_height_p = min_bottom;
+    *min_height_p = (float) min_bottom;
 
   if (nat_height_p)
-    *nat_height_p = natural_bottom;
+    *nat_height_p = (float) natural_bottom;
 }
 
 static void
 clutter_fixed_layout_allocate (ClutterLayoutManager   *manager,
-                               ClutterContainer       *container,
+                               ClutterActor           *container,
                                const ClutterActorBox  *allocation)
 {
   ClutterActor *child;

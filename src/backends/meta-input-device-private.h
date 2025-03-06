@@ -16,8 +16,8 @@
  *
  * Author: Carlos Garnacho <carlosg@gnome.org>
  */
-#ifndef META_INPUT_DEVICE_H
-#define META_INPUT_DEVICE_H
+
+#pragma once
 
 #include <glib-object.h>
 
@@ -25,6 +25,7 @@
 #include <libwacom/libwacom.h>
 #endif
 
+#include "backends/meta-backend-types.h"
 #include "clutter/clutter-mutter.h"
 
 typedef struct _MetaInputDeviceClass MetaInputDeviceClass;
@@ -45,4 +46,4 @@ G_DECLARE_DERIVABLE_TYPE (MetaInputDevice,
 WacomDevice * meta_input_device_get_wacom_device (MetaInputDevice *input_device);
 #endif
 
-#endif /* META_INPUT_DEVICE_H */
+MetaBackend * meta_input_device_get_backend (MetaInputDevice *input_device);

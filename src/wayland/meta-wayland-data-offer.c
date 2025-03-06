@@ -33,13 +33,21 @@
 
 #include "meta/meta-selection.h"
 #include "wayland/meta-wayland-data-device.h"
+#include "wayland/meta-wayland-data-offer.h"
 #include "wayland/meta-wayland-private.h"
-
-#include "meta-wayland-data-offer.h"
 
 #define ALL_ACTIONS (WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | \
                      WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE | \
                      WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK)
+
+static MetaDisplay *
+display_from_offer (MetaWaylandDataOffer *offer)
+{
+  MetaContext *context =
+    meta_wayland_compositor_get_context (offer->compositor);
+
+  return meta_context_get_display (context);
+}
 
 static void
 data_offer_accept (struct wl_client *client,
@@ -85,7 +93,7 @@ data_offer_receive (struct wl_client *client, struct wl_resource *resource,
                     const char *mime_type, int32_t fd)
 {
   MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
-  MetaDisplay *display = meta_get_display ();
+  MetaDisplay *display = display_from_offer (offer);
   MetaSelectionType selection_type;
   GList *mime_types;
   gboolean found;
@@ -228,18 +236,19 @@ destroy_data_offer (struct wl_resource *resource)
       offer->source = NULL;
     }
 
-  meta_display_sync_wayland_input_focus (meta_get_display ());
   g_free (offer);
 }
 
 MetaWaylandDataOffer *
-meta_wayland_data_offer_new (MetaSelectionType      selection_type,
+meta_wayland_data_offer_new (MetaWaylandCompositor *compositor,
+                             MetaSelectionType      selection_type,
                              MetaWaylandDataSource *source,
                              struct wl_resource    *target)
 {
   MetaWaylandDataOffer *offer;
 
   offer = g_new0 (MetaWaylandDataOffer, 1);
+  offer->compositor = compositor;
   offer->selection_type = selection_type;
   offer->resource = wl_resource_create (wl_resource_get_client (target),
                                         &wl_data_offer_interface,

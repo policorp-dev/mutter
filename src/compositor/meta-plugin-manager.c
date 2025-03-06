@@ -26,12 +26,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "backends/x11/meta-clutter-backend-x11.h"
 #include "compositor/compositor-private.h"
 #include "compositor/meta-module.h"
 #include "core/meta-inhibit-shortcuts-dialog-default-private.h"
 #include "core/window-private.h"
-#include "meta/meta-x11-errors.h"
 #include "meta/prefs.h"
 #include "meta/workspace.h"
 
@@ -115,23 +113,36 @@ on_prepare_shutdown (MetaContext       *context,
 }
 
 MetaPluginManager *
-meta_plugin_manager_new (MetaCompositor *compositor)
+meta_plugin_manager_new (MetaCompositor *compositor,
+                         GVariant       *plugin_options)
 {
+  MetaBackend *backend = meta_compositor_get_backend (compositor);
+  MetaMonitorManager *monitor_manager =
+    meta_backend_get_monitor_manager (backend);
   MetaPluginManager *plugin_mgr;
   MetaPlugin *plugin;
-  MetaMonitorManager *monitors;
   MetaDisplay *display;
   MetaContext *context;
+
+  if (plugin_options)
+    {
+      plugin = g_object_new (plugin_type,
+                             "options", plugin_options,
+                             NULL);
+    }
+  else
+    {
+      plugin = g_object_new (plugin_type, NULL);
+    }
 
   plugin_mgr = g_new0 (MetaPluginManager, 1);
   plugin_mgr->state = PLUGIN_MANAGER_STATE_STARTING;
   plugin_mgr->compositor = compositor;
-  plugin_mgr->plugin = plugin = g_object_new (plugin_type, NULL);
+  plugin_mgr->plugin = plugin;
 
   _meta_plugin_set_compositor (plugin, compositor);
 
-  monitors = meta_monitor_manager_get ();
-  g_signal_connect (monitors, "confirm-display-change",
+  g_signal_connect (monitor_manager, "confirm-display-change",
                     G_CALLBACK (on_confirm_display_change), plugin_mgr);
 
   display = meta_compositor_get_display (compositor);
@@ -271,8 +282,8 @@ gboolean
 meta_plugin_manager_event_size_change (MetaPluginManager *plugin_mgr,
                                        MetaWindowActor   *actor,
                                        MetaSizeChange     which_change,
-                                       MetaRectangle     *old_frame_rect,
-                                       MetaRectangle     *old_buffer_rect)
+                                       MtkRectangle      *old_frame_rect,
+                                       MtkRectangle      *old_buffer_rect)
 {
   MetaPlugin *plugin = plugin_mgr->plugin;
   MetaPluginClass *klass = META_PLUGIN_GET_CLASS (plugin);
@@ -332,6 +343,7 @@ meta_plugin_manager_filter_keybinding (MetaPluginManager *plugin_mgr,
   return FALSE;
 }
 
+#ifdef HAVE_X11
 gboolean
 meta_plugin_manager_xevent_filter (MetaPluginManager *plugin_mgr,
                                    XEvent            *xev)
@@ -340,6 +352,7 @@ meta_plugin_manager_xevent_filter (MetaPluginManager *plugin_mgr,
 
   return _meta_plugin_xevent_filter (plugin, xev);
 }
+#endif
 
 void
 meta_plugin_manager_confirm_display_change (MetaPluginManager *plugin_mgr)
@@ -356,7 +369,7 @@ meta_plugin_manager_confirm_display_change (MetaPluginManager *plugin_mgr)
 gboolean
 meta_plugin_manager_show_tile_preview (MetaPluginManager *plugin_mgr,
                                        MetaWindow        *window,
-                                       MetaRectangle     *tile_rect,
+                                       MtkRectangle      *tile_rect,
                                        int                tile_monitor_number)
 {
   MetaPlugin *plugin = plugin_mgr->plugin;
@@ -409,22 +422,6 @@ meta_plugin_manager_show_window_menu (MetaPluginManager  *plugin_mgr,
     klass->show_window_menu (plugin, window, menu, x, y);
 }
 
-void
-meta_plugin_manager_show_window_menu_for_rect (MetaPluginManager  *plugin_mgr,
-                                               MetaWindow         *window,
-                                               MetaWindowMenuType  menu,
-					       MetaRectangle      *rect)
-{
-  MetaPlugin *plugin = plugin_mgr->plugin;
-  MetaPluginClass *klass = META_PLUGIN_GET_CLASS (plugin);
-
-  if (!should_start_effect (plugin_mgr))
-    return;
-
-  if (klass->show_window_menu_for_rect)
-    klass->show_window_menu_for_rect (plugin, window, menu, rect);
-}
-
 MetaCloseDialog *
 meta_plugin_manager_create_close_dialog (MetaPluginManager *plugin_mgr,
                                          MetaWindow        *window)
@@ -459,4 +456,10 @@ meta_plugin_manager_locate_pointer (MetaPluginManager *plugin_mgr)
 
   if (klass->locate_pointer)
     klass->locate_pointer (plugin);
+}
+
+MetaPlugin *
+meta_plugin_manager_get_plugin (MetaPluginManager *plugin_mgr)
+{
+  return plugin_mgr->plugin;
 }

@@ -31,40 +31,45 @@
  *   Robert Bragg <robert@linux.intel.com>
  */
 
-#include "cogl-config.h"
+#include "config.h"
 
-#include "cogl-object-private.h"
-#include "cogl-attribute-buffer.h"
-#include "cogl-attribute-buffer-private.h"
-#include "cogl-context-private.h"
-#include "cogl-gtype-private.h"
+#include "cogl/cogl-attribute-buffer.h"
+#include "cogl/cogl-attribute-buffer-private.h"
+#include "cogl/cogl-context-private.h"
 
-static void _cogl_attribute_buffer_free (CoglAttributeBuffer *array);
+G_DEFINE_FINAL_TYPE (CoglAttributeBuffer, cogl_attribute_buffer, COGL_TYPE_BUFFER)
 
-COGL_BUFFER_DEFINE (AttributeBuffer, attribute_buffer);
-COGL_GTYPE_DEFINE_CLASS (AttributeBuffer, attribute_buffer);
+static void
+cogl_attribute_buffer_class_init (CoglAttributeBufferClass *klass)
+{
+}
+
+static void
+cogl_attribute_buffer_init (CoglAttributeBuffer *buffer)
+{
+}
 
 CoglAttributeBuffer *
 cogl_attribute_buffer_new_with_size (CoglContext *context,
-                                     size_t bytes)
+                                     size_t       bytes)
 {
-  CoglAttributeBuffer *buffer = g_new0 (CoglAttributeBuffer, 1);
+  CoglAttributeBuffer *buffer;
 
-  /* parent's constructor */
-  _cogl_buffer_initialize (COGL_BUFFER (buffer),
-                           context,
-                           bytes,
-                           COGL_BUFFER_BIND_TARGET_ATTRIBUTE_BUFFER,
-                           COGL_BUFFER_USAGE_HINT_ATTRIBUTE_BUFFER,
-                           COGL_BUFFER_UPDATE_HINT_STATIC);
+  buffer = g_object_new (COGL_TYPE_ATTRIBUTE_BUFFER,
+                         "context", context,
+                         "impl", cogl_driver_create_buffer_impl (context->driver),
+                         "size", (uint64_t) bytes,
+                         "default-target", COGL_BUFFER_BIND_TARGET_ATTRIBUTE_BUFFER,
+                         "update-hint", COGL_BUFFER_UPDATE_HINT_STATIC,
+                         NULL);
 
-  return _cogl_attribute_buffer_object_new (buffer);
+  return buffer;
 }
 
 CoglAttributeBuffer *
 cogl_attribute_buffer_new (CoglContext *context,
-                           size_t bytes,
-                           const void *data)
+                           size_t       bytes,
+                           const void  *data)
 {
   CoglAttributeBuffer *buffer;
 
@@ -82,21 +87,10 @@ cogl_attribute_buffer_new (CoglContext *context,
   /* XXX: NB: for Cogl 2.0 we don't allow NULL data here but we can't
    * break the api for 1.x and so we keep the check for now. */
   if (data)
-    _cogl_buffer_set_data (COGL_BUFFER (buffer),
-                           0,
-                           data,
-                           bytes,
-                           NULL);
+    cogl_buffer_set_data (COGL_BUFFER (buffer),
+                          0,
+                          data,
+                          bytes);
 
   return buffer;
 }
-
-static void
-_cogl_attribute_buffer_free (CoglAttributeBuffer *array)
-{
-  /* parent's destructor */
-  _cogl_buffer_fini (COGL_BUFFER (array));
-
-  g_free (array);
-}
-

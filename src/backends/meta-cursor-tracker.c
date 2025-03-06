@@ -20,11 +20,10 @@
  */
 
 /**
- * SECTION:cursor-tracker
- * @title: MetaCursorTracker
- * @short_description: Mutter cursor tracking helper. Originally only
- *                     tracking the cursor image, now more of a "core
- *                     pointer abstraction"
+ * MetaCursorTracker:
+ *
+ * Mutter cursor tracking helper. Originally only tracking
+ * the cursor image, now more of a "core pointer abstraction"
  */
 
 #include "config.h"
@@ -56,6 +55,7 @@ typedef struct _MetaCursorTrackerPrivate
   MetaBackend *backend;
 
   gboolean is_showing;
+  gboolean pointer_focus;
 
   int track_position_count;
 
@@ -109,11 +109,11 @@ update_displayed_cursor (MetaCursorTracker *tracker)
 {
   MetaCursorTrackerPrivate *priv =
     meta_cursor_tracker_get_instance_private (tracker);
-  MetaDisplay *display = meta_get_display ();
+  MetaContext *context = meta_backend_get_context (priv->backend);
+  MetaDisplay *display = meta_context_get_display (context);
   MetaCursorSprite *cursor = NULL;
 
-  if (display && meta_display_windows_are_interactable (display) &&
-      priv->has_window_cursor)
+  if (display && !meta_display_is_grabbed (display) && priv->has_window_cursor)
     cursor = priv->window_cursor;
   else
     cursor = priv->root_cursor;
@@ -283,9 +283,7 @@ meta_cursor_tracker_class_init (MetaCursorTrackerClass *klass)
     meta_cursor_tracker_real_get_sprite;
 
   obj_props[PROP_BACKEND] =
-    g_param_spec_object ("backend",
-                         "backend",
-                         "MetaBackend",
+    g_param_spec_object ("backend", NULL, NULL,
                          META_TYPE_BACKEND,
                          G_PARAM_READWRITE |
                          G_PARAM_CONSTRUCT_ONLY |
@@ -313,25 +311,6 @@ meta_cursor_tracker_class_init (MetaCursorTrackerClass *klass)
                                               G_TYPE_NONE, 0);
 }
 
-/**
- * meta_cursor_tracker_get_for_display:
- * @display: the #MetaDisplay
- *
- * Retrieves the cursor tracker object for @display.
- *
- * Returns: (transfer none):
- */
-MetaCursorTracker *
-meta_cursor_tracker_get_for_display (MetaDisplay *display)
-{
-  MetaBackend *backend = meta_get_backend ();
-  MetaCursorTracker *tracker = meta_backend_get_cursor_tracker (backend);
-
-  g_assert (tracker);
-
-  return tracker;
-}
-
 static void
 set_window_cursor (MetaCursorTracker *tracker,
                    gboolean           has_cursor,
@@ -347,10 +326,22 @@ set_window_cursor (MetaCursorTracker *tracker,
   sync_cursor (tracker);
 }
 
+gboolean
+meta_cursor_tracker_has_window_cursor (MetaCursorTracker *tracker)
+{
+  MetaCursorTrackerPrivate *priv =
+    meta_cursor_tracker_get_instance_private (tracker);
+
+  return priv->has_window_cursor;
+}
+
 /**
  * meta_cursor_tracker_get_sprite:
+ * @tracker: a #MetaCursorTracker
  *
- * Returns: (transfer none):
+ * Get the #CoglTexture of the cursor sprite
+ *
+ * Returns: (transfer none) (nullable): the #CoglTexture of the cursor sprite
  */
 CoglTexture *
 meta_cursor_tracker_get_sprite (MetaCursorTracker *tracker)
@@ -368,9 +359,11 @@ meta_cursor_tracker_get_sprite (MetaCursorTracker *tracker)
 
 /**
  * meta_cursor_tracker_get_scale:
- * @tracker:
+ * @tracker: a #MetaCursorTracker
  *
- * Returns:
+ * Get the scale factor of the cursor sprite
+ *
+ * Returns: The scale factor of the cursor sprite
  */
 float
 meta_cursor_tracker_get_scale (MetaCursorTracker *tracker)
@@ -387,10 +380,11 @@ meta_cursor_tracker_get_scale (MetaCursorTracker *tracker)
 
 /**
  * meta_cursor_tracker_get_hot:
- * @tracker:
- * @x: (out):
- * @y: (out):
+ * @tracker: a #MetaCursorTracker
+ * @x: (out): the x coordinate of the cursor hotspot
+ * @y: (out): the y coordinate of the cursor hotspot
  *
+ * Get the hotspot of the current cursor sprite.
  */
 void
 meta_cursor_tracker_get_hot (MetaCursorTracker *tracker,
@@ -430,7 +424,7 @@ meta_cursor_tracker_unset_window_cursor (MetaCursorTracker *tracker)
 /**
  * meta_cursor_tracker_set_root_cursor:
  * @tracker: a #MetaCursorTracker object.
- * @cursor_sprite: (transfer none): the new root cursor
+ * @cursor_sprite: (transfer none) (nullable): the new root cursor
  *
  * Sets the root cursor (the cursor that is shown if not modified by a window).
  * The #MetaCursorTracker will take a strong reference to the sprite.
@@ -458,8 +452,8 @@ meta_cursor_tracker_invalidate_position (MetaCursorTracker *tracker)
 /**
  * meta_cursor_tracker_get_pointer:
  * @tracker: a #MetaCursorTracker object
- * @coords: (out caller-allocates): the coordinates of the pointer
- * @mods: (out): the current #ClutterModifierType of the pointer
+ * @coords: (out caller-allocates) (optional): the coordinates of the pointer
+ * @mods: (out) (optional): the current #ClutterModifierType of the pointer
  *
  * Get the current pointer position and state.
  */
@@ -468,11 +462,11 @@ meta_cursor_tracker_get_pointer (MetaCursorTracker   *tracker,
                                  graphene_point_t    *coords,
                                  ClutterModifierType *mods)
 {
-  ClutterSeat *seat;
-  ClutterInputDevice *cdevice;
-
-  seat = clutter_backend_get_default_seat (clutter_get_default_backend ());
-  cdevice = clutter_seat_get_pointer (seat);
+  MetaBackend *backend = meta_cursor_tracker_get_backend (tracker);
+  ClutterBackend *clutter_backend =
+    meta_backend_get_clutter_backend (backend);
+  ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
+  ClutterInputDevice *cdevice = clutter_seat_get_pointer (seat);
 
   clutter_seat_query_state (seat, cdevice, NULL, coords, mods);
 }
@@ -526,12 +520,21 @@ meta_cursor_tracker_set_pointer_visible (MetaCursorTracker *tracker,
 {
   MetaCursorTrackerPrivate *priv =
     meta_cursor_tracker_get_instance_private (tracker);
+  MetaBackend *backend = meta_cursor_tracker_get_backend (tracker);
+  ClutterBackend *clutter_backend =
+    meta_backend_get_clutter_backend (backend);
+  ClutterSeat *seat = clutter_backend_get_default_seat (clutter_backend);
 
   if (visible == priv->is_showing)
     return;
   priv->is_showing = visible;
 
   sync_cursor (tracker);
+
+  if (priv->is_showing)
+    clutter_seat_inhibit_unfocus (seat);
+  else
+    clutter_seat_uninhibit_unfocus (seat);
 
   g_signal_emit (tracker, signals[VISIBILITY_CHANGED], 0);
 }
@@ -565,11 +568,3 @@ meta_cursor_tracker_unregister_cursor_sprite (MetaCursorTracker *tracker,
   priv->cursor_sprites = g_list_remove (priv->cursor_sprites, sprite);
 }
 
-GList *
-meta_cursor_tracker_peek_cursor_sprites (MetaCursorTracker *tracker)
-{
-  MetaCursorTrackerPrivate *priv =
-    meta_cursor_tracker_get_instance_private (tracker);
-
-  return priv->cursor_sprites;
-}

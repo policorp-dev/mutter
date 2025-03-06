@@ -26,17 +26,14 @@
  * SOFTWARE.
  */
 
-#ifndef __COGL_ATLAS_H
-#define __COGL_ATLAS_H
+#pragma once
 
-#include "cogl-rectangle-map.h"
-#include "cogl-object-private.h"
-#include "cogl-texture.h"
+#include "cogl/cogl-texture.h"
 
 typedef void
-(* CoglAtlasUpdatePositionCallback) (void *user_data,
-                                     CoglTexture *new_texture,
-                                     const CoglRectangleMapEntry *rect);
+(* CoglAtlasUpdatePositionCallback) (void               *user_data,
+                                     CoglTexture        *new_texture,
+                                     const MtkRectangle *rect);
 
 typedef enum
 {
@@ -44,62 +41,36 @@ typedef enum
   COGL_ATLAS_DISABLE_MIGRATION = (1 << 1)
 } CoglAtlasFlags;
 
-typedef struct _CoglAtlas CoglAtlas;
+#define COGL_TYPE_ATLAS (cogl_atlas_get_type ())
 
-#define COGL_ATLAS(object) ((CoglAtlas *) object)
+COGL_EXPORT
+G_DECLARE_FINAL_TYPE (CoglAtlas,
+                      cogl_atlas,
+                      COGL,
+                      ATLAS,
+                      GObject)
 
-struct _CoglAtlas
-{
-  CoglObject _parent;
 
-  CoglRectangleMap *map;
-
-  CoglTexture *texture;
-  CoglPixelFormat texture_format;
-  CoglAtlasFlags flags;
-
-  CoglAtlasUpdatePositionCallback update_position_cb;
-
-  GHookList pre_reorganize_callbacks;
-  GHookList post_reorganize_callbacks;
-};
-
+/**
+ * cogl_atlas_new: (skip)
+ */
 COGL_EXPORT CoglAtlas *
-_cogl_atlas_new (CoglPixelFormat texture_format,
-                 CoglAtlasFlags flags,
-                 CoglAtlasUpdatePositionCallback update_position_cb);
+cogl_atlas_new (CoglContext                    *context,
+                CoglPixelFormat                 texture_format,
+                CoglAtlasFlags                  flags,
+                CoglAtlasUpdatePositionCallback update_position_cb);
 
 COGL_EXPORT gboolean
-_cogl_atlas_reserve_space (CoglAtlas             *atlas,
-                           unsigned int           width,
-                           unsigned int           height,
-                           void                  *user_data);
+cogl_atlas_reserve_space (CoglAtlas             *atlas,
+                          unsigned int           width,
+                          unsigned int           height,
+                          void                  *user_data);
 
-void
-_cogl_atlas_remove (CoglAtlas *atlas,
-                    const CoglRectangleMapEntry *rectangle);
-
-CoglTexture *
-_cogl_atlas_copy_rectangle (CoglAtlas *atlas,
-                            int x,
-                            int y,
-                            int width,
-                            int height,
-                            CoglPixelFormat format);
-
+/**
+ * cogl_atlas_add_reorganize_callback: (skip)
+ */
 COGL_EXPORT void
-_cogl_atlas_add_reorganize_callback (CoglAtlas            *atlas,
-                                     GHookFunc             pre_callback,
-                                     GHookFunc             post_callback,
-                                     void                 *user_data);
-
-void
-_cogl_atlas_remove_reorganize_callback (CoglAtlas            *atlas,
-                                        GHookFunc             pre_callback,
-                                        GHookFunc             post_callback,
-                                        void                 *user_data);
-
-gboolean
-_cogl_is_atlas (void *object);
-
-#endif /* __COGL_ATLAS_H */
+cogl_atlas_add_reorganize_callback (CoglAtlas            *atlas,
+                                    GHookFunc             pre_callback,
+                                    GHookFunc             post_callback,
+                                    void                 *user_data);

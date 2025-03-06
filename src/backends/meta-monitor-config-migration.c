@@ -67,9 +67,9 @@ typedef struct
 typedef struct
 {
   gboolean enabled;
-  MetaRectangle rect;
+  MtkRectangle rect;
   float refresh_rate;
-  MetaMonitorTransform transform;
+  MtkMonitorTransform transform;
 
   gboolean is_primary;
   gboolean is_presentation;
@@ -463,7 +463,7 @@ read_float (const char  *text,
   strncpy (buf, text, text_len);
   buf[MIN (63, text_len)] = 0;
 
-  v = g_ascii_strtod (buf, &end);
+  v = (float) g_ascii_strtod (buf, &end);
 
   /* Limit reasonable values (actual limits are a lot smaller that these) */
   if (*end)
@@ -579,20 +579,20 @@ handle_text (GMarkupParseContext *context,
         else if (strcmp (parser->output_field, "rotation") == 0)
           {
             if (strncmp (text, "normal", text_len) == 0)
-              parser->output.transform = META_MONITOR_TRANSFORM_NORMAL;
+              parser->output.transform = MTK_MONITOR_TRANSFORM_NORMAL;
             else if (strncmp (text, "left", text_len) == 0)
-              parser->output.transform = META_MONITOR_TRANSFORM_90;
+              parser->output.transform = MTK_MONITOR_TRANSFORM_90;
             else if (strncmp (text, "upside_down", text_len) == 0)
-              parser->output.transform = META_MONITOR_TRANSFORM_180;
+              parser->output.transform = MTK_MONITOR_TRANSFORM_180;
             else if (strncmp (text, "right", text_len) == 0)
-              parser->output.transform = META_MONITOR_TRANSFORM_270;
+              parser->output.transform = MTK_MONITOR_TRANSFORM_270;
             else
               g_set_error (error, G_MARKUP_ERROR, G_MARKUP_ERROR_INVALID_CONTENT,
                            "Invalid rotation type %.*s", (int)text_len, text);
           }
         else if (strcmp (parser->output_field, "reflect_x") == 0)
           parser->output.transform += read_bool (text, text_len, error) ?
-            META_MONITOR_TRANSFORM_FLIPPED : 0;
+            MTK_MONITOR_TRANSFORM_FLIPPED : 0;
         else if (strcmp (parser->output_field, "reflect_y") == 0)
           {
             if (read_bool (text, text_len, error))
@@ -720,7 +720,7 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
                                  MetaOutputKey            *output_key,
                                  MetaOutputConfig         *output_config,
                                  MetaMonitorConfigStore   *config_store,
-                                 MetaRectangle            *out_layout,
+                                 MtkRectangle             *out_layout,
                                  GError                  **error)
 {
   MonitorTile top_left_tile = { 0 };
@@ -728,7 +728,7 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
   MonitorTile bottom_left_tile = { 0 };
   MonitorTile bottom_right_tile = { 0 };
   MonitorTile origin_tile = { 0 };
-  MetaMonitorTransform transform = output_config->transform;
+  MtkMonitorTransform transform = output_config->transform;
   unsigned int i;
   int max_x = 0;
   int min_x = INT_MAX;
@@ -752,7 +752,7 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
     {
       MetaOutputKey *other_output_key = &config->keys[i];
       MetaOutputConfig *other_output_config = &config->outputs[i];
-      MetaRectangle *rect;
+      MtkRectangle *rect;
 
       if (strcmp (output_key->vendor, other_output_key->vendor) != 0 ||
           strcmp (output_key->product, other_output_key->product) != 0 ||
@@ -810,42 +810,42 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
 
   switch (transform)
     {
-    case META_MONITOR_TRANSFORM_NORMAL:
+    case MTK_MONITOR_TRANSFORM_NORMAL:
       origin_tile = top_left_tile;
       mode_width = max_x - min_x;
       mode_height = max_y - min_y;
       break;
-    case META_MONITOR_TRANSFORM_90:
+    case MTK_MONITOR_TRANSFORM_90:
       origin_tile = bottom_left_tile;
       mode_width = max_y - min_y;
       mode_height = max_x - min_x;
       break;
-    case META_MONITOR_TRANSFORM_180:
+    case MTK_MONITOR_TRANSFORM_180:
       origin_tile = bottom_right_tile;
       mode_width = max_x - min_x;
       mode_height = max_y - min_y;
       break;
-    case META_MONITOR_TRANSFORM_270:
+    case MTK_MONITOR_TRANSFORM_270:
       origin_tile = top_right_tile;
       mode_width = max_y - min_y;
       mode_height = max_x - min_x;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED:
+    case MTK_MONITOR_TRANSFORM_FLIPPED:
       origin_tile = bottom_left_tile;
       mode_width = max_x - min_x;
       mode_height = max_y - min_y;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_90:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_90:
       origin_tile = bottom_right_tile;
       mode_width = max_y - min_y;
       mode_height = max_x - min_x;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_180:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_180:
       origin_tile = top_right_tile;
       mode_width = max_x - min_x;
       mode_height = max_y - min_y;
       break;
-    case META_MONITOR_TRANSFORM_FLIPPED_270:
+    case MTK_MONITOR_TRANSFORM_FLIPPED_270:
       origin_tile = top_left_tile;
       mode_width = max_y - min_y;
       mode_height = max_x - min_x;
@@ -871,7 +871,7 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
   if (!monitor_config)
     return NULL;
 
-  *out_layout = (MetaRectangle) {
+  *out_layout = (MtkRectangle) {
     .x = min_x,
     .y = min_y,
     .width = max_x - min_x,
@@ -884,14 +884,14 @@ try_derive_tiled_monitor_config (MetaLegacyMonitorsConfig *config,
 static MetaMonitorConfig *
 derive_monitor_config (MetaOutputKey    *output_key,
                        MetaOutputConfig *output_config,
-                       MetaRectangle    *out_layout,
+                       MtkRectangle     *out_layout,
                        GError          **error)
 {
   int mode_width;
   int mode_height;
   MetaMonitorConfig *monitor_config;
 
-  if (meta_monitor_transform_is_rotated (output_config->transform))
+  if (mtk_monitor_transform_is_rotated (output_config->transform))
     {
       mode_width = output_config->rect.height;
       mode_height = output_config->rect.width;
@@ -916,7 +916,7 @@ derive_monitor_config (MetaOutputKey    *output_key,
 static MetaLogicalMonitorConfig *
 ensure_logical_monitor (GList           **logical_monitor_configs,
                         MetaOutputConfig *output_config,
-                        MetaRectangle    *layout)
+                        MtkRectangle     *layout)
 {
   MetaLogicalMonitorConfig *new_logical_monitor_config;
   GList *l;
@@ -925,7 +925,7 @@ ensure_logical_monitor (GList           **logical_monitor_configs,
     {
       MetaLogicalMonitorConfig *logical_monitor_config = l->data;
 
-      if (meta_rectangle_equal (&logical_monitor_config->layout, layout))
+      if (mtk_rectangle_equal (&logical_monitor_config->layout, layout))
         return logical_monitor_config;
     }
 
@@ -957,7 +957,7 @@ derive_logical_monitor_configs (MetaLegacyMonitorsConfig *config,
       MetaOutputKey *output_key = &config->keys[i];
       MetaOutputConfig *output_config = &config->outputs[i];
       MetaMonitorConfig *monitor_config = NULL;
-      MetaRectangle layout;
+      MtkRectangle layout;
       MetaLogicalMonitorConfig *logical_monitor_config;
 
       if (!output_config->enabled)

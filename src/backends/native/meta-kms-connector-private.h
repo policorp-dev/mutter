@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_KMS_CONNECTOR_PRIVATE_H
-#define META_KMS_CONNECTOR_PRIVATE_H
+#pragma once
 
 #include "backends/native/meta-kms-connector.h"
 
@@ -40,6 +37,10 @@ typedef enum _MetaKmsConnectorProp
   META_KMS_CONNECTOR_PROP_PANEL_ORIENTATION,
   META_KMS_CONNECTOR_PROP_NON_DESKTOP,
   META_KMS_CONNECTOR_PROP_MAX_BPC,
+  META_KMS_CONNECTOR_PROP_COLORSPACE,
+  META_KMS_CONNECTOR_PROP_HDR_OUTPUT_METADATA,
+  META_KMS_CONNECTOR_PROP_BROADCAST_RGB,
+  META_KMS_CONNECTOR_PROP_VRR_CAPABLE,
   META_KMS_CONNECTOR_N_PROPS
 } MetaKmsConnectorProp;
 
@@ -92,6 +93,37 @@ typedef enum _MetaKmsConnectorPanelOrientation
   META_KMS_CONNECTOR_PANEL_ORIENTATION_UNKNOWN,
 } MetaKmsConnectorPanelOrientation;
 
+typedef enum _MetaKmsConnectorColorspace
+{
+  META_KMS_CONNECTOR_COLORSPACE_DEFAULT = 0,
+  META_KMS_CONNECTOR_COLORSPACE_RGB_WIDE_GAMUT_FIXED_POINT,
+  META_KMS_CONNECTOR_COLORSPACE_RGB_WIDE_GAMUT_FLOATING_POINT,
+  META_KMS_CONNECTOR_COLORSPACE_RGB_OPRGB,
+  META_KMS_CONNECTOR_COLORSPACE_RGB_DCI_P3_RGB_D65,
+  META_KMS_CONNECTOR_COLORSPACE_BT2020_RGB,
+  META_KMS_CONNECTOR_COLORSPACE_BT601_YCC,
+  META_KMS_CONNECTOR_COLORSPACE_BT709_YCC,
+  META_KMS_CONNECTOR_COLORSPACE_XVYCC_601,
+  META_KMS_CONNECTOR_COLORSPACE_XVYCC_709,
+  META_KMS_CONNECTOR_COLORSPACE_SYCC_601,
+  META_KMS_CONNECTOR_COLORSPACE_OPYCC_601,
+  META_KMS_CONNECTOR_COLORSPACE_BT2020_CYCC,
+  META_KMS_CONNECTOR_COLORSPACE_BT2020_YCC,
+  META_KMS_CONNECTOR_COLORSPACE_SMPTE_170M_YCC,
+  META_KMS_CONNECTOR_COLORSPACE_DCI_P3_RGB_THEATER,
+  META_KMS_CONNECTOR_COLORSPACE_N_PROPS,
+  META_KMS_CONNECTOR_COLORSPACE_UNKNOWN,
+} MetaKmsConnectorColorspace;
+
+typedef enum _MetaKmsConnectorBroadcastRGB
+{
+  META_KMS_CONNECTOR_BROADCAST_RGB_AUTOMATIC = 0,
+  META_KMS_CONNECTOR_BROADCAST_RGB_FULL,
+  META_KMS_CONNECTOR_BROADCAST_RGB_LIMITED_16_235,
+  META_KMS_CONNECTOR_BROADCAST_RGB_N_PROPS,
+  META_KMS_CONNECTOR_BROADCAST_RGB_UNKNOWN,
+} MetaKmsConnectorBroadcastRGB;
+
 uint32_t meta_kms_connector_get_prop_id (MetaKmsConnector     *connector,
                                          MetaKmsConnectorProp  prop);
 
@@ -102,14 +134,14 @@ uint64_t meta_kms_connector_get_prop_drm_value (MetaKmsConnector     *connector,
                                                 MetaKmsConnectorProp  prop,
                                                 uint64_t              value);
 
-MetaKmsResourceChanges meta_kms_connector_update_state (MetaKmsConnector *connector,
-                                                        drmModeRes       *drm_resources,
-                                                        drmModeConnector *drm_connector);
+MetaKmsResourceChanges meta_kms_connector_update_state_in_impl (MetaKmsConnector *connector,
+                                                                drmModeRes       *drm_resources,
+                                                                drmModeConnector *drm_connector);
 
-void meta_kms_connector_disable (MetaKmsConnector *connector);
+void meta_kms_connector_disable_in_impl (MetaKmsConnector *connector);
 
-MetaKmsResourceChanges meta_kms_connector_predict_state (MetaKmsConnector *connector,
-                                                         MetaKmsUpdate    *update);
+MetaKmsResourceChanges meta_kms_connector_predict_state_in_impl (MetaKmsConnector *connector,
+                                                               MetaKmsUpdate    *update);
 
 MetaKmsConnector * meta_kms_connector_new (MetaKmsImplDevice *impl_device,
                                            drmModeConnector  *drm_connector,
@@ -118,4 +150,14 @@ MetaKmsConnector * meta_kms_connector_new (MetaKmsImplDevice *impl_device,
 gboolean meta_kms_connector_is_same_as (MetaKmsConnector *connector,
                                         drmModeConnector *drm_connector);
 
-#endif /* META_KMS_CONNECTOR_PRIVATE_H */
+uint64_t meta_output_color_space_to_drm_color_space (MetaOutputColorspace color_space);
+
+uint64_t meta_output_rgb_range_to_drm_broadcast_rgb (MetaOutputRGBRange rgb_range);
+
+META_EXPORT_TEST
+void meta_set_drm_hdr_metadata (MetaOutputHdrMetadata      *metadata,
+                                struct hdr_output_metadata *drm_metadata);
+
+META_EXPORT_TEST
+gboolean set_output_hdr_metadata (struct hdr_output_metadata *drm_metadata,
+                                  MetaOutputHdrMetadata      *metadata);

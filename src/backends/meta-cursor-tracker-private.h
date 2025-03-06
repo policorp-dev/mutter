@@ -19,8 +19,7 @@
  * Author: Giovanni Campagna <gcampagn@redhat.com>
  */
 
-#ifndef META_CURSOR_TRACKER_PRIVATE_H
-#define META_CURSOR_TRACKER_PRIVATE_H
+#pragma once
 
 #include "backends/meta-cursor.h"
 #include "backends/meta-cursor-renderer.h"
@@ -43,6 +42,9 @@ void     meta_cursor_tracker_set_root_cursor     (MetaCursorTracker *tracker,
 
 void     meta_cursor_tracker_invalidate_position (MetaCursorTracker *tracker);
 
+META_EXPORT_TEST
+gboolean meta_cursor_tracker_has_window_cursor (MetaCursorTracker *tracker);
+
 void meta_cursor_tracker_track_position (MetaCursorTracker *tracker);
 
 void meta_cursor_tracker_untrack_position (MetaCursorTracker *tracker);
@@ -58,7 +60,3 @@ void meta_cursor_tracker_register_cursor_sprite (MetaCursorTracker *tracker,
 
 void meta_cursor_tracker_unregister_cursor_sprite (MetaCursorTracker *tracker,
                                                    MetaCursorSprite  *sprite);
-
-GList * meta_cursor_tracker_peek_cursor_sprites (MetaCursorTracker *tracker);
-
-#endif

@@ -33,6 +33,7 @@ enum
   PROP_0,
 
   PROP_CURSOR_TRACKER,
+  PROP_COLOR_STATE,
 
   N_PROPS
 };
@@ -54,8 +55,15 @@ typedef struct _MetaCursorSpritePrivate
 
   CoglTexture2D *texture;
   float texture_scale;
-  MetaMonitorTransform texture_transform;
+  MtkMonitorTransform texture_transform;
+  gboolean has_viewport_src_rect;
+  graphene_rect_t viewport_src_rect;
+  gboolean has_viewport_dst_size;
+  int viewport_dst_width;
+  int viewport_dst_height;
   int hot_x, hot_y;
+
+  ClutterColorState *color_state;
 
   MetaCursorPrepareFunc prepare_func;
   gpointer prepare_func_data;
@@ -96,7 +104,7 @@ meta_cursor_sprite_clear_texture (MetaCursorSprite *sprite)
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
-  g_clear_pointer (&priv->texture, cogl_object_unref);
+  g_clear_object (&priv->texture);
   meta_cursor_sprite_invalidate (sprite);
 }
 
@@ -109,9 +117,9 @@ meta_cursor_sprite_set_texture (MetaCursorSprite *sprite,
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
-  g_clear_pointer (&priv->texture, cogl_object_unref);
+  g_clear_object (&priv->texture);
   if (texture)
-    priv->texture = cogl_object_ref (texture);
+    priv->texture = g_object_ref (COGL_TEXTURE_2D (texture));
   priv->hot_x = hot_x;
   priv->hot_y = hot_y;
 
@@ -127,23 +135,93 @@ meta_cursor_sprite_set_texture_scale (MetaCursorSprite *sprite,
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
-  if (priv->texture_scale != scale)
-    meta_cursor_sprite_invalidate (sprite);
+  if (G_APPROX_VALUE (priv->texture_scale, scale, FLT_EPSILON))
+    return;
 
   priv->texture_scale = scale;
+  meta_cursor_sprite_invalidate (sprite);
 }
 
 void
-meta_cursor_sprite_set_texture_transform (MetaCursorSprite     *sprite,
-                                          MetaMonitorTransform  transform)
+meta_cursor_sprite_set_texture_transform (MetaCursorSprite    *sprite,
+                                          MtkMonitorTransform  transform)
 {
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
-  if (priv->texture_transform != transform)
-    meta_cursor_sprite_invalidate (sprite);
+  if (priv->texture_transform == transform)
+    return;
 
   priv->texture_transform = transform;
+  meta_cursor_sprite_invalidate (sprite);
+}
+
+void
+meta_cursor_sprite_set_viewport_src_rect (MetaCursorSprite      *sprite,
+                                          const graphene_rect_t *src_rect)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (priv->has_viewport_src_rect &&
+      G_APPROX_VALUE (priv->viewport_src_rect.origin.x,
+                      src_rect->origin.x, FLT_EPSILON) &&
+      G_APPROX_VALUE (priv->viewport_src_rect.origin.y,
+                      src_rect->origin.y, FLT_EPSILON) &&
+      G_APPROX_VALUE (priv->viewport_src_rect.size.width,
+                      src_rect->size.width, FLT_EPSILON) &&
+      G_APPROX_VALUE (priv->viewport_src_rect.size.height,
+                      src_rect->size.height, FLT_EPSILON))
+    return;
+
+  priv->has_viewport_src_rect = TRUE;
+  priv->viewport_src_rect = *src_rect;
+  meta_cursor_sprite_invalidate (sprite);
+}
+
+void
+meta_cursor_sprite_reset_viewport_src_rect (MetaCursorSprite *sprite)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (!priv->has_viewport_src_rect)
+    return;
+
+  priv->has_viewport_src_rect = FALSE;
+  meta_cursor_sprite_invalidate (sprite);
+}
+
+void
+meta_cursor_sprite_set_viewport_dst_size (MetaCursorSprite *sprite,
+                                          int               dst_width,
+                                          int               dst_height)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (priv->has_viewport_dst_size &&
+      priv->viewport_dst_width == dst_width &&
+      priv->viewport_dst_height == dst_height)
+    return;
+
+  priv->has_viewport_dst_size = TRUE;
+  priv->viewport_dst_width = dst_width;
+  priv->viewport_dst_height = dst_height;
+  meta_cursor_sprite_invalidate (sprite);
+}
+
+void
+meta_cursor_sprite_reset_viewport_dst_size (MetaCursorSprite *sprite)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (!priv->has_viewport_dst_size)
+    return;
+
+  priv->has_viewport_dst_size = FALSE;
+  meta_cursor_sprite_invalidate (sprite);
 }
 
 CoglTexture *
@@ -194,13 +272,41 @@ meta_cursor_sprite_get_texture_scale (MetaCursorSprite *sprite)
   return priv->texture_scale;
 }
 
-MetaMonitorTransform
+MtkMonitorTransform
 meta_cursor_sprite_get_texture_transform (MetaCursorSprite *sprite)
 {
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
   return priv->texture_transform;
+}
+
+const graphene_rect_t *
+meta_cursor_sprite_get_viewport_src_rect (MetaCursorSprite *sprite)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (!priv->has_viewport_src_rect)
+    return NULL;
+
+  return &priv->viewport_src_rect;
+}
+
+gboolean
+meta_cursor_sprite_get_viewport_dst_size (MetaCursorSprite *sprite,
+                                          int              *dst_width,
+                                          int              *dst_height)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  if (!priv->has_viewport_dst_size)
+    return FALSE;
+
+  *dst_width = priv->viewport_dst_width;
+  *dst_height = priv->viewport_dst_height;
+  return TRUE;
 }
 
 void
@@ -250,7 +356,7 @@ meta_cursor_sprite_init (MetaCursorSprite *sprite)
     meta_cursor_sprite_get_instance_private (sprite);
 
   priv->texture_scale = 1.0f;
-  priv->texture_transform = META_MONITOR_TRANSFORM_NORMAL;
+  priv->texture_transform = MTK_MONITOR_TRANSFORM_NORMAL;
 }
 
 static void
@@ -264,7 +370,7 @@ meta_cursor_sprite_constructed (GObject *object)
 
   meta_cursor_tracker_register_cursor_sprite (priv->cursor_tracker, sprite);
 
-  g_clear_pointer (&priv->texture, cogl_object_unref);
+  g_clear_object (&priv->texture);
 
   G_OBJECT_CLASS (meta_cursor_sprite_parent_class)->constructed (object);
 }
@@ -276,7 +382,8 @@ meta_cursor_sprite_finalize (GObject *object)
   MetaCursorSpritePrivate *priv =
     meta_cursor_sprite_get_instance_private (sprite);
 
-  g_clear_pointer (&priv->texture, cogl_object_unref);
+  g_clear_object (&priv->texture);
+  g_clear_object (&priv->color_state);
 
   meta_cursor_tracker_unregister_cursor_sprite (priv->cursor_tracker, sprite);
   g_clear_object (&priv->cursor_tracker);
@@ -285,10 +392,10 @@ meta_cursor_sprite_finalize (GObject *object)
 }
 
 static void
-meta_cursor_tracker_set_property (GObject      *object,
-                                  guint         prop_id,
-                                  const GValue *value,
-                                  GParamSpec   *pspec)
+meta_cursor_sprite_set_property (GObject      *object,
+                                 guint         prop_id,
+                                 const GValue *value,
+                                 GParamSpec   *pspec)
 {
   MetaCursorSprite *sprite = META_CURSOR_SPRITE (object);
   MetaCursorSpritePrivate *priv =
@@ -298,6 +405,9 @@ meta_cursor_tracker_set_property (GObject      *object,
     {
     case PROP_CURSOR_TRACKER:
       g_set_object (&priv->cursor_tracker, g_value_get_object (value));
+      break;
+    case PROP_COLOR_STATE:
+      g_set_object (&priv->color_state, g_value_get_object (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -312,13 +422,17 @@ meta_cursor_sprite_class_init (MetaCursorSpriteClass *klass)
 
   object_class->constructed = meta_cursor_sprite_constructed;
   object_class->finalize = meta_cursor_sprite_finalize;
-  object_class->set_property = meta_cursor_tracker_set_property;
+  object_class->set_property = meta_cursor_sprite_set_property;
 
   obj_props[PROP_CURSOR_TRACKER] =
-    g_param_spec_object ("cursor-tracker",
-                         "cursor tracker",
-                         "MetaCursorTracker",
+    g_param_spec_object ("cursor-tracker", NULL, NULL,
                          META_TYPE_CURSOR_TRACKER,
+                         G_PARAM_WRITABLE |
+                         G_PARAM_CONSTRUCT_ONLY |
+                         G_PARAM_STATIC_STRINGS);
+  obj_props[PROP_COLOR_STATE] =
+    g_param_spec_object ("color-state", NULL, NULL,
+                         CLUTTER_TYPE_COLOR_STATE,
                          G_PARAM_WRITABLE |
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_STATIC_STRINGS);
@@ -330,4 +444,22 @@ meta_cursor_sprite_class_init (MetaCursorSpriteClass *klass)
                                            0,
                                            NULL, NULL, NULL,
                                            G_TYPE_NONE, 0);
+}
+
+ClutterColorState *
+meta_cursor_sprite_get_color_state (MetaCursorSprite *sprite)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  return priv->color_state;
+}
+
+MetaCursorTracker *
+meta_cursor_sprite_get_cursor_tracker (MetaCursorSprite *sprite)
+{
+  MetaCursorSpritePrivate *priv =
+    meta_cursor_sprite_get_instance_private (sprite);
+
+  return priv->cursor_tracker;
 }

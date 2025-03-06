@@ -26,9 +26,12 @@
 #include "backends/x11/meta-clutter-backend-x11.h"
 #include "backends/x11/meta-input-device-x11.h"
 #include "backends/x11/meta-seat-x11.h"
+#include "mtk/mtk-x11.h"
 
 struct _MetaInputDeviceX11
 {
+  MetaInputDevice parent_instance;
+
   ClutterInputDevice device;
 
   int32_t device_id;
@@ -70,10 +73,6 @@ typedef struct _MetaX11ScrollInfo
   guint last_value_valid : 1;
 } MetaX11ScrollInfo;
 
-struct _MetaInputDeviceX11Class
-{
-  ClutterInputDeviceClass device_class;
-};
 
 #define N_BUTTONS       5
 
@@ -86,9 +85,9 @@ enum
 
 static GParamSpec *props[N_PROPS] = { 0 };
 
-G_DEFINE_TYPE (MetaInputDeviceX11,
-               meta_input_device_x11,
-               META_TYPE_INPUT_DEVICE)
+G_DEFINE_FINAL_TYPE (MetaInputDeviceX11,
+                     meta_input_device_x11,
+                     META_TYPE_INPUT_DEVICE)
 
 static void
 meta_input_device_x11_constructed (GObject *object)
@@ -196,6 +195,22 @@ meta_input_device_x11_get_property (GObject    *object,
     }
 }
 
+#ifdef HAVE_LIBWACOM
+#ifndef HAVE_LIBWACOM_GET_NUM_RINGS
+static int
+libwacom_get_num_rings (WacomDevice *device)
+{
+  if (libwacom_has_ring2 (device))
+    return 2;
+
+  if (libwacom_has_ring (device))
+    return 1;
+
+  return 0;
+}
+#endif
+#endif
+
 static int
 meta_input_device_x11_get_group_n_modes (ClutterInputDevice *device,
                                          int                 group)
@@ -209,14 +224,14 @@ meta_input_device_x11_get_group_n_modes (ClutterInputDevice *device,
     {
       if (group == 0)
         {
-          if (libwacom_has_ring (wacom_device))
+          if (libwacom_get_num_rings (wacom_device) >= 1)
             return libwacom_get_ring_num_modes (wacom_device);
           else if (libwacom_get_num_strips (wacom_device) >= 1)
             return libwacom_get_strips_num_modes (wacom_device);
         }
       else if (group == 1)
         {
-          if (libwacom_has_ring2 (wacom_device))
+          if (libwacom_get_num_rings (wacom_device) >= 2)
             return libwacom_get_ring2_num_modes (wacom_device);
           else if (libwacom_get_num_strips (wacom_device) >= 2)
             return libwacom_get_strips_num_modes (wacom_device);
@@ -273,6 +288,83 @@ meta_input_device_x11_is_mode_switch_button (ClutterInputDevice *device,
   return button_group == (int) group;
 }
 
+static gboolean
+meta_input_device_x11_get_dimensions (ClutterInputDevice *device,
+                                      unsigned int       *width,
+                                      unsigned int       *height)
+{
+  MetaInputDeviceX11 *device_x11 = META_INPUT_DEVICE_X11 (device);
+  ClutterSeat *seat = clutter_input_device_get_seat (device);
+  MetaSeatX11 *seat_x11 = META_SEAT_X11 (seat);
+  MetaBackendX11 *backend_x11 =
+    META_BACKEND_X11 (meta_seat_x11_get_backend (seat_x11));
+  Display *xdisplay =
+    meta_backend_x11_get_xdisplay (backend_x11);
+  XIDeviceInfo *info;
+  uint *value, w, h;
+  int i, n_info;
+  static gboolean atoms_initialized = FALSE;
+  static Atom abs_axis_atoms[4] = { 0, };
+
+  mtk_x11_error_trap_push (xdisplay);
+
+  info = XIQueryDevice (xdisplay, device_x11->device_id, &n_info);
+  *width = *height = w = h = 0;
+
+  if (mtk_x11_error_trap_pop_with_return (xdisplay))
+    return FALSE;
+
+  if (!info)
+    return FALSE;
+
+  if (G_UNLIKELY (!atoms_initialized))
+    {
+      const char *abs_axis_atom_names[4] = {
+        "Abs X",
+        "Abs MT Position X",
+        "Abs Y",
+        "Abs MT Position Y",
+      };
+
+      XInternAtoms (xdisplay,
+                    (char **) abs_axis_atom_names,
+                    G_N_ELEMENTS (abs_axis_atom_names),
+                    False,
+                    abs_axis_atoms);
+      atoms_initialized = TRUE;
+    }
+
+  for (i = 0; i < info->num_classes; i++)
+    {
+      XIValuatorClassInfo *valuator_info;
+
+      if (info->classes[i]->type != XIValuatorClass)
+        continue;
+
+      valuator_info = (XIValuatorClassInfo *) info->classes[i];
+
+      if (valuator_info->label == abs_axis_atoms[0] || /* Abs X */
+          valuator_info->label == abs_axis_atoms[1]) /* Abs MT X */
+        value = &w;
+      else if (valuator_info->label == abs_axis_atoms[2] || /* Abs Y */
+               valuator_info->label == abs_axis_atoms[3]) /* Abs MT Y */
+        value = &h;
+      else
+        continue;
+
+      *value = (unsigned int) ((valuator_info->max - valuator_info->min) *
+                               1000 /
+                               valuator_info->resolution);
+    }
+
+  *width = w;
+  *height = h;
+
+  XIFreeDeviceInfo (info);
+
+  return (w != 0 && h != 0);
+}
+
 static void
 meta_input_device_x11_class_init (MetaInputDeviceX11Class *klass)
 {
@@ -287,14 +379,14 @@ meta_input_device_x11_class_init (MetaInputDeviceX11Class *klass)
   device_class->is_grouped = meta_input_device_x11_is_grouped;
   device_class->get_group_n_modes = meta_input_device_x11_get_group_n_modes;
   device_class->is_mode_switch_button = meta_input_device_x11_is_mode_switch_button;
+  device_class->get_dimensions = meta_input_device_x11_get_dimensions;
 
   props[PROP_ID] =
-    g_param_spec_int ("id",
-                      "Id",
-                      "Unique identifier of the device",
+    g_param_spec_int ("id", NULL, NULL,
                       -1, G_MAXINT,
                       0,
-                      CLUTTER_PARAM_READWRITE |
+                      G_PARAM_READWRITE |
+                      G_PARAM_STATIC_STRINGS |
                       G_PARAM_CONSTRUCT_ONLY);
 
   g_object_class_install_properties (gobject_class, N_PROPS, props);
@@ -303,84 +395,6 @@ meta_input_device_x11_class_init (MetaInputDeviceX11Class *klass)
 static void
 meta_input_device_x11_init (MetaInputDeviceX11 *self)
 {
-}
-
-static ClutterModifierType
-get_modifier_for_button (int i)
-{
-  switch (i)
-    {
-    case 1:
-      return CLUTTER_BUTTON1_MASK;
-    case 2:
-      return CLUTTER_BUTTON2_MASK;
-    case 3:
-      return CLUTTER_BUTTON3_MASK;
-    case 4:
-      return CLUTTER_BUTTON4_MASK;
-    case 5:
-      return CLUTTER_BUTTON5_MASK;
-    default:
-      return 0;
-    }
-}
-
-void
-meta_input_device_x11_translate_state (ClutterEvent    *event,
-                                       XIModifierState *modifiers_state,
-                                       XIButtonState   *buttons_state,
-                                       XIGroupState    *group_state)
-{
-  uint32_t button = 0;
-  uint32_t base = 0;
-  uint32_t latched = 0;
-  uint32_t locked = 0;
-  uint32_t effective;
-
-  if (modifiers_state)
-    {
-      base = (uint32_t) modifiers_state->base;
-      latched = (uint32_t) modifiers_state->latched;
-      locked = (uint32_t) modifiers_state->locked;
-    }
-
-  if (buttons_state)
-    {
-      int len, i;
-
-      len = MIN (N_BUTTONS, buttons_state->mask_len * 8);
-
-      for (i = 0; i < len; i++)
-        {
-          if (!XIMaskIsSet (buttons_state->mask, i))
-            continue;
-
-          button |= get_modifier_for_button (i);
-        }
-    }
-
-  /* The XIButtonState sent in the event specifies the
-   * state of the buttons before the event. In order to
-   * get the current state of the buttons, we need to
-   * filter out the current button.
-   */
-  switch (event->type)
-    {
-    case CLUTTER_BUTTON_PRESS:
-      button |=  (get_modifier_for_button (event->button.button));
-      break;
-    case CLUTTER_BUTTON_RELEASE:
-      button &= ~(get_modifier_for_button (event->button.button));
-      break;
-    default:
-      break;
-    }
-
-  effective = button | base | latched | locked;
-  if (group_state)
-    effective |= (group_state->effective) << 13;
-
-  _clutter_event_set_state_full (event, button, base, latched, locked, effective);
 }
 
 void
@@ -406,6 +420,7 @@ meta_input_device_x11_query_pointer_location (MetaInputDeviceX11 *device_xi2)
   MetaSeatX11 *seat_x11 = META_SEAT_X11 (seat);
   MetaBackendX11 *backend_x11 =
     META_BACKEND_X11 (meta_seat_x11_get_backend (seat_x11));
+  Display *xdisplay = meta_backend_x11_get_xdisplay (backend_x11);
   Window xroot_window, xchild_window;
   double xroot_x, xroot_y, xwin_x, xwin_y;
   XIButtonState button_state = { 0 };
@@ -413,7 +428,7 @@ meta_input_device_x11_query_pointer_location (MetaInputDeviceX11 *device_xi2)
   XIGroupState group_state;
   int result;
 
-  meta_clutter_x11_trap_x_errors ();
+  mtk_x11_error_trap_push (xdisplay);
   result = XIQueryPointer (meta_backend_x11_get_xdisplay (backend_x11),
                            device_xi2->device_id,
                            meta_backend_x11_get_root_xwindow (backend_x11),
@@ -424,7 +439,7 @@ meta_input_device_x11_query_pointer_location (MetaInputDeviceX11 *device_xi2)
                            &button_state,
                            &mod_state,
                            &group_state);
-  meta_clutter_x11_untrap_x_errors ();
+  mtk_x11_error_trap_pop (xdisplay);
 
   g_free (button_state.mask);
 
@@ -437,14 +452,12 @@ meta_input_device_x11_query_pointer_location (MetaInputDeviceX11 *device_xi2)
   return TRUE;
 }
 
-static gboolean
+static void
 clear_inhibit_pointer_query_cb (gpointer data)
 {
   MetaInputDeviceX11 *device_xi2 = META_INPUT_DEVICE_X11 (data);
 
   device_xi2->inhibit_pointer_query_timer = 0;
-
-  return G_SOURCE_REMOVE;
 }
 
 gboolean
@@ -465,7 +478,7 @@ meta_input_device_x11_get_pointer_location (ClutterInputDevice *device,
       device_xi2->query_status =
         meta_input_device_x11_query_pointer_location (device_xi2);
       device_xi2->inhibit_pointer_query_timer =
-        clutter_threads_add_idle (clear_inhibit_pointer_query_cb, device_xi2);
+        g_idle_add_once (clear_inhibit_pointer_query_cb, device_xi2);
     }
 
   *x = device_xi2->current_x;
@@ -722,6 +735,10 @@ pad_switch_mode (ClutterInputDevice *device,
 
   wacom_device =
     meta_input_device_get_wacom_device (META_INPUT_DEVICE (device));
+
+  if (!wacom_device)
+    return FALSE;
+
   n_buttons = libwacom_get_num_buttons (wacom_device);
 
   for (i = 0; i < n_buttons; i++)

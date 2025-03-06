@@ -12,13 +12,10 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WAYLAND_PRIVATE_H
-#define META_WAYLAND_PRIVATE_H
+#pragma once
 
 #include <glib.h>
 #include <wayland-server.h>
@@ -26,10 +23,11 @@
 #include "clutter/clutter.h"
 #include "core/window-private.h"
 #include "meta/meta-cursor-tracker.h"
+#include "meta/meta-wayland-compositor.h"
 #include "wayland/meta-wayland-pointer-gestures.h"
 #include "wayland/meta-wayland-presentation-time-private.h"
 #include "wayland/meta-wayland-seat.h"
-#include "wayland/meta-wayland-surface.h"
+#include "wayland/meta-wayland-surface-private.h"
 #include "wayland/meta-wayland-tablet-manager.h"
 #include "wayland/meta-wayland-versions.h"
 #include "wayland/meta-wayland.h"
@@ -62,6 +60,8 @@ struct _MetaXWaylandManager
   guint abstract_fd_watch_id;
   guint unix_fd_watch_id;
 
+  gulong prepare_shutdown_id;
+
   struct wl_display *wayland_display;
   struct wl_client *client;
   struct wl_resource *xserver_resource;
@@ -75,6 +75,10 @@ struct _MetaXWaylandManager
   gboolean has_xrandr;
   int rr_event_base;
   int rr_error_base;
+
+  gboolean should_enable_ei_portal;
+
+  double highest_monitor_scale;
 };
 
 struct _MetaWaylandCompositor
@@ -86,26 +90,37 @@ struct _MetaWaylandCompositor
   struct wl_display *wayland_display;
   char *display_name;
   GSource *source;
+  struct wl_listener client_created_listener;
 
   GHashTable *outputs;
   GList *frame_callback_surfaces;
 
+#ifdef HAVE_XWAYLAND
   MetaXWaylandManager xwayland_manager;
+#endif
 
   MetaWaylandSeat *seat;
   MetaWaylandTabletManager *tablet_manager;
   MetaWaylandActivation *activation;
+  MetaWaylandXdgForeign *foreign;
+  MetaWaylandXdgSessionManager *session_manager;
 
   GHashTable *scheduled_surface_associations;
 
   MetaWaylandPresentationTime presentation_time;
   MetaWaylandDmaBufManager *dma_buf_manager;
+
+  /*
+   * Queue of transactions which have been committed but not applied yet, in the
+   * order they were committed.
+   */
+  GQueue committed_transactions;
+
+  /* Transactions with time constraints. */
+  GQueue *timed_transactions;
+
+  /* Surfaces with fifo barriers. */
+  GList *barrier_surfaces;
 };
 
-#define META_TYPE_WAYLAND_COMPOSITOR (meta_wayland_compositor_get_type ())
-G_DECLARE_FINAL_TYPE (MetaWaylandCompositor, meta_wayland_compositor,
-                      META, WAYLAND_COMPOSITOR, GObject)
-
 gboolean meta_wayland_compositor_is_egl_display_bound (MetaWaylandCompositor *compositor);
-
-#endif /* META_WAYLAND_PRIVATE_H */

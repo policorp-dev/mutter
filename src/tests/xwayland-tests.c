@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -215,12 +213,104 @@ meta_test_xwayland_crash_only_x11 (void)
 }
 
 static void
+meta_test_hammer_activate (void)
+{
+  MetaTestClient *x11_client;
+  MetaTestClient *wayland_client;
+  g_autoptr (GError) error = NULL;
+  int i;
+
+  x11_client = meta_test_client_new (test_context, "x11-client",
+                                     META_WINDOW_CLIENT_TYPE_X11,
+                                     &error);
+  g_assert_nonnull (x11_client);
+  wayland_client = meta_test_client_new (test_context, "wayland-client",
+                                         META_WINDOW_CLIENT_TYPE_WAYLAND,
+                                         &error);
+  g_assert_nonnull (wayland_client);
+
+  meta_test_client_run (x11_client,
+                        "create 1\n"
+                        "show 1\n");
+
+  meta_test_client_run (wayland_client,
+                        "create 2\n"
+                        "show 2\n");
+
+  meta_test_client_run (x11_client, "activate 1");
+  for (i = 0; i < 10000; i++)
+    meta_test_client_run (wayland_client, "activate 2");
+
+  meta_test_client_destroy (x11_client);
+  meta_test_client_destroy (wayland_client);
+}
+
+static void
+compositor_check_proc_async (GObject      *source_object,
+                             GAsyncResult *res,
+                             gpointer      user_data)
+{
+  g_autoptr (GError) error = NULL;
+  GMainLoop *loop = user_data;
+
+  g_subprocess_wait_check_finish (G_SUBPROCESS (source_object), res, &error);
+  g_assert_no_error (error);
+  g_main_loop_quit (loop);
+}
+
+static void
+meta_test_xwayland_compositor_selection (void)
+{
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GSubprocessLauncher) launcher = NULL;
+  g_autoptr (GSubprocess) subprocess = NULL;
+  g_autoptr (GMainLoop) loop = NULL;
+  MetaDisplay *display = meta_context_get_display (test_context);
+  MetaWaylandCompositor *compositor;
+  const char *x11_display_name;
+  const char *x11_compositor_checker;
+
+  g_assert_null (meta_display_get_x11_display (display));
+
+  g_assert_true (meta_is_wayland_compositor ());
+  compositor = meta_context_get_wayland_compositor (test_context);
+  x11_display_name = meta_wayland_get_public_xwayland_display_name (compositor);
+  g_assert_nonnull (x11_display_name);
+
+  launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
+  g_subprocess_launcher_setenv (launcher,
+                                "DISPLAY", x11_display_name,
+                                TRUE);
+
+  x11_compositor_checker = g_test_build_filename (G_TEST_BUILT,
+                                                  "x11-compositor-checker",
+                                                  NULL);
+
+  subprocess = g_subprocess_launcher_spawn (launcher,
+                                            &error,
+                                            x11_compositor_checker,
+                                            NULL);
+  g_assert_no_error (error);
+
+  loop = g_main_loop_new (NULL, FALSE);
+  g_subprocess_wait_check_async (subprocess, NULL,
+                                 compositor_check_proc_async, loop);
+  g_main_loop_run (loop);
+
+  g_assert_nonnull (meta_display_get_x11_display (display));
+}
+
+static void
 init_tests (void)
 {
+  g_test_add_func ("/backends/xwayland/compositor/selection",
+                   meta_test_xwayland_compositor_selection);
   g_test_add_func ("/backends/xwayland/restart/selection",
                    meta_test_xwayland_restart_selection);
   g_test_add_func ("/backends/xwayland/crash/only-x11",
                    meta_test_xwayland_crash_only_x11);
+  g_test_add_func ("/backends/xwayland/crash/hammer-activate",
+                   meta_test_hammer_activate);
 }
 
 int
@@ -228,12 +318,11 @@ main (int    argc,
       char **argv)
 {
   g_autoptr (MetaContext) context = NULL;
-  g_autoptr (GError) error = NULL;
 
   context = test_context =
     meta_create_test_context (META_CONTEXT_TEST_TYPE_HEADLESS,
                               META_CONTEXT_TEST_FLAG_TEST_CLIENT);
-  g_assert (meta_context_configure (context, &argc, &argv, NULL));
+  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
 
   init_tests ();
 

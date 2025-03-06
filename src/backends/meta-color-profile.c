@@ -306,7 +306,7 @@ meta_color_profile_new_from_icc (MetaColorManager     *color_manager,
   return color_profile;
 }
 
-static gboolean
+static void
 notify_ready_idle (gpointer user_data)
 {
   MetaColorProfile *color_profile = user_data;
@@ -314,8 +314,6 @@ notify_ready_idle (gpointer user_data)
   color_profile->notify_ready_id = 0;
   color_profile->is_ready = TRUE;
   g_signal_emit (color_profile, signals[READY], 0, TRUE);
-
-  return G_SOURCE_REMOVE;
 }
 
 MetaColorProfile *
@@ -341,8 +339,8 @@ meta_color_profile_new_from_cd_profile (MetaColorManager     *color_manager,
   color_profile->cd_profile_id = g_strdup_printf ("icc-%s", checksum);
   color_profile->cd_profile = g_object_ref (cd_profile);
 
-  color_profile->notify_ready_id = g_idle_add (notify_ready_idle,
-                                               color_profile);
+  color_profile->notify_ready_id = g_idle_add_once (notify_ready_idle,
+                                                    color_profile);
 
   return color_profile;
 }
@@ -451,16 +449,16 @@ generate_gamma_lut_from_vcgt (MetaColorProfile  *color_profile,
     {
       cmsFloat32Number in;
 
-      in = (double) i / (double) (lut_size - 1);
+      in = (cmsFloat32Number) ((double) i / (double) (lut_size - 1));
       lut->red[i] =
-        cmsEvalToneCurveFloat (vcgt[0], in) *
-        blackbody_color.R * (double) 0xffff;
+        (uint16_t) (cmsEvalToneCurveFloat (vcgt[0], in) *
+                    blackbody_color.R * (double) 0xffff);
       lut->green[i] =
-        cmsEvalToneCurveFloat (vcgt[1], in) *
-        blackbody_color.G * (double) 0xffff;
+        (uint16_t) (cmsEvalToneCurveFloat (vcgt[1], in) *
+                    blackbody_color.G * (double) 0xffff);
       lut->blue[i] =
-        cmsEvalToneCurveFloat (vcgt[2], in) *
-        blackbody_color.B * (gdouble) 0xffff;
+        (uint16_t) (cmsEvalToneCurveFloat (vcgt[2], in) *
+                    blackbody_color.B * (gdouble) 0xffff);
     }
 
   return lut;
@@ -492,9 +490,9 @@ generate_gamma_lut (MetaColorProfile *color_profile,
       uint16_t in;
 
       in = (i * 0xffff) / (lut->size - 1);
-      lut->red[i] = in * blackbody_color.R;
-      lut->green[i] = in * blackbody_color.G;
-      lut->blue[i] = in * blackbody_color.B;
+      lut->red[i] = (uint16_t) (in * blackbody_color.R);
+      lut->green[i] = (uint16_t) (in * blackbody_color.G);
+      lut->blue[i] = (uint16_t) (in * blackbody_color.B);
     }
 
   return lut;

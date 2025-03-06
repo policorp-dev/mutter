@@ -28,26 +28,23 @@
  *
  */
 
+#pragma once
+
 #if !defined(__COGL_H_INSIDE__) && !defined(COGL_COMPILATION)
 #error "Only <cogl/cogl.h> can be included directly."
 #endif
 
-#ifndef __COGL_OFFSCREEN_H__
-#define __COGL_OFFSCREEN_H__
-
-#include <cogl/cogl-types.h>
-#include <cogl/cogl-texture.h>
+#include "cogl/cogl-types.h"
+#include "cogl/cogl-texture.h"
 
 #include <glib-object.h>
 
 G_BEGIN_DECLS
 
 /**
- * SECTION:cogl-offscreen
- * @short_description: Functions for creating and manipulating offscreen
- *                     framebuffers.
+ * CoglOffscreen:
  *
- * Cogl allows creating and operating on offscreen framebuffers.
+ * Functions for creating and manipulating offscreen framebuffers.
  */
 
 /* Offscreen api */
@@ -69,9 +66,9 @@ G_DECLARE_FINAL_TYPE (CoglOffscreen, cogl_offscreen,
  * updates the contents of the given texture. You don't need to
  * destroy the offscreen buffer before you can use the @texture again.
  *
- * <note>This api only works with low-level #CoglTexture types such as
+ * This api only works with low-level #CoglTexture types such as
  * #CoglTexture2D and not with meta-texture types such as
- * #CoglTexture2DSliced.</note>
+ * #CoglTexture2DSliced.
  *
  * The storage for the framebuffer is actually allocated lazily
  * so this function will never return %NULL to indicate a runtime
@@ -94,11 +91,11 @@ COGL_EXPORT CoglOffscreen *
 cogl_offscreen_new_with_texture (CoglTexture *texture);
 
 /**
- * cogl_offscreen_get_texture: (skip)
+ * cogl_offscreen_get_texture:
+ *
+ * Returns: (transfer none): a #CoglTexture
  */
 COGL_EXPORT CoglTexture *
 cogl_offscreen_get_texture (CoglOffscreen *offscreen);
 
 G_END_DECLS
-
-#endif /* __COGL_OFFSCREEN_H__ */

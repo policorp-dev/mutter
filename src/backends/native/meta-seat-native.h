@@ -20,8 +20,7 @@
  * Author: Jonas Ådahl <jadahl@gmail.com>
  */
 
-#ifndef META_SEAT_NATIVE_H
-#define META_SEAT_NATIVE_H
+#pragma once
 
 #include <libinput.h>
 #include <linux/input-event-codes.h>
@@ -34,6 +33,7 @@
 #include "backends/native/meta-pointer-constraint-native.h"
 #include "backends/native/meta-xkb-utils.h"
 #include "clutter/clutter.h"
+#include "core/util-private.h"
 
 typedef struct _MetaSeatNative MetaSeatNative;
 
@@ -66,8 +66,11 @@ struct _MetaSeatNative
 };
 
 #define META_TYPE_SEAT_NATIVE meta_seat_native_get_type ()
+META_EXPORT_TEST
 G_DECLARE_FINAL_TYPE (MetaSeatNative, meta_seat_native,
                       META, SEAT_NATIVE, ClutterSeat)
+
+void meta_seat_native_start (MetaSeatNative *seat_native);
 
 void meta_seat_native_set_libinput_seat (MetaSeatNative       *seat,
                                          struct libinput_seat *libinput_seat);
@@ -100,7 +103,8 @@ void  meta_seat_native_reclaim_devices (MetaSeatNative *seat);
 void meta_seat_native_set_keyboard_map (MetaSeatNative *seat,
                                         const char     *layouts,
                                         const char     *variants,
-                                        const char     *options);
+                                        const char     *options,
+                                        const char     *model);
 
 struct xkb_keymap * meta_seat_native_get_keyboard_map (MetaSeatNative *seat);
 
@@ -129,4 +133,11 @@ MetaCursorRenderer * meta_seat_native_maybe_ensure_cursor_renderer (MetaSeatNati
 void meta_seat_native_set_viewports (MetaSeatNative   *seat,
                                      MetaViewportInfo *viewports);
 
-#endif /* META_SEAT_NATIVE_H */
+void meta_seat_native_run_impl_task (MetaSeatNative *seat,
+                                     GSourceFunc     dispatch_func,
+                                     gpointer        user_data,
+                                     GDestroyNotify  destroy_notify);
+
+void meta_seat_native_set_a11y_modifiers (MetaSeatNative *seat,
+                                          const uint32_t *modifiers,
+                                          int             n_modifiers);

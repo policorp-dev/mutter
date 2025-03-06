@@ -21,26 +21,24 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#pragma once
+
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#ifndef __CLUTTER_TIMELINE_H__
-#define __CLUTTER_TIMELINE_H__
-
-#include <clutter/clutter-types.h>
+#include "clutter/clutter-types.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_TIMELINE                   (clutter_timeline_get_type ())
-#define CLUTTER_TIMELINE(obj)                   (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_TIMELINE, ClutterTimeline))
-#define CLUTTER_TIMELINE_CLASS(klass)           (G_TYPE_CHECK_CLASS_CAST ((klass), CLUTTER_TYPE_TIMELINE, ClutterTimelineClass))
-#define CLUTTER_IS_TIMELINE(obj)                (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_TIMELINE))
-#define CLUTTER_IS_TIMELINE_CLASS(klass)        (G_TYPE_CHECK_CLASS_TYPE ((klass), CLUTTER_TYPE_TIMELINE))
-#define CLUTTER_TIMELINE_GET_CLASS(obj)         (G_TYPE_INSTANCE_GET_CLASS ((obj), CLUTTER_TYPE_TIMELINE, ClutterTimelineClass))
 
-typedef struct _ClutterTimelineClass   ClutterTimelineClass; 
-typedef struct _ClutterTimelinePrivate ClutterTimelinePrivate;
+CLUTTER_EXPORT
+G_DECLARE_DERIVABLE_TYPE (ClutterTimeline,
+                          clutter_timeline,
+                          CLUTTER,
+                          TIMELINE,
+                          GObject)
 
 /**
  * ClutterTimelineProgressFunc:
@@ -58,13 +56,6 @@ typedef gdouble (* ClutterTimelineProgressFunc) (ClutterTimeline *timeline,
                                                  gdouble          total,
                                                  gpointer         user_data);
 
-struct _ClutterTimeline
-{
-  /*< private >*/
-  GObject parent_instance;
-
-  ClutterTimelinePrivate *priv;
-};
 
 /**
  * ClutterTimelineClass:
@@ -81,12 +72,12 @@ struct _ClutterTimelineClass
 {
   /*< private >*/
   GObjectClass parent_class;
-  
+
   /*< public >*/
   void (*started)        (ClutterTimeline *timeline);
   void (*completed)      (ClutterTimeline *timeline);
   void (*paused)         (ClutterTimeline *timeline);
-  
+
   void (*new_frame)      (ClutterTimeline *timeline,
 		          gint             msecs);
 
@@ -95,16 +86,7 @@ struct _ClutterTimelineClass
                           gint             msecs);
   void (*stopped)        (ClutterTimeline *timeline,
                           gboolean         is_finished);
-
-  /*< private >*/
-  void (*_clutter_timeline_1) (void);
-  void (*_clutter_timeline_2) (void);
-  void (*_clutter_timeline_3) (void);
-  void (*_clutter_timeline_4) (void);
 };
-
-CLUTTER_EXPORT
-GType clutter_timeline_get_type (void) G_GNUC_CONST;
 
 CLUTTER_EXPORT
 ClutterTimeline *               clutter_timeline_new_for_actor                  (ClutterActor             *actor,
@@ -229,5 +211,3 @@ void                            clutter_timeline_set_frame_clock                
                                                                                  ClutterFrameClock         *frame_clock);
 
 G_END_DECLS
-
-#endif /* _CLUTTER_TIMELINE_H__ */

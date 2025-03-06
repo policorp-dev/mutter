@@ -19,6 +19,8 @@
  * Author: Marco Trevisan <marco.trevisan@canonical.com>
  */
 
+#include "config.h"
+
 #include "backends/meta-input-settings-dummy.h"
 
 G_DEFINE_TYPE (MetaInputSettingsDummy,
@@ -168,6 +170,13 @@ meta_input_settings_dummy_set_mouse_accel_profile (MetaInputSettings           *
 }
 
 static void
+meta_input_settings_dummy_set_touchpad_accel_profile (MetaInputSettings           *settings,
+                                                      ClutterInputDevice          *device,
+                                                      GDesktopPointerAccelProfile  profile)
+{
+}
+
+static void
 meta_input_settings_dummy_set_trackball_accel_profile (MetaInputSettings           *settings,
                                                        ClutterInputDevice          *device,
                                                        GDesktopPointerAccelProfile  profile)
@@ -179,7 +188,8 @@ static void
 meta_input_settings_dummy_set_stylus_pressure (MetaInputSettings      *settings,
                                                ClutterInputDevice     *device,
                                                ClutterInputDeviceTool *tool,
-                                               const gint32            curve[4])
+                                               const gint32            curve[4],
+                                               const gdouble           range[2])
 {
 }
 
@@ -215,15 +225,23 @@ meta_input_settings_dummy_set_trackball_middle_click_emulation (MetaInputSetting
 {
 }
 
+static void
+meta_input_settings_dummy_set_pointing_stick_scroll_method (MetaInputSettings                 *settings,
+                                                            ClutterInputDevice                *device,
+                                                            GDesktopPointingStickScrollMethod  method)
+{
+}
+
+static void
+meta_input_settings_dummy_set_pointing_stick_accel_profile (MetaInputSettings           *settings,
+                                                            ClutterInputDevice          *device,
+                                                            GDesktopPointerAccelProfile  profile)
+{
+}
+
 static gboolean
 meta_input_settings_dummy_has_two_finger_scroll (MetaInputSettings  *settings,
                                                  ClutterInputDevice *device)
-{
-  return FALSE;
-}
-static gboolean
-meta_input_settings_dummy_is_trackball_device (MetaInputSettings  *settings,
-                                               ClutterInputDevice *device)
 {
   return FALSE;
 }
@@ -276,8 +294,14 @@ meta_input_settings_dummy_class_init (MetaInputSettingsDummyClass *klass)
     meta_input_settings_dummy_set_tablet_area;
   input_settings_class->set_mouse_accel_profile =
     meta_input_settings_dummy_set_mouse_accel_profile;
+  input_settings_class->set_touchpad_accel_profile =
+    meta_input_settings_dummy_set_touchpad_accel_profile;
   input_settings_class->set_trackball_accel_profile =
     meta_input_settings_dummy_set_trackball_accel_profile;
+  input_settings_class->set_pointing_stick_scroll_method =
+    meta_input_settings_dummy_set_pointing_stick_scroll_method;
+  input_settings_class->set_pointing_stick_accel_profile =
+    meta_input_settings_dummy_set_pointing_stick_accel_profile;
   input_settings_class->set_stylus_pressure =
     meta_input_settings_dummy_set_stylus_pressure;
   input_settings_class->set_stylus_button_map =
@@ -290,6 +314,4 @@ meta_input_settings_dummy_class_init (MetaInputSettingsDummyClass *klass)
     meta_input_settings_dummy_set_trackball_middle_click_emulation;
   input_settings_class->has_two_finger_scroll =
     meta_input_settings_dummy_has_two_finger_scroll;
-  input_settings_class->is_trackball_device =
-    meta_input_settings_dummy_is_trackball_device;
 }

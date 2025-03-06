@@ -19,8 +19,7 @@
  * Author: Giovanni Campagna <gcampagn@redhat.com>
  */
 
-#ifndef META_CURSOR_TRACKER_H
-#define META_CURSOR_TRACKER_H
+#pragma once
 
 #include <glib-object.h>
 
@@ -36,9 +35,6 @@ G_DECLARE_DERIVABLE_TYPE (MetaCursorTracker,
                           meta_cursor_tracker,
                           META, CURSOR_TRACKER,
                           GObject)
-
-META_EXPORT
-MetaCursorTracker *meta_cursor_tracker_get_for_display (MetaDisplay *display);
 
 META_EXPORT
 void           meta_cursor_tracker_get_hot    (MetaCursorTracker *tracker,
@@ -62,5 +58,3 @@ gboolean       meta_cursor_tracker_get_pointer_visible (MetaCursorTracker *track
 META_EXPORT
 void           meta_cursor_tracker_set_pointer_visible (MetaCursorTracker *tracker,
                                                         gboolean           visible);
-
-#endif

@@ -28,16 +28,15 @@
  *
  */
 
-#ifndef __COGL_SUB_TEXTURE_PRIVATE_H
-#define __COGL_SUB_TEXTURE_PRIVATE_H
+#pragma once
 
-#include "cogl-texture-private.h"
+#include "cogl/cogl-texture-private.h"
 
 #include <glib.h>
 
 struct _CoglSubTexture
 {
-  CoglTexture _parent;
+  CoglTexture parent_instance;
 
   /* This is the texture that was passed in to
      _cogl_sub_texture_new. If this is also a sub texture then we will
@@ -59,4 +58,7 @@ struct _CoglSubTexture
   int sub_y;
 };
 
-#endif /* __COGL_SUB_TEXTURE_PRIVATE_H */
+struct _CoglSubTextureClass
+{
+  CoglTextureClass parent_class;
+};

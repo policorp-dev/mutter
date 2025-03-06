@@ -16,13 +16,12 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef CLUTTER_DAMAGE_HISTORY_H
-#define CLUTTER_DAMAGE_HISTORY_H
+#pragma once
 
-#include <cairo.h>
 #include <glib.h>
 
-#include "clutter-macros.h"
+#include "clutter/clutter-macros.h"
+#include "mtk/mtk.h"
 
 typedef struct _ClutterDamageHistory ClutterDamageHistory;
 
@@ -38,13 +37,11 @@ gboolean clutter_damage_history_is_age_valid (ClutterDamageHistory *history,
 
 CLUTTER_EXPORT
 void clutter_damage_history_record (ClutterDamageHistory *history,
-                                    const cairo_region_t *damage);
+                                    const MtkRegion      *damage);
 
 CLUTTER_EXPORT
 void clutter_damage_history_step (ClutterDamageHistory *history);
 
 CLUTTER_EXPORT
-const cairo_region_t * clutter_damage_history_lookup (ClutterDamageHistory *history,
-                                                      int                   age);
-
-#endif /* CLUTTER_DAMAGE_HISTORY_H */
+const MtkRegion * clutter_damage_history_lookup (ClutterDamageHistory *history,
+                                                 int                   age);

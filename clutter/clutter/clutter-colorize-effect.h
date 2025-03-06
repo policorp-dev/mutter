@@ -22,38 +22,41 @@
  *   Emmanuele Bassi <ebassi@linux.intel.com>
  */
 
-#ifndef __CLUTTER_COLORIZE_EFFECT_H__
-#define __CLUTTER_COLORIZE_EFFECT_H__
+#pragma once
 
 #if !defined(__CLUTTER_H_INSIDE__) && !defined(CLUTTER_COMPILATION)
 #error "Only <clutter/clutter.h> can be included directly."
 #endif
 
-#include <clutter/clutter-color.h>
-#include <clutter/clutter-effect.h>
+#include "clutter/clutter-effect.h"
+#include "clutter/clutter-offscreen-effect.h"
+#include "cogl/cogl-color.h"
 
 G_BEGIN_DECLS
 
 #define CLUTTER_TYPE_COLORIZE_EFFECT    (clutter_colorize_effect_get_type ())
-#define CLUTTER_COLORIZE_EFFECT(obj)    (G_TYPE_CHECK_INSTANCE_CAST ((obj), CLUTTER_TYPE_COLORIZE_EFFECT, ClutterColorizeEffect))
-#define CLUTTER_IS_COLORIZE_EFFECT(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CLUTTER_TYPE_COLORIZE_EFFECT))
-
-typedef struct _ClutterColorizeEffect           ClutterColorizeEffect;
-typedef struct _ClutterColorizeEffectClass      ClutterColorizeEffectClass;
 
 CLUTTER_EXPORT
-GType clutter_colorize_effect_get_type (void) G_GNUC_CONST;
+G_DECLARE_DERIVABLE_TYPE (ClutterColorizeEffect,
+                          clutter_colorize_effect,
+                          CLUTTER, COLORIZE_EFFECT,
+                          ClutterOffscreenEffect)
+
+struct _ClutterColorizeEffectClass
+{
+  ClutterOffscreenEffectClass parent_class;
+
+  CoglPipeline *base_pipeline;
+};
 
 CLUTTER_EXPORT
-ClutterEffect *clutter_colorize_effect_new      (const ClutterColor *tint);
+ClutterEffect *clutter_colorize_effect_new      (const CoglColor *tint);
 
 CLUTTER_EXPORT
 void           clutter_colorize_effect_set_tint (ClutterColorizeEffect *effect,
-                                                 const ClutterColor    *tint);
+                                                 const CoglColor       *tint);
 CLUTTER_EXPORT
 void           clutter_colorize_effect_get_tint (ClutterColorizeEffect *effect,
-                                                 ClutterColor          *tint);
+                                                 CoglColor             *tint);
 
 G_END_DECLS
-
-#endif /* __CLUTTER_COLORIZE_EFFECT_H__ */

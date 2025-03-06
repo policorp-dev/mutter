@@ -12,27 +12,20 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef META_WAYLAND_TYPES_H
-#define META_WAYLAND_TYPES_H
+#pragma once
 
 typedef struct _MetaWaylandCompositor MetaWaylandCompositor;
 
 typedef struct _MetaWaylandSeat MetaWaylandSeat;
 typedef struct _MetaWaylandInputDevice MetaWaylandInputDevice;
 typedef struct _MetaWaylandPointer MetaWaylandPointer;
-typedef struct _MetaWaylandPointerGrab MetaWaylandPointerGrab;
-typedef struct _MetaWaylandPointerGrabInterface MetaWaylandPointerGrabInterface;
 typedef struct _MetaWaylandPopupGrab MetaWaylandPopupGrab;
 typedef struct _MetaWaylandPopup MetaWaylandPopup;
 typedef struct _MetaWaylandPopupSurface MetaWaylandPopupSurface;
 typedef struct _MetaWaylandKeyboard MetaWaylandKeyboard;
-typedef struct _MetaWaylandKeyboardGrab MetaWaylandKeyboardGrab;
-typedef struct _MetaWaylandKeyboardGrabInterface MetaWaylandKeyboardGrabInterface;
 typedef struct _MetaWaylandTouch MetaWaylandTouch;
 typedef struct _MetaWaylandDragDestFuncs MetaWaylandDragDestFuncs;
 typedef struct _MetaWaylandDataOffer MetaWaylandDataOffer;
@@ -54,6 +47,9 @@ typedef struct _MetaWaylandRegion MetaWaylandRegion;
 typedef struct _MetaWaylandSurface MetaWaylandSurface;
 typedef struct _MetaWaylandSurfaceState MetaWaylandSurfaceState;
 
+typedef struct _MetaWaylandTransaction MetaWaylandTransaction;
+typedef struct _MetaWaylandTransactionEntry MetaWaylandTransactionEntry;
+
 typedef struct _MetaWaylandOutput MetaWaylandOutput;
 
 typedef struct _MetaWaylandWindowConfiguration MetaWaylandWindowConfiguration;
@@ -64,6 +60,20 @@ typedef struct _MetaWaylandActivation MetaWaylandActivation;
 
 typedef struct _MetaWaylandDmaBufManager MetaWaylandDmaBufManager;
 
+typedef struct _MetaWaylandSyncobjTimeline MetaWaylandSyncobjTimeline;
+
+typedef struct _MetaWaylandXdgPositioner MetaWaylandXdgPositioner;
+
 typedef struct _MetaXWaylandManager MetaXWaylandManager;
 
-#endif
+typedef struct _MetaWaylandXdgForeign MetaWaylandXdgForeign;
+
+typedef struct _MetaWaylandFilterManager MetaWaylandFilterManager;
+
+typedef struct _MetaWaylandClient MetaWaylandClient;
+
+typedef struct _MetaWaylandDrmLeaseManager MetaWaylandDrmLeaseManager;
+
+typedef struct _MetaWaylandXdgSessionManager MetaWaylandXdgSessionManager;
+
+typedef struct _MetaWaylandToplevelDrag MetaWaylandToplevelDrag;
