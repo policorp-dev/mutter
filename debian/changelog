@@ -1,3 +1,9 @@
+mutter (48.Policorp-2) stable; urgency=medium
+
+  * fix to gnome48
+
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Fri, 07 Mar 2025 13:40:31 +0000
+
 mutter (48.Policorp-1) stable; urgency=medium
 
   * New version in Policorp and removed super +p
