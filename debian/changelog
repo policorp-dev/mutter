@@ -1,26 +1,8 @@
-mutter (48.Policorp-2) stable; urgency=medium
+mutter (48.Policorp-7) stable; urgency=medium
 
-  * fix to gnome48
+  * Updated in Policorp
 
- -- Edson Juliano Drosdeck <edson@policorp.com.br>  Fri, 07 Mar 2025 13:40:31 +0000
-
-mutter (48.Policorp-1) stable; urgency=medium
-
-  * New version in Policorp and removed super +p
-
- -- Edson Juliano Drosdeck <edson@policorp.com.br>  Wed, 05 Mar 2025 09:59:56 -0300
-
-mutter (48~rc-1) experimental; urgency=medium
-
-  * New upstream release
-  * Bump minimum libinput & wayland-protocols
-  * debian/libmutter-16-0.symbols: Update
-  * Bump Breaks: gnome-shell to 48~rc
-  * Add many additional Depends to libmutter-16-dev
-  * Remove nocheck annotation from Build-Depends: zenity
-  * Remove 6 patches applied in new release including the triple buffering patch
-
- -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 03 Mar 2025 16:56:33 -0500
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Fri, 07 Mar 2025 16:11:24 +0000
 
 mutter (48~beta-7) unstable; urgency=medium
 

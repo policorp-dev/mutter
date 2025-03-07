@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -ex
 
@@ -11,7 +11,6 @@ fi
 
 export GDK_BACKEND=x11
 export G_DEBUG=fatal-warnings
-export MUTTER_DEBUG=${MUTTER_DEBUG:-x11}
 
 echo \# Launching mutter > /dev/stderr
 $MUTTER --x11 --mutter-plugin="$MUTTER_TEST_PLUGIN_PATH" &
@@ -22,10 +21,10 @@ echo \# Launched with pid $MUTTER1_PID
 sleep 2
 
 echo Launching a couple of X11 clients > /dev/stderr
-${ZENITY:-zenity} --warning &
+zenity --warning &
 ZENITY1_PID=$!
 sleep 2
-${ZENITY:-zenity} --info &
+zenity --info &
 ZENITY2_PID=$!
 sleep 4
 

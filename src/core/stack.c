@@ -45,13 +45,15 @@
 #endif
 
 #define WINDOW_TRANSIENT_FOR_WHOLE_GROUP(w)        \
-        (meta_window_has_transient_type (w) && w->transient_for == NULL)
+  (meta_window_has_transient_type (w) && w->transient_for == NULL)
 
 static void meta_window_set_stack_position_no_sync (MetaWindow *window,
                                                     int         position);
 static void stack_do_relayer (MetaStack *stack);
 static void stack_do_constrain (MetaStack *stack);
 static void stack_do_resort (MetaStack *stack);
+static void stack_ensure_sorted (MetaStack *stack);
+
 
 enum
 {
@@ -178,7 +180,7 @@ meta_stack_changed (MetaStack *stack)
 
   COGL_TRACE_BEGIN_SCOPED (MetaStackChangedSort, "Meta::Stack::changed()");
 
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
   g_signal_emit (stack, signals[CHANGED], 0);
 }
 
@@ -243,9 +245,10 @@ meta_stack_remove (MetaStack  *stack,
 }
 
 void
-meta_stack_update_layer (MetaStack *stack)
+meta_stack_update_layer (MetaStack  *stack,
+                         MetaWindow *window)
 {
-  MetaWorkspaceManager *workspace_manager = stack->display->workspace_manager;
+  MetaWorkspaceManager *workspace_manager = window->display->workspace_manager;
   stack->need_relayer = TRUE;
 
   meta_stack_changed (stack);
@@ -253,9 +256,10 @@ meta_stack_update_layer (MetaStack *stack)
 }
 
 void
-meta_stack_update_transient (MetaStack *stack)
+meta_stack_update_transient (MetaStack  *stack,
+                             MetaWindow *window)
 {
-  MetaWorkspaceManager *workspace_manager = stack->display->workspace_manager;
+  MetaWorkspaceManager *workspace_manager = window->display->workspace_manager;
   stack->need_constrain = TRUE;
 
   meta_stack_changed (stack);
@@ -272,7 +276,7 @@ meta_stack_raise (MetaStack  *stack,
   int max_stack_position = window->stack_position;
   MetaWorkspace *workspace;
 
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
 
   workspace = meta_window_get_workspace (window);
   for (l = stack->sorted; l; l = l->next)
@@ -301,7 +305,7 @@ meta_stack_lower (MetaStack  *stack,
   int min_stack_position = window->stack_position;
   MetaWorkspace *workspace;
 
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
 
   workspace = meta_window_get_workspace (window);
   for (l = stack->sorted; l; l = l->next)
@@ -363,12 +367,23 @@ meta_stack_update_window_tile_matches (MetaStack     *stack,
  * so the lower stack position is later in the list
  */
 static int
-compare_window_position (gconstpointer window_a,
-                         gconstpointer window_b)
+compare_window_position (void *a,
+                         void *b)
 {
-  /* Windows are sorted bottom-to-top in public API
-   * but for internal use we need to sort them top-to-bottom */
-  return meta_window_stack_position_compare (window_b, window_a);
+  MetaWindow *window_a = a;
+  MetaWindow *window_b = b;
+
+  /* Go by layer, then stack_position */
+  if (window_a->layer < window_b->layer)
+    return 1; /* move window_a later in list */
+  else if (window_a->layer > window_b->layer)
+    return -1;
+  else if (window_a->stack_position < window_b->stack_position)
+    return 1; /* move window_a later in list */
+  else if (window_a->stack_position > window_b->stack_position)
+    return -1;
+  else
+    return 0; /* not reached */
 }
 
 /*
@@ -520,7 +535,7 @@ create_constraints (Constraint **constraints,
 #if 0
               /* old way of doing it */
               if (!(meta_window_is_ancestor_of_transient (w, group_window)) &&
-                  !WINDOW_TRANSIENT_FOR_WHOLE_GROUP (group_window))
+                  !WINDOW_TRANSIENT_FOR_WHOLE_GROUP (group_window))  /* note */;/*note*/
 #else
               /* better way I think, so transient-for-group are constrained
                * only above non-transient-type windows in their group
@@ -641,8 +656,8 @@ ensure_above (MetaWindow *above,
   if (is_transient && above->layer < below->layer)
     {
       meta_topic (META_DEBUG_STACK,
-                  "Promoting window %s from layer %u to %u due to constraint",
-                  above->desc, above->layer, below->layer);
+		  "Promoting window %s from layer %u to %u due to constraint",
+		  above->desc, above->layer, below->layer);
       above->layer = below->layer;
     }
 
@@ -813,18 +828,16 @@ stack_do_resort (MetaStack *stack)
   meta_topic (META_DEBUG_STACK,
               "Sorting stack list");
 
-  /* To prevent compare_window_position from calling into
-   * stack_do_resort recursively we reset need_resort early */
-  stack->need_resort = FALSE;
-
-  stack->sorted = g_list_sort (stack->sorted, compare_window_position);
+  stack->sorted = g_list_sort (stack->sorted,
+                               (GCompareFunc) compare_window_position);
 
   meta_display_queue_check_fullscreen (stack->display);
+
+  stack->need_resort = FALSE;
 }
 
 /**
- * meta_stack_ensure_sorted:
- * @stack: The stack to potentially sort
+ * stack_ensure_sorted:
  *
  * Puts the stack into canonical form.
  *
@@ -834,8 +847,8 @@ stack_do_resort (MetaStack *stack)
  * and if it wasn't already it might have become so during all the previous
  * activity).
  */
-void
-meta_stack_ensure_sorted (MetaStack *stack)
+static void
+stack_ensure_sorted (MetaStack *stack)
 {
   stack_do_relayer (stack);
   stack_do_constrain (stack);
@@ -845,7 +858,7 @@ meta_stack_ensure_sorted (MetaStack *stack)
 MetaWindow *
 meta_stack_get_top (MetaStack *stack)
 {
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
 
   if (stack->sorted)
     return stack->sorted->data;
@@ -861,7 +874,7 @@ meta_stack_get_above (MetaStack  *stack,
   GList *link;
   MetaWindow *above;
 
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
 
   link = g_list_find (stack->sorted, window);
   if (link == NULL)
@@ -886,7 +899,7 @@ meta_stack_get_below (MetaStack  *stack,
   GList *link;
   MetaWindow *below;
 
-  meta_stack_ensure_sorted (stack);
+  stack_ensure_sorted (stack);
 
   link = g_list_find (stack->sorted, window);
 
@@ -911,7 +924,7 @@ meta_stack_list_windows (MetaStack     *stack,
   GList *workspace_windows = NULL;
   GList *link;
 
-  meta_stack_ensure_sorted (stack); /* do adds/removes */
+  stack_ensure_sorted (stack); /* do adds/removes */
 
   link = stack->sorted;
 
@@ -930,6 +943,27 @@ meta_stack_list_windows (MetaStack     *stack,
     }
 
   return workspace_windows;
+}
+
+int
+meta_stack_windows_cmp (MetaStack  *stack,
+                        MetaWindow *window_a,
+                        MetaWindow *window_b)
+{
+  /* -1 means a below b */
+
+  stack_ensure_sorted (stack); /* update constraints, layers */
+
+  if (window_a->layer < window_b->layer)
+    return -1;
+  else if (window_a->layer > window_b->layer)
+    return 1;
+  else if (window_a->stack_position < window_b->stack_position)
+    return -1;
+  else if (window_a->stack_position > window_b->stack_position)
+    return 1;
+  else
+    return 0; /* not reached */
 }
 
 void

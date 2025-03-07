@@ -21,10 +21,9 @@
 
 #include <glib-object.h>
 
-#include "backends/meta-backend-types.h"
-#include "core/util-private.h"
 #include "meta/meta-settings.h"
 #include "meta/types.h"
+#include "core/util-private.h"
 
 typedef enum _MetaExperimentalFeature
 {
@@ -80,24 +79,3 @@ gboolean meta_settings_is_privacy_screen_enabled (MetaSettings *settings);
 
 void meta_settings_set_privacy_screen_enabled (MetaSettings *settings,
                                                gboolean      enabled);
-
-gboolean meta_settings_has_output_luminance (MetaSettings          *settings,
-                                             const MetaMonitorSpec *monitor_spec,
-                                             MetaColorMode          color_mode);
-
-double meta_settings_get_output_luminance (MetaSettings          *settings,
-                                           const MetaMonitorSpec *monitor_spec,
-                                           MetaColorMode          color_mode);
-
-double meta_settings_get_default_output_luminance (MetaSettings          *settings,
-                                                   const MetaMonitorSpec *monitor_spec,
-                                                   MetaColorMode          color_mode);
-
-void meta_settings_set_output_luminance (MetaSettings          *settings,
-                                         const MetaMonitorSpec *monitor_spec,
-                                         MetaColorMode          color_mode,
-                                         double                 luminance);
-
-void meta_settings_reset_output_luminance (MetaSettings          *settings,
-                                           const MetaMonitorSpec *monitor_spec,
-                                           MetaColorMode          color_mode);

@@ -238,7 +238,7 @@ read_all_cb (GObject      *source_object,
              gpointer      user_data)
 {
   gboolean *done = user_data;
-  g_autoptr (GError) error = NULL;
+  GError *error = NULL;
 
   g_input_stream_read_all_finish (G_INPUT_STREAM (source_object),
                                   res,
@@ -249,32 +249,18 @@ read_all_cb (GObject      *source_object,
   *done = TRUE;
 }
 
-typedef struct
-{
-  gboolean done;
-  GError *error;
-} WaitCheckData;
-
-static void
-wait_check_data_clear (WaitCheckData *data)
-{
-  g_clear_error (&data->error);
-}
-
-G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC (WaitCheckData, wait_check_data_clear);
-
 static void
 wait_check_cb (GObject      *source_object,
                GAsyncResult *res,
                gpointer      user_data)
 {
-  WaitCheckData *data = user_data;
-  g_autoptr (GError) error = NULL;
+  gboolean *done = user_data;
+  GError *error = NULL;
 
   g_subprocess_wait_check_finish (G_SUBPROCESS (source_object), res, &error);
+  g_assert_no_error (error);
 
-  data->done = TRUE;
-  data->error = g_steal_pointer (&error);
+  *done = TRUE;
 }
 
 static char *
@@ -283,7 +269,7 @@ save_output (const char *output,
 {
   const char *gdctl_result_dir;
   char *output_path;
-  g_autoptr (GError) error = NULL;
+  GError *error = NULL;
 
   gdctl_result_dir = g_getenv ("MUTTER_GDCTL_TEST_RESULT_DIR");
   g_assert_no_errno (g_mkdir_with_parents (gdctl_result_dir, 0755));
@@ -304,7 +290,7 @@ run_diff (const char *output_path,
 {
   g_autoptr (GSubprocessLauncher) launcher = NULL;
   g_autoptr (GSubprocess) subprocess = NULL;
-  g_autoptr (GError) error = NULL;
+  GError *error = NULL;
 
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
   subprocess = g_subprocess_launcher_spawn (launcher,
@@ -327,8 +313,8 @@ check_gdctl_result (const char *first_argument,
   char *arg;
   g_autoptr (GSubprocessLauncher) launcher = NULL;
   g_autoptr (GSubprocess) subprocess = NULL;
-  g_autoptr (GError) error = NULL;
-  g_auto (WaitCheckData) wait_data = {0};
+  gboolean process_done = FALSE;
+  GError *error = NULL;
 
   args = g_ptr_array_new ();
   g_ptr_array_add (args, gdctl_path);
@@ -345,12 +331,10 @@ check_gdctl_result (const char *first_argument,
                                              (const char * const*) args->pdata,
                                              &error);
   g_subprocess_wait_check_async (subprocess, NULL,
-                                 wait_check_cb, &wait_data);
+                                 wait_check_cb, &process_done);
 
-  while (!wait_data.done)
+  while (!process_done)
     g_main_context_iteration (NULL, TRUE);
-
-  g_assert_no_error (wait_data.error);
 }
 
 static void
@@ -366,10 +350,10 @@ check_gdctl_output (const char *expected_output_file,
   size_t max_output_size;
   g_autofree char *output = NULL;
   gboolean read_done = FALSE;
-  g_autoptr (GError) error = NULL;
+  gboolean process_done = FALSE;
+  GError *error = NULL;
   g_autofree char *expected_output_path = NULL;
   g_autofree char *expected_output = NULL;
-  g_auto (WaitCheckData) wait_data = {0};
 
   args = g_ptr_array_new ();
   g_ptr_array_add (args, gdctl_path);
@@ -380,7 +364,7 @@ check_gdctl_output (const char *expected_output_file,
   g_ptr_array_add (args, NULL);
 
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE |
-                                        G_SUBPROCESS_FLAGS_STDERR_MERGE);
+                                        G_SUBPROCESS_FLAGS_STDERR_PIPE);
 
   subprocess = g_subprocess_launcher_spawnv (launcher,
                                              (const char * const*) args->pdata,
@@ -397,13 +381,10 @@ check_gdctl_output (const char *expected_output_file,
                                  &read_done);
 
   g_subprocess_wait_check_async (subprocess, NULL,
-                                 wait_check_cb, &wait_data);
+                                 wait_check_cb, &process_done);
 
-  while (!read_done || !wait_data.done)
+  while (!read_done || !process_done)
     g_main_context_iteration (NULL, TRUE);
-
-  g_test_message ("%s", output);
-  g_assert_no_error (wait_data.error);
 
   expected_output_path = g_test_build_filename (G_TEST_DIST,
                                                 "tests",
@@ -677,32 +658,6 @@ meta_test_monitor_dbus_apply_mirror (void)
 }
 
 static void
-meta_test_monitor_dbus_apply_for_lease (void)
-{
-  MonitorTestCaseExpect expect;
-
-  setup_apply_configuration_test ();
-
-  check_gdctl_result ("set",
-                      "--verbose",
-                      "--layout-mode", "logical",
-                      "--logical-monitor",
-                      "--primary",
-                      "--monitor", "DP-1",
-                      "--for-lease-monitor", "DP-2",
-                      NULL);
-
-  expect = test_case_expect;
-  expect.n_logical_monitors = 1;
-  expect.screen_width = 1744;
-  expect.monitors[1].current_mode = -1;
-  expect.crtcs[1].current_mode = -1;
-  META_TEST_LOG_CALL ("Checking monitor configuration",
-                      meta_check_monitor_configuration (test_context,
-                                                        &expect));
-}
-
-static void
 init_tests (void)
 {
   g_test_add_func ("/backends/native/monitor/dbus/get-state",
@@ -717,8 +672,6 @@ init_tests (void)
                    meta_test_monitor_dbus_apply_mode_scale_below_transform);
   g_test_add_func ("/backends/native/monitor/dbus/apply/mirror",
                    meta_test_monitor_dbus_apply_mirror);
-  g_test_add_func ("/backends/native/monitor/dbus/apply/for-lease",
-                   meta_test_monitor_dbus_apply_for_lease);
 }
 
 int

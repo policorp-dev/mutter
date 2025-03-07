@@ -285,10 +285,6 @@ meta_wayland_cursor_surface_apply_state (MetaWaylandSurfaceRole  *surface_role,
         !mtk_region_is_empty (pending->buffer_damage)) ||
        !priv->buffer))
     update_cursor_sprite_texture (META_WAYLAND_CURSOR_SURFACE (surface_role));
-
-  meta_wayland_cursor_surface_set_hotspot (META_WAYLAND_CURSOR_SURFACE (surface_role),
-                                           priv->hot_x - pending->dx,
-                                           priv->hot_y - pending->dy);
 }
 
 static gboolean

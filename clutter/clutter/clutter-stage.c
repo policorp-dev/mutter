@@ -2110,11 +2110,7 @@ clutter_stage_set_key_focus (ClutterStage *stage,
 
   /* normalize the key focus. NULL == stage */
   if (actor == CLUTTER_ACTOR (stage))
-    {
-      g_warning ("Stage key focus was set to stage itself, "
-                 "unsetting focus instead");
-      actor = NULL;
-    }
+    actor = NULL;
 
   /* avoid emitting signals and notifications if we're setting the same
    * actor as the key focus
@@ -2175,7 +2171,7 @@ clutter_stage_set_key_focus (ClutterStage *stage,
  *
  * Retrieves the actor that is currently under key focus.
  *
- * Return value: (transfer none) (nullable): the actor with key focus
+ * Return value: (transfer none): the actor with key focus, or the stage
  */
 ClutterActor *
 clutter_stage_get_key_focus (ClutterStage *stage)
@@ -2185,7 +2181,10 @@ clutter_stage_get_key_focus (ClutterStage *stage)
   g_return_val_if_fail (CLUTTER_IS_STAGE (stage), NULL);
 
   priv = clutter_stage_get_instance_private (stage);
-  return priv->key_focused_actor;
+  if (priv->key_focused_actor)
+    return priv->key_focused_actor;
+
+  return CLUTTER_ACTOR (stage);
 }
 
 /*** Perspective boxed type ******/
@@ -4179,12 +4178,9 @@ clutter_stage_get_event_actor (ClutterStage       *stage,
 {
   ClutterInputDevice *device;
   ClutterEventSequence *sequence;
-  ClutterStagePrivate *priv;
 
   g_return_val_if_fail (CLUTTER_IS_STAGE (stage), NULL);
   g_return_val_if_fail (event != NULL, NULL);
-
-  priv = clutter_stage_get_instance_private (stage);
 
   switch (clutter_event_type (event))
     {
@@ -4197,8 +4193,7 @@ clutter_stage_get_event_actor (ClutterStage       *stage,
     case CLUTTER_IM_COMMIT:
     case CLUTTER_IM_DELETE:
     case CLUTTER_IM_PREEDIT:
-      return priv->key_focused_actor ?
-             priv->key_focused_actor : CLUTTER_ACTOR (stage);
+      return clutter_stage_get_key_focus (stage);
     case CLUTTER_MOTION:
     case CLUTTER_ENTER:
     case CLUTTER_LEAVE:

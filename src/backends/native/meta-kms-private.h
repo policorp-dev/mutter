@@ -39,7 +39,8 @@ gpointer meta_kms_run_impl_task_sync (MetaKms             *kms,
                                       GError             **error);
 
 META_EXPORT_TEST
-MetaKmsResourceChanges meta_kms_update_states_sync (MetaKms *kms);
+MetaKmsResourceChanges meta_kms_update_states_sync (MetaKms     *kms,
+                                                    GUdevDevice *udev_device);
 
 gboolean meta_kms_in_impl_task (MetaKms *kms);
 

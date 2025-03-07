@@ -12,9 +12,6 @@ Monitors:
 │  │       └──Properties: (2)
 │  │           ├──is-current ⇒  yes
 │  │           └──is-preferred ⇒  yes
-│  ├──Preferences:
-│  │   └──Luminances:
-│  │       └──default ⇒  100.0 (default) (current)
 │  └──Properties: (5)
 │      ├──is-builtin ⇒  no
 │      ├──display-name ⇒  MetaProduct's Inc. 14"
@@ -34,9 +31,6 @@ Monitors:
    │       └──Properties: (2)
    │           ├──is-current ⇒  yes
    │           └──is-preferred ⇒  yes
-   ├──Preferences:
-   │   └──Luminances:
-   │       └──default ⇒  100.0 (default) (current)
    └──Properties: (5)
        ├──is-builtin ⇒  no
        ├──display-name ⇒  MetaProduct's Inc. 13"
