@@ -27,7 +27,6 @@
 #include "meta-test/meta-context-test.h"
 #include "tests/drm-mock/drm-mock.h"
 #include "tests/meta-test-utils.h"
-#include "tests/meta-kms-test-utils.h"
 
 typedef enum _State
 {
@@ -138,15 +137,21 @@ meta_test_disconnect_connect (void)
     meta_backend_get_monitor_manager (backend);
   ClutterActor *stage = meta_backend_get_stage (backend);
   MetaUdev *udev = meta_backend_get_udev (backend);
-  g_autoptr (GUdevDevice) udev_device = NULL;
+  g_autolist (GObject) udev_devices = NULL;
+  GUdevDevice *udev_device;
   GList *logical_monitors;
   gulong after_paint_handler_id;
   gulong presented_handler_id;
   ClutterStageView *view;
   CoglFramebuffer *onscreen;
+  g_autoptr (GError) error = NULL;
   State state;
 
-  udev_device = meta_get_test_udev_device (udev);
+  udev_devices = meta_udev_list_drm_devices (udev,
+                                             META_UDEV_DEVICE_TYPE_CARD,
+                                             &error);
+  g_assert_cmpuint (g_list_length (udev_devices), ==, 1);
+  udev_device = g_list_first (udev_devices)->data;
 
   logical_monitors =
     meta_monitor_manager_get_logical_monitors (monitor_manager);
@@ -367,14 +372,20 @@ emulate_hotplug (void)
 {
   MetaBackend *backend = meta_context_get_backend (test_context);
   MetaUdev *udev = meta_backend_get_udev (backend);
-  g_autoptr (GUdevDevice) udev_device = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autolist (GObject) udev_devices = NULL;
+  GUdevDevice *udev_device;
 
-  udev_device = meta_get_test_udev_device (udev);
+  udev_devices = meta_udev_list_drm_devices (udev,
+                                             META_UDEV_DEVICE_TYPE_CARD,
+                                             &error);
+  g_assert_cmpuint (g_list_length (udev_devices), ==, 1);
+  udev_device = g_list_first (udev_devices)->data;
   g_signal_emit_by_name (udev, "hotplug", udev_device);
 }
 
 static void
-meta_test_power_save_no_implicit_on (void)
+meta_test_power_save_implicit_on (void)
 {
   MetaBackend *backend = meta_context_get_backend (test_context);
   MetaMonitorManager *monitor_manager =
@@ -412,10 +423,8 @@ meta_test_power_save_no_implicit_on (void)
                                 disconnect_connector_filter, NULL);
   emulate_hotplug ();
 
-  while (!monitors_changed)
+  while (!power_save_mode_changed || !monitors_changed)
     g_main_context_iteration (NULL, TRUE);
-
-  g_assert_false (power_save_mode_changed);
 
   g_signal_handler_disconnect (monitor_manager, power_save_handler_id);
   g_signal_handler_disconnect (monitor_manager, monitors_changed_handler_id);
@@ -436,8 +445,8 @@ init_tests (void)
                    meta_test_disconnect_connect);
   g_test_add_func ("/hotplug/switch-config",
                    meta_test_switch_config);
-  g_test_add_func ("/hotplug/power-save-no-implicit-on",
-                   meta_test_power_save_no_implicit_on);
+  g_test_add_func ("/hotplug/power-save-implicit-off",
+                   meta_test_power_save_implicit_on);
 }
 
 int

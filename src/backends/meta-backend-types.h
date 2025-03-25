@@ -30,8 +30,6 @@ typedef struct _MetaColorManager MetaColorManager;
 typedef struct _MetaColorProfile MetaColorProfile;
 typedef struct _MetaColorStore MetaColorStore;
 
-typedef enum _MetaColorMode MetaColorMode;
-
 typedef struct _MetaMonitorManager MetaMonitorManager;
 
 typedef struct _MetaMonitorConfigManager MetaMonitorConfigManager;

@@ -41,7 +41,6 @@ endif
 clutter_conform_tests_general_tests = [
   'binding-pool',
   'event-delivery',
-  'color-state-transform',
   'frame-clock',
   'frame-clock-timeline',
   'grab',

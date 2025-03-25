@@ -122,7 +122,6 @@ struct _ClutterFrameInfo
 {
   int64_t frame_counter;
   int64_t presentation_time; /* microseconds; CLOCK_MONOTONIC */
-  int64_t target_presentation_time; /* microseconds; CLOCK_MONOTONIC */
   float refresh_rate;
 
   ClutterFrameInfoFlag flags;

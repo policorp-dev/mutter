@@ -26,7 +26,6 @@
 #include "core/display-private.h"
 #include "meta-test/meta-context-test.h"
 #include "tests/drm-mock/drm-mock.h"
-#include "tests/meta-kms-test-utils.h"
 #include "tests/meta-monitor-manager-test.h"
 
 static MetaContext *test_context;
@@ -76,16 +75,20 @@ meta_test_headless_monitor_connect (void)
   MetaUdev *udev = meta_backend_get_udev (backend);
   MetaMonitorManager *monitor_manager =
     meta_backend_get_monitor_manager (backend);
-  g_autoptr (GUdevDevice) udev_device = NULL;
+  g_autolist (GObject) udev_devices = NULL;
   GList *logical_monitors;
   MetaLogicalMonitor *logical_monitor;
   MtkRectangle monitor_layout;
   ClutterActor *stage;
+  g_autoptr (GError) error = NULL;
 
   drm_mock_unset_resource_filter (DRM_MOCK_CALL_FILTER_GET_CONNECTOR);
 
-  udev_device = meta_get_test_udev_device (udev);
-  g_signal_emit_by_name (udev, "hotplug", udev_device);
+  udev_devices = meta_udev_list_drm_devices (udev,
+                                             META_UDEV_DEVICE_TYPE_CARD,
+                                             &error);
+  g_assert_cmpuint (g_list_length (udev_devices), ==, 1);
+  g_signal_emit_by_name (udev, "hotplug", g_list_first (udev_devices)->data);
 
   logical_monitors =
     meta_monitor_manager_get_logical_monitors (monitor_manager);
