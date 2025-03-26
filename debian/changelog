@@ -1,3 +1,9 @@
+mutter (48.Policorp-8) stable; urgency=medium
+
+  * enabled center-new-windows
+
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Wed, 26 Mar 2025 11:42:54 +0000
+
 mutter (48.Policorp-7) stable; urgency=medium
 
   * Updated in Policorp
