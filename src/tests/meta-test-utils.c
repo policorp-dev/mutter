@@ -96,8 +96,6 @@ meta_ensure_test_client_path (int    argc,
                               char **argv)
 {
   test_runner_client_path = g_test_build_filename (G_TEST_BUILT,
-                                                   "src",
-                                                   "tests",
                                                    "mutter-test-client",
                                                    NULL);
   if (!g_file_test (test_runner_client_path,
@@ -785,7 +783,7 @@ meta_set_custom_monitor_config_full (MetaBackend            *backend,
 
   config_store = meta_monitor_config_manager_get_store (config_manager);
 
-  path = g_test_build_filename (G_TEST_DIST, "tests", "monitor-configs",
+  path = g_test_build_filename (G_TEST_DIST, "monitor-configs",
                                 filename, NULL);
   if (!meta_monitor_config_store_set_custom (config_store, path, NULL,
                                              configs_flags,
@@ -858,6 +856,33 @@ meta_wait_for_paint (MetaContext *context)
     g_main_context_iteration (NULL, TRUE);
   g_signal_handler_disconnect (stage, presented_handler_id);
   g_signal_handler_disconnect (monitor_manager, monitors_changed_handler_id);
+}
+
+static void
+on_after_update (ClutterStage     *stage,
+                 ClutterStageView *view,
+                 ClutterFrame     *frame,
+                 gboolean         *done)
+{
+  *done = TRUE;
+}
+
+void
+meta_wait_for_update (MetaContext *context)
+{
+  MetaBackend *backend = meta_context_get_backend (context);
+  ClutterActor *stage = meta_backend_get_stage (backend);
+  gulong after_update_handler_id;
+  gboolean done = FALSE;
+
+  clutter_stage_schedule_update (CLUTTER_STAGE (stage));
+
+  after_update_handler_id = g_signal_connect (stage, "after-update",
+                                              G_CALLBACK (on_after_update),
+                                              &done);
+  while (!done)
+    g_main_context_iteration (NULL, TRUE);
+  g_signal_handler_disconnect (stage, after_update_handler_id);
 }
 
 MetaVirtualMonitor *

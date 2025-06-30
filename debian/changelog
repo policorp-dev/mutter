@@ -1,14 +1,195 @@
-mutter (48.Policorp-8) stable; urgency=medium
+mutter (48.Policorp-9) unstable; urgency=medium
 
-  * enabled center-new-windows
+  * Upated version to fix bug in print screen Policorp
 
- -- Edson Juliano Drosdeck <edson@policorp.com.br>  Wed, 26 Mar 2025 11:42:54 +0000
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Mon, 30 Jun 2025 10:56:11 +0000
 
-mutter (48.Policorp-7) stable; urgency=medium
+mutter (48.3.1-2) unstable; urgency=medium
 
-  * Updated in Policorp
+  * Team upload
+  * Add a detailed list of changes to the previous changelog entry
+  * Upload to unstable
 
- -- Edson Juliano Drosdeck <edson@policorp.com.br>  Fri, 07 Mar 2025 16:11:24 +0000
+ -- Simon McVittie <smcv@debian.org>  Sat, 14 Jun 2025 10:07:10 +0100
+
+mutter (48.3.1-1) experimental; urgency=medium
+
+  * New upstream bugfix release
+    - Improve performance of use-cases like fullscreen video playback
+      on older GPUs such as the one in the Pinebook Pro, by substituting
+      opaque dmabuf formats for their equivalents with alpha, such as
+      XRGB for ARGB (mutter#2471 upstream)
+    - Allocate the correct height for members of a vertical layout by
+      updating size request mode when changing orientation
+      (mutter!4339 upstream)
+    - Only check for xkbfile when supporting X11
+      (no practical effect on Debian, where we do support X11)
+      (mutter!4409 upstream)
+    - Fix several memory leaks, while ensuring objects are still destroyed
+      in the correct order
+      (mutter!4432 upstream)
+    - Don't log a warning when files are removed from the ICC profile
+      directory, fixing one source of flaky automated tests
+      (mutter!4431 upstream)
+    - Don't take control of logind session when running on Xorg, fixing the
+      tty being left in an inconsistent state if mutter is killed
+      (mutter!4391 upstream)
+    - Fix gdctl crash when communicating with Xorg sessions
+      (mutter#4023 upstream)
+    - Avoid unexpectedly low framerate when moving/resizing windows after
+      session locking or after heavy system load
+      (mutter#4029 upstream)
+    - Fix drag and drop of tabs into tiled/maximized state
+      (mutter!4468 upstream)
+    - Fix Xwayland windows becoming unresponsive to events
+      (mutter!4475 upstream)
+    - Use frame-sync candidate that likely matches scanout candidate, making
+      variable refresh rate work better
+      (mutter!4412 upstream)
+    - Add an early-return from build_and_scan_frame_mask() for zero-sized
+      textures, possibly fixing one source of flaky automated tests
+      (mutter!4039 upstream)
+    - Avoid leaking the session manager file's file descriptor down to
+      apps launched by gnome-shell
+      (gnome-shell#8345, mutter!4405 upstream)
+    - Restore tiled/maximized windows to the correct monitor
+      (mutter#3939 upstream)
+    - Let the compositor control drag-and-drop cursor feedback for native
+      Wayland
+      (mutter!4390 upstream)
+      - Related issue mutter#4033 upstream, mainly affecting older GTK
+        versions like those in outdated Flatpak and Snap runtimes, is not
+        fixed here; see mutter!4433 upstream for a possible solution
+    - Propagate all touchpad gesture events to apps
+      (mutter#3505 upstream)
+    - Fix a race condition when registering an implict grab
+      (mutter#4055 upstream)
+    - Fix Wine games failing to enter fullscreen across multiple monitors
+      (mutter!4389 upstream)
+    - Update window decorations on override-redirect attribute change
+      (mutter!4287 upstream)
+    - In the test suite, fall back to a reasonable pipewire socket name on
+      non-systemd systems
+      (mutter#4044 upstream)
+    - Translation updates: be, sk
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 06 Jun 2025 13:51:45 -0400
+
+mutter (48.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * Remove 3 patches applied in new release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 17 Apr 2025 13:30:10 -0400
+
+mutter (48.1-2) unstable; urgency=medium
+
+  [ Daniel van Vugt ]
+  * Cherry-pick cursor-sprite-xcursor-Reset-current_frame-only-if-xcursor.patch
+    to fix animated cursors (LP: #2106097)
+  * Cherry-pick wayland-xdg-shell-Check-for-NULL-xdg_popup-resource.patch
+    and wayland-xdg-shell-Check-popup-resource-for-parent-unmappe.patch to fix
+    popup crashes (LP: #2043177)
+
+  [ Michael Biebl ]
+  * Enable fractional scaling by default as was done in Fedora 41
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 11 Apr 2025 14:29:16 -0400
+
+mutter (48.1-1) unstable; urgency=medium
+
+  * New upstream release 48.1
+    (fixes LP: #2104183, LP: #2103886, LP: #2103983, LP: #2099658)
+  * Drop upstreamed patches:
+    - kms-impl-device-Always-catch-pending-KMS-update-in-_sched.patch
+    - Revert-onscreen-native-Account-for-all-posted-frames.patch
+    - tests-Raise-the-timeout-on-monitor-unit-from-1-minute-to-.patch
+  * Refresh patches:
+    - tests-Do-not-run-screencast-tests.patch
+    - Mark-several-additional-tests-as-flaky.patch
+    - tests-Install-stacking-tests-into-a-subdirectory.patch
+  * libmutter-16-0.symbols, libmutter-test-16.symbols: Add new symbols in 48.1
+  * debian: Split man pages into the packages that contain the binaries
+
+ -- Daniel van Vugt <daniel.van.vugt@canonical.com>  Wed, 02 Apr 2025 13:28:46 +0800
+
+mutter (48.0-1) unstable; urgency=medium
+
+  * New upstream release
+  * Drop all the patches merged upstream between 48.rc and 48.0:
+    - debian/patches/Update-Basque-translation.patch
+    - Update-Catalan-translation.patch
+    - Update-Danish-translation.patch
+    - Update-Hungarian-translation.patch
+    - Update-Russian-translation.patch
+    - backends-native-Generalize-keyboard-LED-management.patch
+    - clutter-color-state-params-Handle-on-gamma-EOTFs-negative.patch
+    - clutter-color-state-params-Ignore-explicit-max_lum-on-EOT.patch
+    - clutter-frame-clock-Verify-and-change-state-earlier-in-di.patch
+    - clutter-stage-view-Notify-about-color-state-changes.patch
+    - cursor-renderer-native-Invalidate-state-for-output-color-.patch
+    - cursor-renderer-native-Removed-unused-argument-and-update.patch
+    - kms-impl-device-Don-t-disable-deadline-timer-on-G_IO_ERRO.patch
+    - kms-impl-device-Don-t-set_needs_flush-if-there-s-a-pendin.patch
+    - kms-impl-device-Process-pending-update-from-_schedule_pro.patch
+    - kms-impl-device-Refactor-meta_kms_impl_device_do_process_.patch
+    - tests-Vary-the-gdctl-path-used-for-installed-tests.patch
+    - wayland-color-management-Ensure-ref-lum-can-t-be-bigger-t.patch
+    - wayland-drm-lease-Move-on-device-bind-events-to-a-functio.patch
+    - wayland-drm-lease-Put-clients-in-a-queue-on-drm_fd-error.patch
+    - wayland-drm-lease-Send-drm_fd-to-pending-clients.patch
+  * Refresh patches:
+    - tests-Do-not-run-screencast-tests.patch
+    - Mark-several-additional-tests-as-flaky.patch
+    - tests-Install-stacking-tests-into-a-subdirectory.patch
+    - tests-Mark-view-verification-tests-as-incomplete-in-big-e.patch
+  * Add patches already accepted upstream in 48.1:
+    - kms-impl-device-Always-catch-pending-KMS-update-in-_sched.patch
+    - Revert-onscreen-native-Account-for-all-posted-frames.patch
+    - tests-Raise-the-timeout-on-monitor-unit-from-1-minute-to-.patch
+  * Add clutter-Repick-actors-when-touches-emulate-button-clicks.patch
+    to resolve touchscreen problems on X11 (LP: #2063005, LP: #1904237)
+  * libmutter-16-0.symbols, libmutter-test-16.symbols: Add new symbols in 48.0
+
+ -- Daniel van Vugt <daniel.van.vugt@canonical.com>  Thu, 20 Mar 2025 17:00:31 +0800
+
+mutter (48~rc-4) unstable; urgency=medium
+
+  * Team upload
+  * Release to unstable
+
+ -- Simon McVittie <smcv@debian.org>  Tue, 11 Mar 2025 09:44:32 +0000
+
+mutter (48~rc-3) experimental; urgency=medium
+
+  * Team upload
+  * d/patches: Update to upstream git commit 48.rc-17-gefb3cb75e4
+  * d/p/kms-impl-device-Refactor-meta_kms_impl_device_do_process_.patch,
+    d/p/kms-impl-device-Don-t-set_needs_flush-if-there-s-a-pendin.patch,
+    d/p/kms-impl-device-Process-pending-update-from-_schedule_pro.patch,
+    d/p/kms-impl-device-Don-t-disable-deadline-timer-on-G_IO_ERRO.patch:
+    Add proposed patches from upstream merge request 4321 to address
+    display freezes (Closes: #1099743, hopefully)
+
+ -- Simon McVittie <smcv@debian.org>  Sun, 09 Mar 2025 16:56:14 +0000
+
+mutter (48~rc-2) unstable; urgency=medium
+
+  * Release to unstable
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 06 Mar 2025 10:51:50 -0500
+
+mutter (48~rc-1) experimental; urgency=medium
+
+  * New upstream release
+  * Bump minimum libinput & wayland-protocols
+  * debian/libmutter-16-0.symbols: Update
+  * Bump Breaks: gnome-shell to 48~rc
+  * Add many additional Depends to libmutter-16-dev
+  * Remove nocheck annotation from Build-Depends: zenity
+  * Remove 6 patches applied in new release including the triple buffering patch
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 03 Mar 2025 16:56:33 -0500
 
 mutter (48~beta-7) unstable; urgency=medium
 

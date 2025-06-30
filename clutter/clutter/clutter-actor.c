@@ -3256,9 +3256,9 @@ static void
 _clutter_actor_remove_transitions_for_prefix (ClutterActor *actor,
                                               const char   *prefix)
 {
-  ClutterAnimationInfo *info;
+  const ClutterAnimationInfo *info;
 
-  info = _clutter_actor_get_animation_info (actor);
+  info = _clutter_actor_get_animation_info_or_defaults (actor);
 
   if (info->transitions != NULL)
     {
@@ -12433,8 +12433,6 @@ clutter_actor_set_final_state (ClutterAnimatable *animatable,
             g_object_set_property (G_OBJECT (animatable), pspec->name, final);
         }
     }
-
-  clutter_actor_update_devices (actor);
 }
 
 static ClutterActor *
@@ -16482,6 +16480,7 @@ on_transition_stopped (ClutterTransition *transition,
                     _clutter_actor_get_debug_name (actor));
 
       g_signal_emit (actor, actor_signals[TRANSITIONS_COMPLETED], 0);
+      clutter_actor_update_devices (actor);
     }
 }
 

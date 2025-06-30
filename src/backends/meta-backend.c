@@ -52,6 +52,7 @@
 
 #include <stdlib.h>
 
+#include "backends/meta-a11y-manager.h"
 #include "backends/meta-barrier-private.h"
 #include "backends/meta-color-manager-private.h"
 #include "backends/meta-cursor-renderer.h"
@@ -122,6 +123,8 @@ enum
   LID_IS_CLOSED_CHANGED,
   GPU_ADDED,
   PREPARE_SHUTDOWN,
+  PAUSE,
+  RESUME,
 
   N_SIGNALS
 };
@@ -169,6 +172,7 @@ struct _MetaBackendPrivate
   MetaRemoteDesktop *remote_desktop;
 #endif
   MetaInputCapture *input_capture;
+  MetaA11yManager *a11y_manager;
 
 #ifdef HAVE_LIBWACOM
   WacomDeviceDatabase *wacom_db;
@@ -243,6 +247,7 @@ meta_backend_dispose (GObject *object)
   g_clear_object (&priv->input_capture);
   g_clear_object (&priv->dbus_session_watcher);
   g_clear_object (&priv->remote_access_controller);
+  g_clear_object (&priv->a11y_manager);
   g_clear_object (&priv->dnd);
   g_clear_object (&priv->renderdoc);
 
@@ -251,11 +256,13 @@ meta_backend_dispose (GObject *object)
   g_clear_pointer (&priv->default_seat, clutter_seat_destroy);
   g_clear_pointer (&priv->stage, clutter_actor_destroy);
   g_clear_pointer (&priv->idle_manager, meta_idle_manager_free);
+  if (priv->renderer)
+    g_object_run_dispose (G_OBJECT (priv->renderer));
+  g_clear_pointer (&priv->clutter_context, clutter_context_destroy);
   g_clear_object (&priv->renderer);
   /* the renderer keeps references to color devices which keep references
    * to the color manager. */
   g_clear_object (&priv->color_manager);
-  g_clear_pointer (&priv->clutter_context, clutter_context_destroy);
   g_clear_list (&priv->gpus, g_object_unref);
 
   G_OBJECT_CLASS (meta_backend_parent_class)->dispose (object);
@@ -969,25 +976,41 @@ meta_backend_class_init (MetaBackendClass *klass)
                   0,
                   NULL, NULL, NULL,
                   G_TYPE_NONE, 0);
+  signals[PAUSE] =
+    g_signal_new ("pause",
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL, NULL,
+                  G_TYPE_NONE, 0);
+  signals[RESUME] =
+    g_signal_new ("resume",
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL, NULL,
+                  G_TYPE_NONE, 0);
 }
 
 #ifdef HAVE_LOGIND
-static void
+void
 meta_backend_pause (MetaBackend *backend)
 {
   COGL_TRACE_BEGIN_SCOPED (MetaBackendPause,
                            "Meta::Backend::pause()");
 
+  g_signal_emit (backend, signals[PAUSE], 0);
   META_BACKEND_GET_CLASS (backend)->pause (backend);
 }
 
-static void
+void
 meta_backend_resume (MetaBackend *backend)
 {
   COGL_TRACE_BEGIN_SCOPED (MetaBackendResume,
                            "Meta::Backend::resume()");
 
   META_BACKEND_GET_CLASS (backend)->resume (backend);
+  g_signal_emit (backend, signals[RESUME], 0);
 }
 
 static void
@@ -1444,6 +1467,8 @@ meta_backend_initable_init (GInitable     *initable,
     priv->remote_access_controller,
     META_DBUS_SESSION_MANAGER (priv->input_capture));
 
+  priv->a11y_manager = meta_a11y_manager_new (backend);
+
   if (!meta_monitor_manager_is_headless (priv->monitor_manager))
     init_pointer_position (backend);
 
@@ -1684,6 +1709,19 @@ meta_backend_get_remote_access_controller (MetaBackend *backend)
   MetaBackendPrivate *priv = meta_backend_get_instance_private (backend);
 
   return priv->remote_access_controller;
+}
+
+/**
+ * meta_backend_get_a11y_manager:
+ *
+ * Returns: (transfer none): the #MetaA11yManager
+ */
+MetaA11yManager *
+meta_backend_get_a11y_manager (MetaBackend *backend)
+{
+  MetaBackendPrivate *priv = meta_backend_get_instance_private (backend);
+
+  return priv->a11y_manager;
 }
 
 /**
