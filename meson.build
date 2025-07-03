@@ -1,5 +1,5 @@
 project('mutter', 'c',
-  version: '48.beta',
+  version: '48.3.1',
   meson_version: '>= 1.3.0',
   license: 'GPL-2.0-or-later',
 )
@@ -47,10 +47,10 @@ gudev_req = '>= 238'
 
 # wayland version requirements
 wayland_server_req = '>= 1.23'
-wayland_protocols_req = '>= 1.38'
+wayland_protocols_req = '>= 1.41'
 
 # native backend version requirements
-libinput_req = '>= 1.26.0'
+libinput_req = '>= 1.27.0'
 gbm_req = '>= 21.3'
 libdrm_req = '>= 2.4.118'
 
@@ -167,7 +167,6 @@ if have_x11_client
   xext_dep = dependency('xext')
   xfixes_dep = dependency('xfixes', version: xfixes_req)
   xi_dep = dependency('xi', version: xi_req)
-  xkbfile_dep = dependency('xkbfile')
   xkeyboard_config_dep = dependency('xkeyboard-config')
   x11_xcb_dep = dependency('x11-xcb')
   xrandr_dep = dependency('xrandr', version: xrandr_req)
@@ -179,6 +178,7 @@ if have_x11_client
     ice_dep = dependency('ice')
     xcb_randr_dep = dependency('xcb-randr')
     xkbcommon_x11_dep = dependency('xkbcommon-x11')
+    xkbfile_dep = dependency('xkbfile')
     xtst_dep = dependency('xtst')
   endif
 endif
@@ -383,6 +383,7 @@ have_bash_completion = get_option('bash_completion')
 if have_tests
   gtk3_dep = dependency('gtk+-3.0', version: gtk3_req)
   dbusmock_dep = python.find_installation('python3', modules: ['dbusmock'], required: false)
+  libevdev_dep = dependency('libevdev', required: false)
 
   if not have_native_backend
     error('Tests require the native backend to be enabled')
@@ -590,6 +591,8 @@ cdata.set('HAVE_MALLOC_TRIM', have_malloc_trim)
 cdata.set('HAVE_EVENTFD', have_eventfd)
 cdata.set('HAVE_FONTS', have_fonts)
 cdata.set('HAVE_DRM_PLANE_SIZE_HINT', have_drm_plane_size_hint)
+cdata.set('HAVE_XKBCOMMON_KANA_COMPOSE_LEDS',
+  xkbcommon_dep.version().version_compare('>= 1.8.0'))
 
 if have_x11_client
   xkb_base = xkeyboard_config_dep.get_variable('xkb_base')

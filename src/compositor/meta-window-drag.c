@@ -50,7 +50,6 @@ static guint signals[LAST_SIGNAL] = { 0, };
 
 struct _MetaWindowDrag {
   GObject parent_class;
-  ClutterActor *external_grab_actor;
 
   MetaWindow *window;
   MetaWindow *effective_grab_window;
@@ -79,7 +78,6 @@ struct _MetaWindowDrag {
 
   gulong unmanaged_id;
   gulong size_changed_id;
-  gulong event_handler_id;
 
   guint tile_preview_timeout_id;
   guint preview_tile_mode : 2;
@@ -309,7 +307,7 @@ meta_cursor_for_grab_op (MetaGrabOp op)
       break;
     case META_GRAB_OP_RESIZING_S:
     case META_GRAB_OP_KEYBOARD_RESIZING_S:
-      return META_CURSOR_SOUTH_RESIZE;
+      return META_CURSOR_S_RESIZE;
       break;
     case META_GRAB_OP_RESIZING_SW:
     case META_GRAB_OP_KEYBOARD_RESIZING_SW:
@@ -317,7 +315,7 @@ meta_cursor_for_grab_op (MetaGrabOp op)
       break;
     case META_GRAB_OP_RESIZING_N:
     case META_GRAB_OP_KEYBOARD_RESIZING_N:
-      return META_CURSOR_NORTH_RESIZE;
+      return META_CURSOR_N_RESIZE;
       break;
     case META_GRAB_OP_RESIZING_NE:
     case META_GRAB_OP_KEYBOARD_RESIZING_NE:
@@ -329,18 +327,18 @@ meta_cursor_for_grab_op (MetaGrabOp op)
       break;
     case META_GRAB_OP_RESIZING_W:
     case META_GRAB_OP_KEYBOARD_RESIZING_W:
-      return META_CURSOR_WEST_RESIZE;
+      return META_CURSOR_W_RESIZE;
       break;
     case META_GRAB_OP_RESIZING_E:
     case META_GRAB_OP_KEYBOARD_RESIZING_E:
-      return META_CURSOR_EAST_RESIZE;
+      return META_CURSOR_E_RESIZE;
       break;
     case META_GRAB_OP_MOVING:
       return META_CURSOR_DEFAULT;
       break;
     case META_GRAB_OP_KEYBOARD_MOVING:
     case META_GRAB_OP_KEYBOARD_RESIZING_UNKNOWN:
-      return META_CURSOR_MOVE_OR_RESIZE_WINDOW;
+      return META_CURSOR_MOVE;
       break;
     default:
       break;
@@ -389,15 +387,7 @@ meta_window_drag_end (MetaWindowDrag *window_drag)
   meta_window_grab_op_ended (grab_window, grab_op);
 
   if (window_drag->grab)
-    {
-      clutter_grab_dismiss (window_drag->grab);
-    }
-  else
-    {
-      g_assert (window_drag->external_grab_actor);
-      g_clear_signal_handler (&window_drag->event_handler_id,
-                              window_drag->external_grab_actor);
-    }
+    clutter_grab_dismiss (window_drag->grab);
 
   g_clear_signal_handler (&window_drag->unmanaged_id, grab_window);
   g_clear_signal_handler (&window_drag->size_changed_id, grab_window);
@@ -1767,9 +1757,9 @@ process_pointer_event (MetaWindowDrag     *window_drag,
     }
 }
 
-static gboolean
-on_window_drag_event (MetaWindowDrag     *window_drag,
-                      const ClutterEvent *event)
+gboolean
+meta_window_drag_process_event (MetaWindowDrag     *window_drag,
+                                const ClutterEvent *event)
 {
   switch (clutter_event_type (event))
     {
@@ -1790,7 +1780,8 @@ handle_drag_event (const ClutterEvent *event,
                    gpointer            user_data)
 {
   MetaWindowDrag *window_drag = user_data;
-  return on_window_drag_event (window_drag, event);
+
+  return meta_window_drag_process_event (window_drag, event);
 }
 
 gboolean
@@ -1798,7 +1789,7 @@ meta_window_drag_begin (MetaWindowDrag       *window_drag,
                         ClutterInputDevice   *device,
                         ClutterEventSequence *sequence,
                         uint32_t              timestamp,
-                        ClutterActor         *grab_actor)
+                        MetaDragWindowFlags   flags)
 {
   MetaWindow *window = window_drag->window, *grab_window = NULL;
   MetaDisplay *display = meta_window_get_display (window);
@@ -1863,26 +1854,14 @@ meta_window_drag_begin (MetaWindowDrag       *window_drag,
 
   stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
 
-  if (grab_actor)
-    {
-      meta_topic (META_DEBUG_WINDOW_OPS, "Reusing grab actor %p.", grab_actor);
-      window_drag->external_grab_actor = grab_actor;
-      window_drag->event_handler_id =
-        g_signal_connect_swapped (window_drag->external_grab_actor, "event",
-                                  G_CALLBACK (on_window_drag_event), window_drag);
-    }
-  else
+  if ((flags & META_DRAG_WINDOW_FLAG_FOREIGN_GRAB) == 0)
     {
       meta_topic (META_DEBUG_WINDOW_OPS, "Creating a new grab.");
       window_drag->grab = clutter_stage_grab_input_only_inactive (stage,
                                                                   handle_drag_event,
                                                                   window_drag,
                                                                   NULL);
-      grab_actor = clutter_stage_get_grab_actor (stage);
-      clutter_actor_set_name (grab_actor, "Window drag helper");
-      clutter_actor_set_accessible_name (grab_actor, "Window drag helper");
       clutter_grab_activate (window_drag->grab);
-
       if ((clutter_grab_get_seat_state (window_drag->grab) &
            CLUTTER_GRAB_STATE_POINTER) == 0 &&
           !meta_grab_op_is_keyboard (grab_op))

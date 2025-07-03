@@ -22,6 +22,9 @@ wayland_test_clients = [
     'name': 'color-management',
   },
   {
+    'name': 'cursor-shape',
+  },
+  {
     'name': 'dma-buf-scanout',
   },
   {
@@ -92,6 +95,9 @@ wayland_test_clients = [
   },
   {
     'name': 'xdg-session-management-replace',
+  },
+  {
+    'name': 'xdg-session-management-restore',
   },
   {
     'name': 'xdg-toplevel-bounds',

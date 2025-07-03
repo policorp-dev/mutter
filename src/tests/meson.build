@@ -25,6 +25,13 @@ mutter_test_sources = [
   'meta-test-utils.h',
 ]
 
+if libevdev_dep.found()
+  mutter_test_sources += [
+    'meta-input-test-utils.c',
+    'meta-input-test-utils.h',
+  ]
+endif
+
 libmutter_test_name = 'mutter-test-' + libmutter_api_version
 
 cogl_test_utils = files (
@@ -52,6 +59,12 @@ tests_deps = [
   wayland_client_dep,
   gvdb_dep,
 ]
+
+if libevdev_dep.found()
+  tests_deps += [
+    libevdev_dep,
+  ]
+endif
 
 libmutter_test = shared_library(libmutter_test_name,
                                 mutter_test_sources,
@@ -143,7 +156,7 @@ subdir('wayland-test-clients')
 test_env = environment()
 
 test_env_variables = {
-  'G_TEST_SRCDIR': mutter_srcdir / 'src',
+  'G_TEST_SRCDIR': mutter_srcdir / 'src' / 'tests',
   'G_TEST_BUILDDIR': mutter_builddir / 'src' / 'tests',
   'XDG_CONFIG_HOME': mutter_builddir / '.config',
   'MUTTER_TEST_PLUGIN_PATH': '@0@'.format(default_plugin.full_path()),
@@ -265,6 +278,7 @@ test_cases += [
   {
     'name': 'monitor-unit',
     'suite': 'backend',
+    'timeout': 300,
     'sources': [ 'monitor-unit-tests.c', ],
     'depends': [
       test_client,
@@ -286,6 +300,7 @@ test_cases += [
     'suite': 'backend',
     'sources': [ 'monitor-dbus-tests.c', ],
     'args': gdctl.full_path(),
+    'installed_args': bindir / 'gdctl',
   },
   {
     'name': 'stage-views',
@@ -512,6 +527,14 @@ test_cases += [
     ],
   },
   {
+    'name': 'cursor-overlay-tests',
+    'suite': 'backends/native',
+    'sources': [
+      'cursor-overlay-tests.c',
+      wayland_test_utils,
+    ],
+  },
+  {
     'name': 'cursor-tests',
     'suite': 'backends/native',
     'sources': [
@@ -653,7 +676,11 @@ kms_test_cases = [
   {
     'name': 'kms-headless-start',
     'suite': 'backend/native/kms',
-    'sources': [ 'native-kms-headless-start.c', ],
+    'sources': [
+      'meta-kms-test-utils.c',
+      'meta-kms-test-utils.h',
+      'native-kms-headless-start.c',
+    ],
   },
   {
     'name': 'kms-hotplug',
@@ -666,6 +693,14 @@ kms_test_cases = [
     'variants': kms_test_variants,
   },
   {
+    'name': 'kms-cursor-force-disable',
+    'suite': 'backends/native',
+    'sources': [
+      'native-kms-cursor-force-disable.c',
+      wayland_test_utils,
+    ],
+  },
+  {
     'name': 'kms-cursor-hotplug',
     'suite': 'backends/native',
     'sources': [
@@ -673,9 +708,28 @@ kms_test_cases = [
       wayland_test_utils,
     ],
   },
+  {
+    'name': 'drm-lease-monitor',
+    'suite': 'backends/native',
+    'sources': [
+      'drm-lease-monitor-test.c',
+    ],
+  },
 ]
 
 privileged_test_cases += kms_test_cases
+
+if libevdev_dep.found()
+  privileged_test_cases += [
+    {
+      'name': 'a11y-mouse-keys-test',
+      'suite': 'a11y',
+      'sources': [
+        'a11y-mouse-keys-test.c',
+      ],
+    },
+  ]
+endif
 
 # Wayland tests
 wayland_test_cases = [
@@ -744,6 +798,7 @@ wayland_test_cases = [
     'depends': [
       test_client,
       test_client_executables.get('buffer-transform'),
+      test_client_executables.get('cursor-shape'),
       test_client_executables.get('dma-buf-scanout'),
       test_client_executables.get('fractional-scale'),
       test_client_executables.get('fullscreen'),
@@ -857,7 +912,7 @@ foreach test_case: test_cases
     env: test_env,
     depends: test_depends,
     is_parallel: false,
-    timeout: 60,
+    timeout: test_case.get('timeout', 60),
   )
 endforeach
 
@@ -992,8 +1047,11 @@ if have_x11_tests
     '+iglx -noreset',
   ]
 
+  zenity = find_program('zenity', required: true)
+
   foreach mode: ['', 'sync']
     x11_env = test_env
+    x11_env.set('ZENITY', zenity.full_path())
     if mode == 'sync'
       x11_env.set('MUTTER_SYNC', '1')
     endif
@@ -1064,6 +1122,7 @@ if have_installed_tests
     stacking_installed_tests_cdata = configuration_data()
     stacking_installed_tests_cdata.set('apiversion', libmutter_api_version)
     stacking_installed_tests_cdata.set('libexecdir', libexecdir)
+    stacking_installed_tests_cdata.set('pkgdatadir', pkgdatadir)
     stacking_installed_tests_cdata.set('tests_datadir', tests_datadir)
     stacking_installed_tests_cdata.set('stacking_test', stacking_test)
 
@@ -1080,6 +1139,7 @@ if have_installed_tests
   install_subdir('migration', install_dir: tests_datadir)
   install_subdir('ref-tests', install_dir: tests_datadir)
   install_subdir('icc-profiles', install_dir: tests_datadir)
+  install_subdir('xcursors', install_dir: tests_datadir)
 
   install_data('org.gnome.mutter.test.gschema.xml', install_dir: tests_datadir)
 
@@ -1096,6 +1156,12 @@ if have_installed_tests
       endforeach
     endif
 
+    if test_case.has_key('installed_args')
+      args = test_case.get('installed_args', [])
+    else
+      args = test_case.get('args', [])
+    endif
+
     installed_tests_cdata = configuration_data()
     installed_tests_cdata.set('apiversion', libmutter_api_version)
     installed_tests_cdata.set('libexecdir', libexecdir)
@@ -1104,7 +1170,7 @@ if have_installed_tests
     installed_tests_cdata.set('gdctltestresultdir', '/tmp/mutter-gdctl-test-results')
     installed_tests_cdata.set('testname', test_case['name'])
     installed_tests_cdata.set('testexecutable', 'mutter-' + test_case['name'])
-    installed_tests_cdata.set('testargs', ' '.join(test_case.get('args', [])))
+    installed_tests_cdata.set('testargs', ' '.join(args))
     installed_tests_cdata.set('runnerargs', ' '.join(runner_args))
 
     configure_file(

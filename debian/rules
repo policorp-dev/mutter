@@ -4,10 +4,10 @@ include /usr/share/dpkg/default.mk
 
 built_binaries := $(shell dh_listpackages)
 
-export DEB_BUILD_OPTIONS=nocheck
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,-O1
 export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
+export DEB_BUILD_OPTIONS=nocheck
 
 # Following upstream method to compute the API version
 MUTTER_MAJOR_VERSION = $(shell echo $(DEB_VERSION_UPSTREAM) | sed 's/[~.].*//')

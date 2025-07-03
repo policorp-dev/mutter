@@ -28,6 +28,7 @@
 #include "meta/meta-backend.h"
 #include "meta/meta-idle-monitor.h"
 #include "meta/meta-orientation-manager.h"
+#include "backends/meta-a11y-manager.h"
 #include "backends/meta-backend-types.h"
 #include "backends/meta-cursor-renderer.h"
 #include "backends/meta-egl.h"
@@ -191,6 +192,8 @@ MetaScreenCast * meta_backend_get_screen_cast (MetaBackend *backend);
 
 MetaInputCapture * meta_backend_get_input_capture (MetaBackend *backend);
 
+MetaA11yManager * meta_backend_get_a11y_manager (MetaBackend *backend);
+
 gboolean meta_backend_grab_device (MetaBackend *backend,
                                    int          device_id,
                                    uint32_t     timestamp);
@@ -243,8 +246,10 @@ void meta_backend_add_hw_cursor_inhibitor (MetaBackend           *backend,
 void meta_backend_remove_hw_cursor_inhibitor (MetaBackend           *backend,
                                               MetaHwCursorInhibitor *inhibitor);
 
+META_EXPORT_TEST
 void meta_backend_inhibit_hw_cursor (MetaBackend *backend);
 
+META_EXPORT_TEST
 void meta_backend_uninhibit_hw_cursor (MetaBackend *backend);
 
 META_EXPORT_TEST
@@ -255,6 +260,12 @@ void meta_backend_update_from_event (MetaBackend  *backend,
 
 char * meta_backend_get_vendor_name (MetaBackend *backend,
                                      const char  *pnp_id);
+
+META_EXPORT_TEST
+void meta_backend_pause (MetaBackend *backend);
+
+META_EXPORT_TEST
+void meta_backend_resume (MetaBackend *backend);
 
 META_EXPORT_TEST
 uint32_t meta_clutter_button_to_evdev (uint32_t clutter_button);
